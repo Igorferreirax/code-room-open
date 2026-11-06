@@ -253,13 +253,6 @@ html[data-motion=on] .st-running .ps-badge{animation:pspulse 1.4s ease-in-out in
 .slash-pop button small{font-family:inherit;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .slash-pop button.on,.slash-pop button:hover{background:var(--panel2);outline:1px solid var(--line)}
 
-/* Spotify incorporado */
-#spotify-root{position:fixed;left:84px;bottom:92px;z-index:40}
-.spot{display:flex;flex-direction:column;gap:6px;width:min(360px,calc(100vw - 100px))}
-.spot-btn{align-self:flex-start;display:inline-flex;gap:6px;align-items:center;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:99px;padding:6px 12px;cursor:pointer;font-size:.85rem;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-.spot.open .spot-btn{border-color:var(--accent-h,#6ea8ff)}
-.spot iframe{border-radius:12px;background:#000;box-shadow:0 12px 32px rgba(0,0,0,.5)}
-@media (max-width:760px){#spotify-root{left:10px;bottom:84px}}
 
 /* Vista Canvas */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}.seg button{background:none;border:0;color:var(--muted);padding:6px 12px;cursor:pointer;font-size:.85rem}.seg button.on{background:var(--panel2);color:var(--text)}.seg button+button{border-left:1px solid var(--line)}
@@ -389,3 +382,14 @@ html[data-motion=on] .cv-typing i{animation:cvdot 1s ease-in-out infinite}html[d
 :root{color-scheme:dark}:root[data-theme=minimal]{color-scheme:light}
 select option,select optgroup{background:var(--panel);color:var(--text)}
 select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
+
+.radio-track{font-size:.78rem;color:var(--muted);max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:760px){.radio-track{display:none}}
+.as-detail{margin:.3em 0}.as-detail summary{cursor:pointer;color:var(--muted);font-size:.82rem}
+
+/* Cartão de agente: nome e chips com espaço, estado e botão em uma faixa embaixo (antes o texto quebrava em colunas estreitas) */
+.agents-grid{grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr))}
+.agent-card{grid-template-columns:auto minmax(0,1fr);align-items:start}
+.agent-card>div:nth-child(2){min-width:0}.agent-card strong{overflow-wrap:anywhere}.agent-card .chip{white-space:nowrap}
+.agent-card>div:last-child{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left!important;border-top:1px solid var(--line);padding-top:10px}
+.agent-card>div:last-child br{display:none}.agent-card>div:last-child .btn{margin-top:0!important}.agent-card>div:last-child .pill{white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}

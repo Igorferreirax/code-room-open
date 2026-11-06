@@ -9,14 +9,14 @@ import { setup, addProject, addAgent, waitFor, tempDir } from './helpers.mjs';
 const world = (over = {}) => ({
   agents: [{ id: 'a1', name: 'Desenvolvedor', role: 'dev', provider: 'codex', mode: 'write' }, { id: 'a2', name: 'Revisor', role: 'rev', provider: 'claude', mode: 'read' }, { id: 'a3', name: 'Gemini', role: 'x', provider: 'agy', mode: 'read' }, { id: 'a4', name: 'Revisor', role: 'dup', provider: 'agy', mode: 'read' }],
   teams: [{ name: 'Equipe Antiga', members: [] }], connected: new Set(['codex', 'claude']),
-  skills: [{ id: 's1', name: 'copywriting', recognized: true }, { id: 's2', name: 'quebrada', recognized: true, blocked: 'falta programa' }, { id: 's3', name: 'sem-cabecalho', recognized: false }], ...over });
+  projects: [{ id: 'p1', name: 'Canal' }], skills: [{ id: 's1', name: 'copywriting', recognized: true }, { id: 's2', name: 'quebrada', recognized: true, blocked: 'falta programa' }, { id: 's3', name: 'sem-cabecalho', recognized: false }], ...over });
 const FENCE = '```';
 const block = j => FENCE + 'code-room-action\n' + JSON.stringify(j) + '\n' + FENCE;
 
-test('ações: extrai só blocos code-room-action válidos, limpa o texto, limita a 5 e ignora JSON quebrado ou grande demais', () => {
+test('ações: extrai só blocos code-room-action válidos, limpa o texto, limita a 10 e ignora JSON quebrado ou grande demais', () => {
   const t = `Vou criar.\n${block({ acao: 'abrir_tela', tela: 'equipes' })}\ntexto no meio\n${FENCE}code-room-action\n{ quebrado\n${FENCE}\n${block({ acao: 'criar_equipe', nome: 'X', membros: [] })}\n${FENCE}json\n{"acao":"abrir_tela"}\n${FENCE}`;
   const r = parseActions(t); assert.equal(r.actions.length, 2, 'o quebrado e o bloco json comum ficam de fora'); assert.ok(!r.text.includes('code-room-action')); assert.match(r.text, /Vou criar\.[\s\S]*texto no meio/); assert.ok(r.text.includes(FENCE + 'json'), 'bloco que não é nosso fica no texto');
-  const many = Array.from({ length: 9 }, (_, i) => block({ acao: 'abrir_tela', tela: 'sala', n: i })).join('\n'); assert.equal(parseActions(many).actions.length, 5);
+  const many = Array.from({ length: 13 }, (_, i) => block({ acao: 'abrir_tela', tela: 'sala', n: i })).join('\n'); assert.equal(parseActions(many).actions.length, 10);
   assert.equal(parseActions(block({ acao: 'x', lixo: 'a'.repeat(5000) })).actions.length, 0, 'bloco grande demais é descartado'); assert.equal(parseActions('\uFEFF' + block({ acao: 'abrir_tela', tela: 'sala' })).actions.length, 1);
   assert.deepEqual(parseActions(null), { text: '', actions: [] }); assert.deepEqual(parseActions(block([1, 2])).actions, [], 'só objetos');
 });
@@ -138,6 +138,49 @@ test('manual real do projeto: existe, cabe no limite e documenta exatamente os p
   const { ROLES } = await import('../server/orchestrator.mjs'), { KNOWN_CAPABILITIES } = await import('../server/supervisor.mjs'), m = loadManual(process.cwd());
   assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 14000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
   for (const r of ROLES) assert.ok(m.text.includes('`' + r + '`'), `papel ${r}`); for (const c of KNOWN_CAPABILITIES) assert.ok(m.text.includes('`' + c + '`'), `capacidade ${c}`);
-  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
+  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
   assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
+});
+
+test('criar_projeto e iniciar_tarefa: nome seguro, projeto/equipe/agente reais, equipe com dev+revisor, nunca equipe e agente juntos', () => {
+  const w = world({ teams: [{ id: 't1', name: 'Completa', members: [{ role: 'desenvolvedor', agentId: 'a1' }, { role: 'revisor', agentId: 'a2' }] }, { id: 't2', name: 'Só dev', members: [{ role: 'desenvolvedor', agentId: 'a1' }] }] });
+  assert.deepEqual(normalizeAction({ acao: 'criar_projeto', nome: ' Documentário ', ambiente: 'Vídeo' }, w).payload, { name: 'Documentário', area: 'Vídeo' });
+  for (const n of ['', 'a/b', 'a\\b', 'a:b', 'canal']) assert.equal(normalizeAction({ acao: 'criar_projeto', nome: n }, w).valid, false, n);
+  const t = o => normalizeAction({ acao: 'iniciar_tarefa', projeto: 'Canal', objetivo: 'Fazer X', ...o }, w);
+  assert.deepEqual(t({ equipe: 'Completa' }).payload, { projectId: 'p1', objective: 'Fazer X', teamId: 't1' }); assert.deepEqual(t({ agente: 'Desenvolvedor' }).payload, { projectId: 'p1', objective: 'Fazer X', agentId: 'a1' });
+  assert.match(t({ equipe: 'Só dev' }).error, /desenvolvedor e um revisor/); assert.match(t({ equipe: 'Completa', agente: 'Revisor' }).error, /OU/); assert.match(t({}).error, /OU/);
+  assert.match(t({ projeto: 'Fantasma', agente: 'Revisor' }).error, /projeto/); assert.match(t({ objetivo: '', agente: 'Revisor' }).error, /objetivo/); assert.match(t({ objetivo: 'x'.repeat(3001), agente: 'Revisor' }).error, /3000/);
+  assert.match(t({ agente: 'Gemini' }).summary, /cota/);
+});
+
+test('encadeamento: itens propostos na mesma resposta valem como existentes (projeto, agente, equipe) e a ordem é conferida na hora de aplicar', () => {
+  const w = world({ agents: [], teams: [], projects: [] }), planned = { agents: ['Montador', 'Revisor X'], teams: ['Equipe Doc'], projects: ['Doc'] };
+  const eq = normalizeAction({ acao: 'criar_equipe', nome: 'Equipe Doc', membros: [{ papel: 'desenvolvedor', agente: 'Montador' }, { papel: 'revisor', agente: 'Revisor X' }] }, w, { ...planned, teams: [] }); assert.equal(eq.valid, true);
+  assert.equal(normalizeAction({ acao: 'iniciar_tarefa', projeto: 'Doc', equipe: 'Equipe Doc', objetivo: 'Editar' }, w, planned).valid, true);
+  assert.equal(normalizeAction({ acao: 'iniciar_tarefa', projeto: 'Doc', equipe: 'Equipe Doc', objetivo: 'Editar' }, w).valid, false, 'sem o planejado, não existe');
+});
+
+test('fluxo: documentário do zero: 1 resposta com projeto, agentes, equipe e tarefa; aplicar em ordem executa tudo; fora de ordem é recusado', async () => {
+  const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const calls = []; asst.saveProject = async p => { calls.push(['projeto', p]); return store.put('projects', { id: 'pn', name: p.name, path: 'X', area: p.area }); }; asst.startTask = async p => { calls.push(['tarefa', p]); return { id: 'tk' }; };
+  say(['Plano:', block({ acao: 'criar_projeto', nome: 'Documentário', ambiente: 'Vídeo' }), block({ acao: 'criar_agente', nome: 'Montador', funcao: 'Edita o vídeo', provedor: 'codex', permissao: 'write' }), block({ acao: 'criar_agente', nome: 'Conferente', funcao: 'Confere', provedor: 'claude' }),
+    block({ acao: 'criar_equipe', nome: 'Equipe Doc', membros: [{ papel: 'desenvolvedor', agente: 'Montador' }, { papel: 'revisor', agente: 'Conferente' }] }), block({ acao: 'iniciar_tarefa', projeto: 'Documentário', equipe: 'Equipe Doc', objetivo: 'Editar o documentário' })].join('\n'));
+  await asst.ask('quero editar um documentário'); const m = (await done()).messages.at(-1); assert.equal(m.actions.length, 5); assert.ok(m.actions.every(a => a.valid), JSON.stringify(m.actions.map(a => a.error)));
+  await assert.rejects(() => asst.apply(m.id, 4), /não existe/, 'tarefa antes do projeto e da equipe');
+  const out = []; for (let i = 0; i < 5; i++) out.push(await asst.apply(m.id, i));
+  assert.equal(out[0].projectId, 'pn'); assert.deepEqual(calls[0], ['projeto', { name: 'Documentário', area: 'Vídeo' }]); assert.equal(store.list('teams')[0].name, 'Equipe Doc'); assert.deepEqual(store.list('agents').filter(a => !a.internal && ['Montador', 'Conferente'].includes(a.name)).map(a => a.mode).sort(), ['read', 'write']);
+  assert.equal(calls[1][0], 'tarefa'); assert.equal(calls[1][1].projectId, 'pn'); assert.ok(calls[1][1].teamId); assert.equal(out[4].view, 'tasks'); assert.match(out[4].result, /Fluxo da equipe iniciado/);
+});
+
+test('fluxo: cadeia por @menções com skill nova: criar_skill, definir_skills, ligar_agentes e iniciar_tarefa aplicam em ordem pelos mesmos caminhos do app', async () => {
+  const { asst, say, done, store, dev, rev } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const made = []; asst.saveSkill = async s => { made.push(s); return s; }; asst.saveLink = async p => store.put('links', { id: 'l1', ...p }); asst.startTask = async p => ({ id: 'tk', ...p });
+  asst.worldFn = (orig => async () => ({ ...(await orig()), links: store.list('links'), skills: made.map(m => ({ id: 'sk-' + m.name, name: m.name, recognized: true })).concat([{ id: 's1', name: 'copywriting', recognized: true }]) }))(asst.worldFn);
+  say([block({ acao: 'criar_skill', nome: 'roteiro-curto', descricao: 'Escreve roteiros de 45 segundos', instrucoes: 'Escreva nove falas com gancho e chamada final.' }), block({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: ['roteiro-curto'] }), block({ acao: 'ligar_agentes', projeto: 'canal', de: 'Desenvolvedor', para: 'Revisor', voltas: 2 }), block({ acao: 'iniciar_tarefa', projeto: 'canal', agente: 'Desenvolvedor', objetivo: 'Faça um roteiro e envie ao revisor' })].join('\n'));
+  await asst.ask('crie uma skill de roteiro e peça ao Desenvolvedor para mandar ao Revisor'); const m = (await done()).messages.at(-1); assert.equal(m.actions.length, 4); assert.ok(m.actions.every(a => a.valid), JSON.stringify(m.actions.map(a => a.error)));
+  assert.equal(m.actions[0].detail, 'Escreva nove falas com gancho e chamada final.');
+  await assert.rejects(() => asst.apply(m.id, 1), /indisponíveis ou inexistentes/, 'definir_skills antes de a skill existir');
+  await asst.apply(m.id, 0); assert.equal(made[0].name, 'roteiro-curto'); await asst.apply(m.id, 1); assert.deepEqual(store.get('agents', dev.id).skillIds, ['sk-roteiro-curto']);
+  await asst.apply(m.id, 2); const l = store.list('links')[0]; assert.equal(l.from, dev.id); assert.equal(l.to, rev.id); assert.equal(l.maxHops, 2);
+  const r = await asst.apply(m.id, 3); assert.match(r.result, /Tarefa iniciada/); assert.equal(r.view, 'tasks');
 });

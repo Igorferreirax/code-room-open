@@ -11,13 +11,33 @@ Legenda: ✅ feito · ⬜ a fazer
 - ✅ Interface em 12 telas, responsiva (360 a 1586 px).
 - ✅ Auditoria de segurança automatizada (`npm run audit`).
 
+- ✅ Identidade visual (gato no monitor, letreiro pixel), Rádio Lo-Fi (estação com 5 faixas geradas no navegador, 0 MB) e Canvas ao vivo (verde = trabalhando, linha com o trabalho viajando).
+- ✅ **Assistente**: um chat só (barra de baixo + painel). A IA da pessoa lê o manual, e o que entendeu fica gravado na máquina. Propõe projeto, agentes, equipe, skills (inclusive criar uma), ligações e tarefa; cada passo só roda com aprovação.
+
 ## Próximos passos
+### Fase 2: ver o trabalho acontecendo
+- ⬜ **Atividade por agente**: ao passar o mouse (ou tocar) no agente, mostrar o que ele está fazendo agora, há quanto tempo e a última entrega.
+- ⬜ **Linha do tempo do projeto**: as últimas atividades de todos os agentes (começou, terminou, falhou, entregou, aprovou), filtrável por agente.
+- ⬜ **Relatórios das rotinas dentro do app**: cada rotina grava o resultado em uma pasta do projeto e aparece em uma aba “Resultados” (ex.: vagas e cursos do dia), com histórico e botão de abrir a pasta.
+
+### Fase 2: conectar o Code Room ao mundo
+- ⬜ **Servidor MCP do Code Room**: para a IA da pessoa (Claude, Codex…) controlar o Code Room por conexão MCP quando o terminal não for opção. Somente leitura por padrão; criar e iniciar exigem aprovação.
+- ⬜ **Ferramentas locais** (ex.: HyperFrames aberto no navegador, ffmpeg, scripts): cadastrar nome, comando ou endereço local e pasta de saída; o agente recebe a ferramenta liberada e a pessoa vê o que ele rodou.
+- ⬜ **Hermes na VPS**: assistente de conexão por SSH (host, chave, comando), com teste na hora, e o Hermes aparecendo na triagem do primeiro uso junto com Claude, Codex e Gemini.
+- ⬜ Triagem do primeiro uso com cartões grandes por IA (logo, estado, botão Conectar), incluindo o Hermes.
+
+### Fase 2: organização e manutenção
+- ⬜ **Retenção e limpeza**: política por tipo de dado (histórico de tarefas, saídas, entregas aprovadas, lixeira, worktrees), com limite por tela, botão “Limpar o que é antigo” com prévia do que será apagado e nada apagado sem confirmação. Entregas aprovadas ficam; lixeira esvazia só por ação da pessoa.
+- ⬜ **Skills por categoria** (vídeo, texto, código, pesquisa, marketing…), com filtro, favoritas e escondidas.
+- ⬜ **Orquestrações próprias**: salvar um arranjo de agentes, ligações e tarefa como “receita” reutilizável, criado pelo Assistente.
+- ⬜ Aviso claro, na tela de Skills, sobre skills que citam a pasta `tools/` que não existe (69 casos comuns) e botão para ignorar.
+
 ### Empacotamento (Windows)
 - ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos (testado em pasta limpa, sem Node, com Smart App Control ligado e arquivos marcados como baixados da internet).
 - ✅ Instalador `.exe` gerado (Inno Setup, assistente em português, ícone opcional na área de trabalho). **Não executado em teste**: o Windows 11 com Smart App Control barra instaladores sem assinatura.
 - ⬜ **Assinatura digital** do instalador (necessária para o Smart App Control): [SignPath Foundation](https://signpath.org/) (gratuito para código aberto), Azure Artifact Signing ou certificado pago.
 - ⬜ SHA-256 de cada arquivo publicado junto do Release.
-- ⬜ Aviso de **versão nova** com botão Atualizar (verificação opcional no GitHub, SHA-256, sem *downgrade*). Plano e testes em [LANCAMENTO-V1.md](LANCAMENTO-V1.md).
+- ✅ **Atualização em um clique** (verificação opcional no GitHub, SHA-256, volta sozinha se a versão nova não abrir). Testada de ponta a ponta. Plano em [LANCAMENTO-V1.md](LANCAMENTO-V1.md).
 
 ### Primeiro uso
 - ✅ Triagem para conectar as IAs (Codex, Claude Code, Gemini) com o comando exato de instalar ou entrar, e criação de agentes iniciais.
@@ -31,7 +51,7 @@ Legenda: ✅ feito · ⬜ a fazer
 - ⬜ Hoje o lote de vídeo é uma esteira de exemplo que depende de uma skill e de scripts específicos. Tornar o formato configurável.
 
 ### Qualidade
-- ⬜ Estabilizar o teste de toque do Canvas (intermitente).
+- ✅ Teste de toque do Canvas estabilizado (a falha era do teste: escolhia um cartão fora da tela).
 - ⬜ Publicação em outras redes além do YouTube Shorts (Instagram).
 - ⬜ Instalação e atualização dos CLIs pelo próprio app.
 

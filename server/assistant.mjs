@@ -12,7 +12,7 @@ import { ROLES } from './orchestrator.mjs';
 export const ASSISTANT_PROJECT = 'assistant-internal', PROVIDER_ORDER = ['claude', 'codex', 'agy'];
 const AREAS = ['Programação', 'Vídeo', 'Financeiro', 'Pesquisa', 'Operações', 'Geral'];
 const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: 'teams', receitas: 'recipes', agentes: 'agents', entregas: 'deliveries', skills: 'skills', consumo: 'usage', rotinas: 'routines', conexoes: 'connections', configuracoes: 'settings' };
-const MAX_MANUAL = 14000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 5;
+const MAX_MANUAL = 14000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
 const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -35,8 +35,11 @@ export function parseActions(text) {
 
 // Valida UMA ação contra o estado atual. Nunca confia no texto da IA: nomes viram ids reais, papéis e permissões são conferidos.
 // world = { agents: [{id,name,provider,mode}], teams: [{name}], connected: Set(ids de IAs instaladas), skills: [{id,name,recognized,blocked}] }
-export function normalizeAction(raw, world) {
-  const find = name => { const n = String(name ?? '').trim().toLowerCase(), hit = world.agents.filter(a => a.name.trim().toLowerCase() === n); return hit.length === 1 ? { agent: hit[0] } : { error: hit.length ? `Há mais de um agente chamado “${name}”.` : `O agente “${short(name, 60)}” não existe.` }; };
+export function normalizeAction(raw, world, planned = { agents: [], teams: [], projects: [], skills: [] }) {
+  const lc = x => String(x ?? '').trim().toLowerCase(); planned = { agents: [], teams: [], projects: [], skills: [], ...planned };
+  const find = name => { const n = lc(name), hit = world.agents.filter(a => a.name.trim().toLowerCase() === n); if (hit.length === 1) return { agent: hit[0] }; if (hit.length > 1) return { error: `Há mais de um agente chamado “${short(name, 60)}”. Use um nome único.` }; if (planned.agents.some(x => lc(x) === n)) return { agent: { id: null, name: short(name, 100), planned: true } }; return { error: `O agente “${short(name, 60)}” não existe.` }; };
+  const findProject = name => { const n = lc(name), hit = (world.projects || []).filter(p => p.name.trim().toLowerCase() === n); if (hit.length === 1) return { project: hit[0] }; if (hit.length > 1) return { error: `Há mais de um projeto chamado “${short(name, 60)}”.` }; if (planned.projects.some(x => lc(x) === n)) return { project: { id: null, name: short(name, 100), planned: true } }; return { error: `O projeto “${short(name, 60)}” não existe.` }; };
+  const findTeam = name => { const n = lc(name), hit = world.teams.filter(t => t.name.trim().toLowerCase() === n); if (hit.length === 1) return { team: hit[0] }; if (planned.teams.some(x => lc(x) === n)) return { team: { id: null, name: short(name, 100), planned: true } }; return { error: `A equipe “${short(name, 60)}” não existe.` }; };
   const bad = (type, error) => ({ type, summary: '', payload: null, valid: false, error });
   switch (raw.acao) {
     case 'criar_equipe': {
@@ -66,9 +69,43 @@ export function normalizeAction(raw, world) {
       const names = Array.isArray(raw.skills) ? [...new Set(raw.skills.map(s => String(s).trim()))].filter(Boolean) : [];
       if (!names.length || names.length > 8) return bad('definir_skills', 'Informe de 1 a 8 skills.');
       const ids = [], missing = [];
-      for (const n of names) { const s = world.skills.find(x => x.name.toLowerCase() === n.toLowerCase()); if (!s || !s.recognized || s.blocked) missing.push(n); else ids.push(s.id); }
+      for (const n of names) { const s = world.skills.find(x => x.name.toLowerCase() === n.toLowerCase()); if (s && s.recognized && !s.blocked) ids.push(s.id); else if (!s && planned.skills.some(x => lc(x) === n.toLowerCase())) ids.push(null); else missing.push(n); }
       if (missing.length) return bad('definir_skills', `Skills indisponíveis ou inexistentes: ${missing.slice(0, 4).join(', ')}.`);
       return { type: 'definir_skills', summary: `Definir as skills de “${r.agent.name}”: ${names.join(', ')} (substitui as atuais)`, payload: { agentId: r.agent.id, skillIds: ids }, valid: true };
+    }
+    case 'criar_projeto': {
+      const nome = short(raw.nome, 60); if (!nome || /[\\/:*?"<>|]/.test(nome)) return bad('criar_projeto', 'O projeto precisa de um nome simples (sem barras, dois-pontos, asterisco, interrogação, aspas, < > ou |).');
+      if ((world.projects || []).some(p => lc(p.name) === lc(nome)) || planned.projects.some(x => lc(x) === lc(nome))) return bad('criar_projeto', `Já existe um projeto chamado “${nome}”.`);
+      const area = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
+      return { type: 'criar_projeto', summary: `Criar o projeto “${nome}” (ambiente ${area}) em uma pasta nova dentro de Documentos/CodeRoom/Projetos`, payload: { name: nome, area }, valid: true };
+    }
+    case 'iniciar_tarefa': {
+      const objetivo = String(raw.objetivo ?? '').trim(); if (!objetivo || objetivo.length > 3000) return bad('iniciar_tarefa', 'Descreva o objetivo da tarefa (até 3000 caracteres).');
+      const pr = findProject(raw.projeto); if (pr.error) return bad('iniciar_tarefa', pr.error);
+      if (!!raw.equipe === !!raw.agente) return bad('iniciar_tarefa', 'Informe a equipe OU o agente que vai executar, não os dois.');
+      let who, payload = { projectId: pr.project.id, objective: objetivo };
+      if (raw.equipe) {
+        const t = findTeam(raw.equipe); if (t.error) return bad('iniciar_tarefa', t.error);
+        if (!t.team.planned && !(['desenvolvedor', 'revisor'].every(r => (t.team.members || []).some(m => m.role === r)))) return bad('iniciar_tarefa', 'Para iniciar por equipe, ela precisa de um desenvolvedor e um revisor. Use um agente avulso ou ajuste a equipe.');
+        payload.teamId = t.team.id; who = `a equipe “${t.team.name}”`;
+      } else { const a = find(raw.agente); if (a.error) return bad('iniciar_tarefa', a.error); payload.agentId = a.agent.id; who = `o agente “${a.agent.name}”`; }
+      return { type: 'iniciar_tarefa', summary: `Iniciar uma tarefa com ${who} no projeto “${pr.project.name}”: ${short(objetivo, 160)}. Isso usa a cota da sua IA.`, payload, valid: true };
+    }
+    case 'ligar_agentes': {
+      const pr = findProject(raw.projeto); if (pr.error) return bad('ligar_agentes', pr.error);
+      const de = find(raw.de), para = find(raw.para); if (de.error) return bad('ligar_agentes', de.error); if (para.error) return bad('ligar_agentes', para.error);
+      if (lc(raw.de) === lc(raw.para)) return bad('ligar_agentes', 'Um agente não pode se ligar a ele mesmo.');
+      if (!pr.project.planned && !de.agent.planned && !para.agent.planned && (world.links || []).some(l => l.projectId === pr.project.id && l.from === de.agent.id && l.to === para.agent.id)) return bad('ligar_agentes', 'Essa ligação já existe.');
+      const voltas = Math.min(6, Math.max(1, Math.trunc(Number(raw.voltas)) || 3));
+      return { type: 'ligar_agentes', summary: `Ligar “${de.agent.name}” → “${para.agent.name}” no projeto “${pr.project.name}”: quando o primeiro terminar, o segundo recebe o trabalho (até ${voltas} voltas)`, payload: { projectId: pr.project.id, from: de.agent.id, to: para.agent.id, maxHops: voltas }, valid: true };
+    }
+    case 'criar_skill': {
+      const nome = String(raw.nome ?? '').trim().toLowerCase(), desc = short(raw.descricao, 300), instr = String(raw.instrucoes ?? '').trim();
+      if (!/^[a-z0-9][a-z0-9-]{1,48}$/.test(nome)) return bad('criar_skill', 'O nome da skill usa só letras minúsculas, números e hífen (2 a 49 caracteres).');
+      if (desc.length < 10) return bad('criar_skill', 'Descreva, em uma frase, quando a skill deve ser usada (mínimo 10 caracteres).');
+      if (instr.length < 20 || instr.length > 6000) return bad('criar_skill', 'As instruções da skill precisam ter de 20 a 6000 caracteres.');
+      if (world.skills.some(k => lc(k.name) === nome) || planned.skills.some(x => lc(x) === nome)) return bad('criar_skill', `Já existe uma skill chamada “${nome}”.`);
+      return { type: 'criar_skill', summary: `Criar a skill “${nome}”: ${desc}. Fica em uma pasta do Code Room (minhas-skills) e vale para qualquer agente.`, detail: instr, payload: { name: nome, description: desc, instructions: instr }, valid: true };
     }
     case 'abrir_tela': { const v = VIEWS[raw.tela]; return v ? { type: 'abrir_tela', summary: `Abrir a tela ${raw.tela}`, payload: { view: v }, valid: true } : bad('abrir_tela', 'Tela desconhecida.'); }
     default: return null;   // ação desconhecida é ignorada
@@ -76,11 +113,18 @@ export function normalizeAction(raw, world) {
 }
 
 // ---------- prompts ----------
-export function stateSummary(world, projects = []) {
+const fold = t => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+export function stateSummary(world, projects = [], question = '') {
   const ag = world.agents.map(a => `- ${a.name} (${short(a.role, 60)}) · ${a.provider} · ${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}`).join('\n') || '(nenhum agente ainda)';
   const tm = world.teams.map(t => `- ${t.name}: ${(t.members || []).map(m => `${m.role}=${world.agents.find(a => a.id === m.agentId)?.name || '?'}`).join(', ')}`).join('\n') || '(nenhuma equipe ainda)';
-  const sk = world.skills.filter(s => s.recognized && !s.blocked).map(s => s.name).slice(0, 80).join(', ') || '(nenhuma)';
-  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nProjetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis (${world.skills.filter(s => s.recognized && !s.blocked).length}, primeiras 80): ${sk}`;
+  const seen = new Set(), usable = world.skills.filter(s => s.recognized && !s.blocked && !seen.has(s.name) && seen.add(s.name));
+  // As skills mais ligadas ao pedido vão com a descrição; o resto, só os nomes (para caber no prompt).
+  const words = [...new Set(fold(question).split(/[^a-z0-9]+/).filter(w => w.length >= 4))];
+  const scored = usable.map(s => ({ s, n: words.filter(w => fold(s.name + ' ' + (s.description || '')).includes(w)).length })).filter(x => x.n).sort((a, b) => b.n - a.n).slice(0, 12);
+  const top = scored.map(x => `- ${x.s.name}: ${short(x.s.description, 110)}`).join('\n'), rest = usable.filter(s => !scored.some(x => x.s === s)).map(s => s.name).slice(0, 60).join(', ');
+  const sk = `${usable.length} no total.${top ? `\nMais ligadas ao pedido da pessoa:\n${top}` : '\nNenhuma parece ligada ao pedido atual (se for sobre skills, diga isso e ofereça criar uma com criar_skill ou importar uma pasta).'}\nOutras (só nomes): ${rest || '(nenhuma)'}`;
+  const ln = (world.links || []).map(l => `${world.agents.find(a => a.id === l.from)?.name || '?'} → ${world.agents.find(a => a.id === l.to)?.name || '?'}`).slice(0, 20).join('; ') || '(nenhuma)';
+  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nProjetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}`;
 }
 const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Se não souber, diga que não sabe.`;
 export function buildPrompt({ manual, knowledge, summary, history = [], question }) {
@@ -103,8 +147,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam }) {
-    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam });
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill }) {
+    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill });
     this.dir = join(dataDir, 'assistente');
   }
   get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], pending: null, briefing: null, error: null }; }
@@ -153,7 +197,7 @@ export class Assistant {
         const msgs = [...(this.s.messages || [])];
         if (t?.status === 'completed') {
           const { text, actions } = parseActions(answerOf(t)), w = await this.worldFn();
-          const acts = actions.map(raw => ({ raw, n: normalizeAction(raw, w) })).filter(x => x.n).map((x, idx) => ({ idx, ...x.n, raw: x.raw, status: 'pending' }));
+          const planned = { agents: [], teams: [], projects: [], skills: [] }, acts = actions.map(raw => { const n = normalizeAction(raw, w, planned); if (n?.valid) { if (n.type === 'criar_agente') planned.agents.push(n.payload.name); else if (n.type === 'criar_equipe') planned.teams.push(n.payload.name); else if (n.type === 'criar_projeto') planned.projects.push(n.payload.name); else if (n.type === 'criar_skill') planned.skills.push(n.payload.name); } return { raw, n }; }).filter(x => x.n).map((x, idx) => ({ idx, ...x.n, raw: x.raw, status: 'pending' }));
           msgs.push({ id: randomUUID(), role: 'assistant', text: text || '(a IA não escreveu uma resposta)', at: new Date(this.now()).toISOString(), taskId: t.id, actions: acts });
           this.#save({ pending: null, messages: msgs, error: null });
         } else { msgs.push({ id: randomUUID(), role: 'assistant', text: '', error: `Não foi possível responder: ${short(t?.reason || t?.status || 'tarefa não encontrada', 300)}`, at: new Date(this.now()).toISOString(), taskId: p.taskId }); this.#save({ pending: null, messages: msgs }); }
@@ -178,7 +222,7 @@ export class Assistant {
     await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.'); if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
-    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || []), history: (s.messages || []).filter(m => m.text), question: q }), task = this.#task(p, prompt, 'ask');
+    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q), history: (s.messages || []).filter(m => m.text), question: q }), task = this.#task(p, prompt, 'ask');
     this.#save({ pending: { kind: 'ask', taskId: task.id, at: new Date(this.now()).toISOString() }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();
   }
@@ -190,12 +234,16 @@ export class Assistant {
     const s = this.s, msgs = (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(a => ({ ...a })) })), m = msgs.find(x => x.id === msgId), a = m?.actions?.find(x => x.idx === Number(idx));
     if (!a) throw new Error('Ação não encontrada.'); if (a.status !== 'pending') throw new Error('Esta ação já foi tratada.');
     const w = await this.worldFn(), r = normalizeAction(a.raw || {}, w); if (!r || !r.valid) throw new Error(r?.error || 'A ação deixou de ser válida.');
-    let result = '';
+    let result = '', projectId = null, taskView = null;
     if (r.type === 'criar_equipe') { const t = this.saveTeam(r.payload); result = `Equipe “${t.name}” criada.`; }
     else if (r.type === 'criar_agente') { const ag = this.saveAgent(r.payload); result = `Agente “${ag.name}” criado.`; }
     else if (r.type === 'definir_skills') { const old = this.store.get('agents', r.payload.agentId); const ag = this.saveAgent({ ...old, skillIds: r.payload.skillIds }); result = `Skills de “${ag.name}” atualizadas.`; }
+    else if (r.type === 'criar_projeto') { const pr = await this.saveProject(r.payload); result = `Projeto “${pr.name}” criado.`; projectId = pr.id; }
+    else if (r.type === 'ligar_agentes') { await this.saveLink(r.payload); result = 'Ligação criada: o trabalho passa de um agente ao outro.'; projectId = r.payload.projectId; }
+    else if (r.type === 'criar_skill') { await this.saveSkill(r.payload); result = `Skill “${r.payload.name}” criada. Já aparece em Skills.`; }
+    else if (r.type === 'iniciar_tarefa') { const o = await this.startTask(r.payload); result = r.payload.teamId ? 'Fluxo da equipe iniciado. Acompanhe em Tarefas.' : 'Tarefa iniciada. Acompanhe em Tarefas.'; projectId = r.payload.projectId; taskView = o?.id ? 'tasks' : null; }
     else if (r.type === 'abrir_tela') result = 'Tela aberta.';
-    a.status = 'applied'; a.result = result; this.#save({ messages: msgs }); return { result, view: r.type === 'abrir_tela' ? r.payload.view : null, status: await this.status() };
+    a.status = 'applied'; a.result = result; this.#save({ messages: msgs }); return { result, view: r.type === 'abrir_tela' ? r.payload.view : taskView, projectId, status: await this.status() };
   }
   dismiss(msgId, idx) {
     const msgs = (this.s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(a => ({ ...a })) })), a = msgs.find(x => x.id === msgId)?.actions?.find(x => x.idx === Number(idx)); if (!a) throw new Error('Ação não encontrada.');

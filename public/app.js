@@ -7,7 +7,7 @@ import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
 import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
-import { LofiRadio } from './radio.js';
+import { LofiRadio, TRACKS } from './radio.js';
 
 const $ = id => document.getElementById(id);
 const { esc } = V;
@@ -163,7 +163,7 @@ function render() {
   $('view').setAttribute('aria-label', TITLES[ctx.view]);
   $('view').innerHTML = VIEWS[ctx.view](ctx);
   $('composer-root').innerHTML = ctx.view === 'connections' ? '' : V.composerBar(ctx);
-  setTimeout(updatePop, 0); renderSpotify();
+  setTimeout(updatePop, 0);
   const panel = $('panel');
   const content = ctx.ui.panel === 'new-project' ? V.panelNewProject(ctx) : ctx.ui.panel === 'context' ? V.panelContext(ctx) : ctx.ui.panel === 'routine' ? W.panelRoutine(ctx) : ctx.ui.panel === 'recipe' ? panelRecipe(ctx) : ctx.ui.panel === 'recipe-run' ? panelRecipeRun(ctx) : '';
   panel.hidden = !content; if (content) panel.innerHTML = content;
@@ -190,9 +190,9 @@ const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach
 let radio = null;
 function updateRadioUi() {
   const on = !!radio?.playing, b = $('radio-btn'), v = $('radio-vol'); if (!b) return;
-  b.textContent = on ? '⏸ Rádio da Sala (tocando)' : '♪ Rádio da Sala'; b.setAttribute('aria-pressed', String(on)); v.hidden = !on; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
+  b.textContent = on ? '⏸ Rádio Lo-Fi (tocando)' : '♪ Rádio Lo-Fi'; b.setAttribute('aria-pressed', String(on)); v.hidden = !on; $('radio-next').hidden = !on; if (!on) $('radio-track').textContent = ''; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
 }
-$('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { volume: x }); });
+$('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { ...store.get('cr.radio', {}), volume: x }); });
 document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
 
 // ---------- Atualização ----------
@@ -210,6 +210,17 @@ async function loadAsst() {
   try { ctx.asst = await api('assistant'); } catch (e) { ctx.asst = { connected: [], manual: { available: true }, messages: [], error: e.message }; }
   renderAsst(); clearTimeout(asstTimer);
   if (ctx.ui.asstOpen && (ctx.asst?.pending || ctx.asst?.briefing)) asstTimer = setTimeout(loadAsst, 1500);
+}
+// Entrada única: o texto da barra de baixo vai para o Assistente (abre o painel; se ainda não houve apresentação, deixa o texto pronto).
+async function askAssistant(text) {
+  ctx.ui.asstOpen = true; render(); await loadAsst();
+  if (!ctx.asst?.briefed || ctx.asst?.stale || ctx.asst?.pending) { ctx.ui.asstDraft = text; renderAsst(); if (!ctx.asst?.briefed) notify('Antes, apresente o Code Room à sua IA no painel do Assistente. O seu texto ficou salvo lá.'); return; }
+  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text });
+}
+async function applyAsst(id) {
+  const [m, i] = id.split(':'); const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
+  if (r.projectId) { await refresh(); setProject(r.projectId, true); } else await refresh();
+  if (r.view) await go(r.view); renderAsst(); return r;
 }
 async function asstCall(path, body) { try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); }
 async function loadUpdates() { try { ctx.updates = await api('updates'); render(); } catch {} }
@@ -330,9 +341,10 @@ const actions = {
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
   // ---- Rádio da Sala: lo-fi gerado no navegador. Desligada por padrão; só toca quando a pessoa clica (o navegador não permite tocar sozinho). ----
+  'radio-next': () => radio?.nextTrack(),
   'radio-toggle': async () => {
     if (radio?.playing) { radio.stop(); radio = null; }
-    else { radio = new LofiRadio(); radio.vol = store.get('cr.radio', {}).volume ?? 0.7; try { await radio.start(); } catch (e) { radio = null; notify(e.message, true); } }
+    else { radio = new LofiRadio({ track: store.get('cr.radio', {}).track ?? 0, onTrack: (t, i) => { $('radio-track').textContent = `faixa ${i + 1}/${TRACKS.length}: ${t.name}`; store.set('cr.radio', { ...store.get('cr.radio', {}), track: i }); } }); radio.vol = store.get('cr.radio', {}).volume ?? 0.7; try { await radio.start(); } catch (e) { radio = null; notify(e.message, true); } }
     updateRadioUi();
   },
   // ---- Atualização: verificar, adiar, baixar com SHA-256 e instalar (só o computador) ----
@@ -340,7 +352,11 @@ const actions = {
   'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
   'asst-reset': () => asstCall('reset'),
   'asst-suggest': q => { const ta = $('asst-input'); if (!ta) return; ta.value = q; ctx.ui.asstDraft = q; ta.focus(); ta.setSelectionRange(q.length, q.length); },
-  'asst-apply': async id => { const [m, i] = id.split(':'); try { const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status; if (r.view) await go(r.view); } catch (e) { notify(e.message, true); try { ctx.asst = await api('assistant'); } catch {} } renderAsst(); },
+  'asst-apply': async id => { try { await applyAsst(id); } catch (e) { notify(e.message, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); } },
+  'asst-apply-all': async mid => {
+    const msg = ctx.asst?.messages?.find(x => x.id === mid); const todo = (msg?.actions || []).filter(a => a.status === 'pending');
+    for (const a of todo) { if (!a.valid) { notify(`Parei antes de “${a.summary || 'uma proposta'}”: ${a.error || 'inválida'}.`, true); break; } try { await applyAsst(`${mid}:${a.idx}`); } catch (e) { notify(`Parei em “${a.summary}”: ${e.message}`, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); break; } }
+  },
   'asst-dismiss': async id => { const [m, i] = id.split(':'); await asstCall('dismiss', { messageId: m, index: Number(i) }); },
   'upd-open': () => { ctx.ui.updOpen = true; render(); const d = $('update-dialog'); if (!d.open) d.showModal(); },
   'upd-close': () => { ctx.ui.updOpen = false; const d = $('update-dialog'); if (d.open) d.close(); },
@@ -413,8 +429,6 @@ const actions = {
   'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); if (id === 'atualizacoes') loadUpdates(); render(); },
   'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
-  'spotify-toggle': () => { ctx.ui.spotifyOpen = !ctx.ui.spotifyOpen; renderSpotify(); },
-  'spotify-save': () => { const v = $('spotify-url')?.value.trim() || ''; if (v && !spotifyEmbed(v)) { notify('Cole o link de uma playlist, álbum ou faixa do Spotify (open.spotify.com/…).', true); return; } ctx.prefs.spotifyUrl = v; ctx.ui.spotifyOpen = false; savePrefs(); notify(v ? 'Spotify configurado: use o botão no canto da tela.' : 'Spotify removido.'); render(); },
   'pair-new': async () => { ctx.pairing = await api('devices/pair-code', {}); render(); },
   'revoke-device': async id => { await api(`devices/${id}/revoke`, {}); notify('Aparelho revogado.'); ctx.devices = await api('devices'); render(); },
   'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
@@ -458,7 +472,7 @@ document.addEventListener('change', async e => {
     else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
     else if (t.id === 'pref-volume') { ctx.prefs.volume = Number(t.value) / 100; savePrefs(); render(); }
-    else if (t.id === 'target') ctx.ui.target = t.value;
+    else if (t.id === 'target') { ctx.ui.target = t.value; const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer (ex.: editar um documentário)…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
     else if (t.id === 'music-file') { const f = t.files[0]; if (!f) return; if (audioUrl) URL.revokeObjectURL(audioUrl); audioUrl = URL.createObjectURL(f); const a = $('audio'); a.src = audioUrl; a.play().catch(() => {}); notify('Tocando ' + f.name); }
     else if (t.dataset?.act === 'skill-agent') {
@@ -482,6 +496,7 @@ document.addEventListener('submit', async e => {
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
       const mm = text.match(/^@([\w.:-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
+      if (target === 'assistant') { $('mission').value = ''; return askAssistant(text); }
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
       if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
@@ -544,16 +559,6 @@ document.addEventListener('visibilitychange', () => {
 });
 matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyPrefs);
 
-// ---------- Spotify (player incorporado: sem baixar nada; a playlist é a que você colar) ----------
-function spotifyEmbed(url) {
-  const m = String(url || '').trim().match(/^(?:https:\/\/open\.spotify\.com\/(?:intl-[a-z]+\/)?|spotify:)(playlist|album|track|show|episode|artist)[\/:]([A-Za-z0-9]{10,40})/);
-  return m ? `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0` : null;
-}
-function renderSpotify() {
-  const host = $('spotify-root'); if (!host) return; const src = ctx.authed && spotifyEmbed(ctx.prefs.spotifyUrl);
-  if (!src) { host.innerHTML = ''; return; }
-  host.innerHTML = `<div class="spot ${ctx.ui.spotifyOpen ? 'open' : ''}"><button class="spot-btn" data-act="spotify-toggle" aria-expanded="${!!ctx.ui.spotifyOpen}" aria-label="Spotify">${icon('music', 18)}<span>Spotify</span></button>${ctx.ui.spotifyOpen ? `<iframe title="Spotify" src="${src}" width="100%" height="152" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>` : ''}</div>`;
-}
 // ---------- Autocompletar do chat: "/" lista as skills instaladas, "@" lista os agentes ----------
 let pop = null;
 const PROVIDER_NAMES = { codex: 'Codex', claude: 'Claude Code', agy: 'Antigravity', hermes: 'Hermes' };

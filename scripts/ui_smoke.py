@@ -161,13 +161,7 @@ try:
                 page.click('#pref-net-lan'); time.sleep(0.8)
                 check('acesso: rede local volta a ficar desligada', api('network')['config']['lan'] is False)
                 page.click('[data-act=settings-tab][data-id=aparencia]'); time.sleep(0.3)
-                page.fill('#spotify-url', 'https://exemplo.com/nada'); page.click('[data-act=spotify-save]'); time.sleep(0.3)
-                check('spotify: link que não é do Spotify é recusado', page.locator('.spot-btn').count() == 0)
-                page.fill('#spotify-url', 'https://open.spotify.com/playlist/37i9dQZF1DX8Uebhn9wzrS?si=teste'); page.click('[data-act=spotify-save]'); time.sleep(0.3)
-                check('spotify: link válido cria o botão', page.locator('.spot-btn').count() == 1)
-                page.click('.spot-btn'); time.sleep(0.5)
-                check('spotify: abre o player incorporado do Spotify', 'open.spotify.com/embed/playlist/37i9dQZF1DX8Uebhn9wzrS' in (page.locator('.spot iframe').get_attribute('src') or ''))
-                page.click('.spot-btn'); page.fill('#spotify-url', ''); page.click('[data-act=spotify-save]'); time.sleep(0.2)
+                check('sem Spotify: a configuração e o botão foram retirados (a rádio é a Rádio Lo-Fi)', page.locator('#spotify-url').count() == 0 and page.locator('.spot-btn').count() == 0)
                 for t in ('amanhecer', 'minimal', 'noite'):
                     page.click(f'[data-act=theme][data-id={t}]'); time.sleep(0.15)
                 check('configurações: tema volta para Noite', page.evaluate("document.documentElement.dataset.theme") in (None, ''))
@@ -195,10 +189,14 @@ try:
         for l in api('state')['links']: api(f"links/{l['id']}/delete", {}); time.sleep(1.5)
         tp.locator('.cv-node', has_text='Ana').scroll_into_view_if_needed(); time.sleep(0.3)
         o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); tp.evaluate("document.querySelector('#cv').scrollLeft = 120"); time.sleep(1.0); o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); d = next(b for b in (tp.locator('.cv-node', has_text=nm).bounding_box() for nm in ('Duda', 'Beto', 'Caio')) if b['x'] + b['width'] / 2 < 380 and b['y'] + b['height'] / 2 < 830)
-        for _try in range(3):
+        for _try in range(4):
+            time.sleep(1.2)   # deixa a tela terminar de atualizar (renovação de estado) antes de mexer
+            tp.locator('.cv-node', has_text='Ana').scroll_into_view_if_needed(); tp.evaluate("document.querySelector('#cv').scrollLeft = 120"); time.sleep(0.6)
+            o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); d = next((b for b in (tp.locator('.cv-node', has_text=nm).bounding_box() for nm in ('Duda', 'Beto', 'Caio')) if b and 20 < b['x'] + b['width'] / 2 < 370 and b['y'] + b['height'] / 2 < 640), None)
+            if not (o and d): continue
             swipe(o['x'] + 7, o['y'] + 7, d['x'] + d['width'] / 2, d['y'] + d['height'] / 2, 14); time.sleep(0.6)
             if api('state')['links']: break
-            o = tp.locator('.cv-node').nth(0).locator('.cv-port.out').bounding_box()
+        if len(api('state')['links']) != 1: print('   [diag]', tp.evaluate("[...document.querySelectorAll('.cv-node')].map(e => [e.textContent.slice(0, 6), Math.round(e.getBoundingClientRect().x), Math.round(e.getBoundingClientRect().y), Math.round(e.getBoundingClientRect().width)])"), tp.evaluate("[innerWidth, innerHeight, scrollY, document.querySelector('#cv').scrollLeft, JSON.stringify(document.getElementById('composer-root').getBoundingClientRect())]"), 'o', o, 'd', d)
         check('toque: arrastar do ponto de saída com o dedo cria a ligação', len(api('state')['links']) == 1, api('state')['links'])
         for l in api('state')['links']: api(f"links/{l['id']}/delete", {})
         tctx.close()

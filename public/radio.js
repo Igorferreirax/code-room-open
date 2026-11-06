@@ -8,13 +8,16 @@ const FORM = [
   { name: 'Dm9', chord: [53, 57, 60, 64], bass: 38 }, { name: 'G13', chord: [53, 59, 62, 64], bass: 43 }, { name: 'Cmaj9', chord: [52, 55, 59, 62], bass: 36 }, { name: 'Am9', chord: [55, 59, 60, 64], bass: 33 },
   { name: 'Fmaj9', chord: [57, 60, 64, 67], bass: 41 }, { name: 'Em9', chord: [55, 59, 62, 66], bass: 40 }, { name: 'Dm9', chord: [53, 57, 60, 64], bass: 38 }, { name: 'G7', chord: [53, 59, 62, 64], bass: 43 },
 ];
+// Estação: várias faixas no MESMO ritmo e nos mesmos acordes; muda só a melodia solta e os detalhes. Tudo é gerado na hora (0 MB).
+export const TRACKS = [{ name: 'Chuva na janela', seed: 7 }, { name: 'Madrugada no café', seed: 21 }, { name: 'Última linha', seed: 42 }, { name: 'Luz de neon', seed: 63 }, { name: 'Domingo sem pressa', seed: 88 }];
+const TRACK_BARS = 32;
 const PENTA = [69, 72, 74, 76, 79, 81, 84];
 
 // Gerador pseudoaleatório com semente: a mesma semente toca a mesma música (testável); sementes diferentes variam as notas soltas.
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 export class LofiRadio {
-  constructor({ seed = 7 } = {}) { this.seed = seed; this.ctx = null; this.timer = null; this.vol = 0.7; this.bar = 0; this.next = 0; this.rand = rng(seed); }
+  constructor({ seed = 7, track = 0, onTrack = null } = {}) { this.track = track; this.onTrack = onTrack; this.skip = false; this.seed = seed; this.ctx = null; this.timer = null; this.vol = 0.7; this.bar = 0; this.next = 0; this.rand = rng(seed); }
   get playing() { return !!this.ctx && !this.stopping; }
 
   // ---------- grafo de áudio ----------
@@ -91,8 +94,13 @@ export class LofiRadio {
     const AC = globalThis.AudioContext || globalThis.webkitAudioContext; if (!AC) throw new Error('Este navegador não toca áudio gerado.');
     const c = new AC({ latencyHint: 'playback' }); this.stopping = false; this.build(c); if (c.state === 'suspended') await c.resume();
     this.bar = 0; this.next = c.currentTime + 0.25; this.rand = rng(this.seed); this.setVolume(this.vol, 1.2);
-    const pump = () => { while (this.ctx && this.next < this.ctx.currentTime + 1.6) { this.scheduleBar(this.bar++, this.next); this.next += BAR; } }; pump(); this.timer = setInterval(pump, 250);
+    this.seed = TRACKS[this.track].seed; this.rand = rng(this.seed); this.announce(this.next);
+    const pump = () => { while (this.ctx && this.next < this.ctx.currentTime + 1.6) {
+      if (this.bar > 0 && (this.skip || this.bar % TRACK_BARS === 0)) { this.skip = false; this.track = (this.track + 1) % TRACKS.length; this.seed = TRACKS[this.track].seed; this.rand = rng(this.seed); this.announce(this.next); }
+      this.scheduleBar(this.bar++, this.next); this.next += BAR; } }; pump(); this.timer = setInterval(pump, 250);
   }
+  announce(at) { const ctx = this.ctx, tr = TRACKS[this.track]; if (!this.onTrack || !ctx) return; setTimeout(() => { if (this.ctx === ctx) this.onTrack(tr, this.track); }, Math.max(0, (at - ctx.currentTime) * 1000)); }
+  nextTrack() { if (this.ctx) this.skip = true; }
   setVolume(v, fade = 0.15) { this.vol = Math.min(1, Math.max(0, v)); if (this.ctx && this.master) { const g = this.master.gain, t = this.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(Math.max(0.0001, g.value), t); g.linearRampToValueAtTime(Math.max(0.0001, this.vol * 0.8), t + fade); } }
   pause() { if (this.ctx?.state === 'running') this.ctx.suspend(); }
   resume() { if (this.ctx?.state === 'suspended' && !this.stopping) this.ctx.resume(); }

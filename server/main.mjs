@@ -28,10 +28,12 @@ import { loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, 
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
 import { execFile } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import { addEntry, balances, suggestCategory, CATEGORIES } from './finance.mjs';
 import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
+import { createSkillFile } from './myskills.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = readPackageVersion(join(root, 'package.json'));   // uma só fonte da versão
@@ -63,10 +65,26 @@ const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: ro
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
 const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
 const assistantWorld = async () => {
-  const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
-  return { agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+  const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, description: k.description, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
+  return { agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
 };
-const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b) });
+// Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
+const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
+async function createProjectFolder({ name, area }) {
+  const base = workspaceDir(); await mkdir(base, { recursive: true });
+  const slug = String(name).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 50) || 'projeto';
+  let dir = join(base, slug), n = 2; while (existsSync(dir)) dir = join(base, `${slug}-${n++}`);
+  await mkdir(dir); const canonical = await realpath(dir);
+  return store.put('projects', { id: randomUUID(), name: text(name, 60), path: canonical, area: optional(area, 60) || 'Geral', createdAt: new Date().toISOString() });
+}
+async function startAssistantTask({ projectId, teamId, agentId, objective }) {
+  const requestId = randomUUID();
+  if (teamId) { const r = orchestrator.startSequential({ projectId, teamId, requestId, objective, maxReviewRounds: 1 }); void runner.pump(); return r.flow; }
+  const agent = store.get('agents', agentId); if (!agent || isInternal(agent)) throw new Error('Agente não encontrado.');
+  if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
+  const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
+}
+const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -94,6 +112,14 @@ function saveAgent(b) {
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
           const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
           return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: optional(b.model, 150), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+}
+function saveLink(b) {
+  const project = store.get('projects', b.projectId), from = store.get('agents', b.from), to = store.get('agents', b.to);
+  if (!project || !from || !to) throw new Error('Escolha o projeto e os dois agentes.');
+  if (b.from === b.to) throw new Error('Um agente não pode se ligar a ele mesmo.');
+  if (store.list('links').some(l => l.projectId === project.id && l.from === from.id && l.to === to.id)) throw new Error('Essa ligação já existe.');
+  const maxHops = Math.min(6, Math.max(1, Math.trunc(Number(b.maxHops)) || 3));
+  return store.put('links', { id: randomUUID(), projectId: project.id, from: from.id, to: to.id, maxHops, enabled: true, createdAt: new Date().toISOString() });
 }
 async function body(req) { let size = 0, chunks = []; for await (const chunk of req) { size += chunk.length; if (size > 100000) throw new Error('Requisição muito grande'); chunks.push(chunk); } return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
@@ -123,7 +149,7 @@ async function serveRange(req, res, file, type) {
 }
 const handle = async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src https://open.spotify.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (!hostAllowed(req.headers.host, port, bound)) return send(res, 403, { error: 'Host não permitido' });
   if (req.headers.origin && !originAllowed(req.headers.origin, port, bound)) return send(res, 403, { error: 'Origem não permitida' });
   const ip = req.socket.remoteAddress;
@@ -273,14 +299,7 @@ const handle = async (req, res) => {
         if ((m = p.match(/^\/api\/batches\/([a-zA-Z0-9-]+)\/(approve|cancel)$/))) return send(res, 200, m[2] === 'approve' ? orchestrator.batches.approve(m[1], b) : orchestrator.batches.cancel(m[1]));
         if ((m = p.match(/^\/api\/batches\/([a-zA-Z0-9-]+)\/episodes\/([a-zA-Z0-9-]+)\/(approve-preview|request-changes|retry|reject)$/))) { const B = orchestrator.batches; return send(res, 200, m[3] === 'reject' ? await B.reject(m[1], m[2]) : m[3] === 'approve-preview' ? B.approvePreview(m[1], m[2]) : m[3] === 'retry' ? B.retry(m[1], m[2]) : B.requestChanges(m[1], m[2], b.note)); }
         if (p === '/api/batches/inspect') { const pr = store.get('projects', b.projectId); if (!pr) throw new Error('Projeto inexistente.'); return send(res, 200, await Promise.all((b.folders || []).slice(0, 20).map(f => inspectEpisode(pr.path, String(f))))); }
-        if (p === '/api/links') {
-          const project = store.get('projects', b.projectId), from = store.get('agents', b.from), to = store.get('agents', b.to);
-          if (!project || !from || !to) throw new Error('Escolha o projeto e os dois agentes.');
-          if (b.from === b.to) throw new Error('Um agente não pode se ligar a ele mesmo.');
-          if (store.list('links').some(l => l.projectId === project.id && l.from === from.id && l.to === to.id)) throw new Error('Essa ligação já existe.');
-          const maxHops = Math.min(6, Math.max(1, Math.trunc(Number(b.maxHops)) || 3));
-          return send(res, 201, store.put('links', { id: randomUUID(), projectId: project.id, from: from.id, to: to.id, maxHops, enabled: true, createdAt: new Date().toISOString() }));
-        }
+        if (p === '/api/links') return send(res, 201, saveLink(b));
         if ((m = p.match(/^\/api\/links\/([a-f0-9-]+)\/(delete|toggle)$/))) {
           const l = store.get('links', m[1]); if (!l) throw new Error('Ligação não encontrada.');
           if (m[2] === 'delete') { store.remove('links', l.id); store.event('_records', { type: 'record', kind: 'links', id: l.id, at: new Date().toISOString() }); return send(res, 200, { ok: true }); }

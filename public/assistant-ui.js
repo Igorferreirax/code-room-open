@@ -26,12 +26,13 @@ const actionCard = (m, a) => {
   const body = a.status !== 'pending' ? '' : a.valid
     ? `<div class="btn-row"><button type="button" class="btn sm" data-act="asst-apply" data-id="${esc(id)}">${a.type === 'abrir_tela' ? 'Abrir' : 'Criar'}</button><button type="button" class="btn ghost sm" data-act="asst-dismiss" data-id="${esc(id)}">Descartar</button></div>`
     : `<p class="upd-err small" role="alert">Não dá para fazer: ${esc(a.error || 'ação inválida')}</p><div class="btn-row"><button type="button" class="btn ghost sm" data-act="asst-dismiss" data-id="${esc(id)}">Descartar</button></div>`;
-  return `<div class="as-card ${a.valid ? '' : 'bad'}"><b>${a.valid ? 'Proposta' : 'Proposta com problema'}</b><p>${esc(a.summary || '')}</p>${state}${body}</div>`;
+  return `<div class="as-card ${a.valid ? '' : 'bad'}"><b>${a.valid ? 'Proposta' : 'Proposta com problema'}</b><p>${esc(a.summary || '')}</p>${a.detail ? `<details class="as-detail"><summary>Ver o texto completo</summary><pre class="as-code">${esc(a.detail)}</pre></details>` : ''}${state}${body}</div>`;
 };
 
+const allBar = m => { const p = (m.actions || []).filter(a => a.status === 'pending'); return p.length >= 2 ? `<div class="btn-row as-all"><button type="button" class="btn sm" data-act="asst-apply-all" data-id="${esc(m.id)}">Aprovar tudo, na ordem (${p.length})</button></div>` : ''; };
 const message = m => m.role === 'user'
   ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}</div><small>${esc(hour(m.at))}</small></div>`
-  : `<div class="as-msg ai"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}</div><small>${esc(hour(m.at))}</small></div>`;
+  : `<div class="as-msg ai"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}</div><small>${esc(hour(m.at))}</small></div>`;
 
 export function assistantHtml(a, ui = {}) {
   const head = `<div class="card-h"><h2 id="asst-title">Assistente</h2><button type="button" class="iconbtn" data-act="asst-toggle" aria-label="Fechar o Assistente">×</button></div>`;

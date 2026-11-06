@@ -128,14 +128,14 @@ function planBlock(ctx) {
 // ---------- Compositor global ----------
 export function composerBar(ctx) {
   const agents = ctx.state.agents, teams = ctx.state.teams, sup = ctx.supervisorAgent();
-  const target = ctx.ui.target || (ctx.prefs.autoSupervisor && sup ? 's' : '');
-  const opts = `${sup ? `<option value="s" ${target === 's' ? 'selected' : ''}>Supervisor → propor plano</option>` : ''}${teams.map(t => `<option value="t:${esc(t.id)}" ${target === 't:' + t.id ? 'selected' : ''}>Equipe ${esc(t.name)}</option>`).join('')}${agents.map(a => `<option value="a:${esc(a.id)}" ${target === 'a:' + a.id ? 'selected' : ''}>${esc(a.name)} · ${esc(a.role)}</option>`).join('')}`;
+  const target = ctx.ui.target || (ctx.prefs.autoSupervisor && sup ? 's' : 'assistant'), asst = target === 'assistant';
+  const opts = `<option value="assistant" ${asst ? 'selected' : ''}>Assistente · conversar e montar equipes</option>${sup ? `<option value="s" ${target === 's' ? 'selected' : ''}>Supervisor → propor plano</option>` : ''}${teams.map(t => `<option value="t:${esc(t.id)}" ${target === 't:' + t.id ? 'selected' : ''}>Equipe ${esc(t.name)}</option>`).join('')}${agents.map(a => `<option value="a:${esc(a.id)}" ${target === 'a:' + a.id ? 'selected' : ''}>${esc(a.name)} · ${esc(a.role)}</option>`).join('')}`;
   return `<form id="composer" class="composer-bar" aria-label="Enviar missão"><div class="composer">
     <button type="button" class="iconbtn" data-act="opts" aria-label="Critérios de conclusão" aria-expanded="${!!ctx.ui.optsOpen}">${icon('clip', 22)}</button>
-    <label class="sr-only" for="target">Quem executa</label><select id="target" class="target">${agents.length ? opts : '<option value="">Nenhum agente</option>'}</select>
-    <label class="sr-only" for="mission">Missão</label><textarea id="mission" rows="1" maxlength="30000" placeholder="Digite a missão…  /skill  @agente" required spellcheck="false"></textarea>
+    <label class="sr-only" for="target">Quem executa</label><select id="target" class="target">${opts}</select>
+    <label class="sr-only" for="mission">Missão</label><textarea id="mission" rows="1" maxlength="30000" placeholder="${asst ? 'Conte o que você quer fazer (ex.: editar um documentário)…' : 'Digite a missão…  /skill  @agente'}" required spellcheck="false"></textarea>
     <span class="hint">Enter para enviar · Shift + Enter nova linha</span>
-    <button class="sendbtn" id="send" aria-label="Enviar missão" ${ctx.project && agents.length ? '' : 'disabled'}>${icon('send', 22)}</button>
+    <button class="sendbtn" id="send" aria-label="Enviar" ${asst || (ctx.project && agents.length) ? '' : 'disabled'}>${icon('send', 22)}</button>
     ${ctx.ui.optsOpen ? `<div class="opts-pop"><h3>Critérios de conclusão</h3><textarea id="criteria" rows="3" placeholder="Um critério por linha (opcional)"></textarea><p class="muted small" style="margin-top:6px">Os critérios vão junto com a missão e são usados pelo revisor.</p><label class="check" style="margin-top:12px"><input type="checkbox" id="isolate"> Isolar em worktree (Git)</label><p class="muted small" style="margin-top:4px">O agente trabalha numa cópia do último commit, em uma branch própria, e pode rodar ao mesmo tempo que outra tarefa na mesma pasta. Nada é mesclado sozinho. Só vale para agentes individuais.</p></div>` : ''}</div></form>
   <div class="foot"><span>${ctx.state.runtime.paused ? 'Novas tarefas pausadas.' : ''}</span></div>`;
 }

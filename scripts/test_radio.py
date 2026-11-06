@@ -58,6 +58,9 @@ try:
         check('determinístico: mesma semente toca (quase) exatamente o mesmo (diferença máxima abaixo de 0,3% do fundo de escala)', int(d.max()) < 100, f'maior diferença {int(d.max())}')
         check('sementes diferentes variam as notas soltas', hashlib.sha256(a.tobytes()).hexdigest() != hashlib.sha256(c.tobytes()).hexdigest())
         check('renderiza mais rápido que o tempo real (48 s em menos de 60 s, mesmo com o computador ocupado)', ra['ms'] < 60000, f"{ra['ms'] / 1000:.1f} s")
+        for sd in (21, 42, 63, 88):   # as outras faixas da estação: mesmo padrão de volume, sem estourar
+            z, rz = render(sd, 24); xz = z.astype(np.float64) / 32768; mz = (xz[:, 0] + xz[:, 1]) / 2; rmz = 20 * np.log10(np.sqrt(np.mean(mz ** 2)) + 1e-12)
+            check(f'faixa com semente {sd}: sem estouro, sem NaN e volume parecido', not rz['nan'] and rz['over'] == 0 and abs(rmz - rms) < 3, f'RMS {rmz:.1f} dBFS (faixa 1: {rms:.1f})')
         check('sem erro de console', not errs, errs[:2])
         # ---- botão no app: liga de verdade, mostra o volume e desliga ----
         key = open(os.path.join(data, 'access.key')).read().strip(); ctx2 = browser.new_context(viewport={'width': 1440, 'height': 900}); errs2 = []
@@ -67,8 +70,11 @@ try:
         check('rádio desligada por padrão (nenhum áudio criado sozinho)', p2.evaluate('window.__ctxs.length') == 0 and p2.get_attribute('#radio-btn', 'aria-pressed') == 'false' and not p2.is_visible('#radio-vol'))
         p2.click('#radio-btn'); time.sleep(2.0)
         st = p2.evaluate('window.__ctxs.map(c => [c.state, c.currentTime])'); check('clicar liga o áudio: contexto rodando e o relógio avança', len(st) == 1 and st[0][0] == 'running' and st[0][1] > 1.0, st)
-        check('botão mostra "tocando" e o volume aparece', p2.get_attribute('#radio-btn', 'aria-pressed') == 'true' and 'tocando' in p2.inner_text('#radio-btn') and p2.is_visible('#radio-vol'))
+        check('botão mostra "tocando" e o volume aparece', p2.get_attribute('#radio-btn', 'aria-pressed') == 'true' and 'tocando' in p2.inner_text('#radio-btn') and 'Rádio Lo-Fi' in p2.inner_text('#radio-btn') and p2.is_visible('#radio-vol'))
         p2.fill('#radio-vol', '30'); time.sleep(0.4); check('mexer no volume funciona e é lembrado', p2.evaluate("JSON.parse(localStorage.getItem('cr.radio')).volume") == 0.3)
+        t1 = p2.inner_text('#radio-track'); check('mostra o nome da faixa e o botão de próxima', t1.startswith('faixa 1/5:') and p2.is_visible('#radio-next'), t1)
+        p2.click('#radio-next'); time.sleep(5.0); t2 = p2.inner_text('#radio-track'); check('próxima faixa troca a música da estação (mesmo ritmo, outro nome)', t2.startswith('faixa 2/5:') and t2 != t1, t2)
+        check('a faixa fica lembrada para a próxima vez', p2.evaluate("JSON.parse(localStorage.getItem('cr.radio')).track") == 1 and p2.evaluate("JSON.parse(localStorage.getItem('cr.radio')).volume") == 0.3)
         p2.click('#radio-btn'); time.sleep(1.2); st2 = p2.evaluate('window.__ctxs.map(c => c.state)')
         check('clicar de novo desliga (áudio fechado, botão volta ao normal)', st2 == ['closed'] and p2.get_attribute('#radio-btn', 'aria-pressed') == 'false' and not p2.is_visible('#radio-vol'), st2)
         p2.click('#radio-btn'); time.sleep(1.0); check('dá para ligar de novo (novo contexto de áudio)', p2.evaluate('window.__ctxs.length') == 2 and p2.evaluate('window.__ctxs[1].state') == 'running'); p2.click('#radio-btn'); time.sleep(0.8)
