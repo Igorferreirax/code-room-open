@@ -138,7 +138,7 @@ test('manual real do projeto: existe, cabe no limite e documenta exatamente os p
   const { ROLES } = await import('../server/orchestrator.mjs'), { KNOWN_CAPABILITIES } = await import('../server/supervisor.mjs'), m = loadManual(process.cwd());
   assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 14000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
   for (const r of ROLES) assert.ok(m.text.includes('`' + r + '`'), `papel ${r}`); for (const c of KNOWN_CAPABILITIES) assert.ok(m.text.includes('`' + c + '`'), `capacidade ${c}`);
-  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
+  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill', 'criar_pasta_entrada']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
   assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
 });
 
@@ -199,4 +199,12 @@ test('conversas: cada uma tem o seu histórico e título; a resposta volta para 
   await assert.rejects(() => asst.selectThread('nao-existe'), /não encontrada/);
   s = await asst.deleteThread(second); assert.equal(s.threads.length, 1); assert.equal(s.thread, first); s = await asst.deleteThread(first); assert.equal(s.threads.length, 1); assert.equal(s.messages.length, 0, 'apagar a última deixa uma vazia');
   for (let i = 0; i < 7; i++) await asst.newThread(); await assert.rejects(() => asst.newThread(), /Limite de 8/);
+});
+
+test('fluxo: a pasta de entrada proposta no chat é criada pelo mesmo caminho do app, depois do projeto e do agente', async () => {
+  const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const made = []; asst.saveFolderJob = async p => { made.push(p); return { ...p, id: 'fj1', dir: p.dir }; };
+  say([block({ acao: 'criar_pasta_entrada', nome: 'Cortes', projeto: 'canal', agente: 'Desenvolvedor', extensoes: ['mp4'], instrucao: 'Corte {arquivo} e salve em SAIDA/.' })].join('\n'));
+  await asst.ask('tenho 15 vídeos para cortar'); const m = (await done()).messages.at(-1); assert.equal(m.actions.length, 1); assert.equal(m.actions[0].valid, true, m.actions[0].error); assert.equal(m.actions[0].detail, 'Corte {arquivo} e salve em SAIDA/.');
+  const r = await asst.apply(m.id, 0); assert.match(r.result, /Pasta de entrada criada.*ENTRADA/); assert.equal(r.view, 'routines'); assert.equal(made[0].exts, 'mp4'); assert.equal(made[0].agentId, store.list('agents').find(a => a.name === 'Desenvolvedor').id);
 });

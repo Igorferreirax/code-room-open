@@ -18,7 +18,7 @@ Legenda: ✅ feito · ⬜ a fazer
 ### Fase 2: ver o trabalho acontecendo
 - ✅ **Atividade por agente**: ao passar o mouse no agente (Sala, Canvas, lista e Agentes) a dica mostra o que ele faz agora ou a última coisa que fez, com o motivo da falha.
 - ✅ Cartão **Atividade recente** na Sala (últimas 8 atividades do projeto, clicáveis). ⬜ Página própria da linha do tempo, com filtro por agente e por dia.
-- ⬜ **Relatórios das rotinas dentro do app**: cada rotina grava o resultado em uma pasta do projeto e aparece em uma aba “Resultados” (ex.: vagas e cursos do dia), com histórico e botão de abrir a pasta.
+- ⬜ **Relatórios das rotinas dentro do app** (os lotes já têm progresso e aviso; faltam as rotinas por horário): cada rotina grava o resultado em uma pasta do projeto e aparece em uma aba “Resultados” (ex.: vagas e cursos do dia), com histórico e botão de abrir a pasta.
 
 ### Fase 2: um chat só, estilo mensageiro
 - ✅ O manual novo não bloqueia mais o Assistente: ele só avisa que dá para reapresentar (o manual vai inteiro em cada resposta).
@@ -37,7 +37,7 @@ Legenda: ✅ feito · ⬜ a fazer
 - ✅ **Skills por categoria** (vídeo, código, marketing, pesquisa, texto, design), com filtro e contagem. ⬜ Favoritas e escondidas.
 - ⬜ **Orquestrações próprias**: salvar um arranjo de agentes, ligações e tarefa como “receita” reutilizável, criado pelo Assistente.
 - ✅ Skills que só citam documentos de apoio ausentes (pasta `tools/`) deixam de aparecer como aviso: funcionam sem eles.
-- ⬜ **Pasta vinculada a um agente** (ex.: 15 vídeos verticais editados com uma skill, com aviso ao terminar): generalizar o modo de lote.
+- ✅ **Pastas de entrada (lotes)**, em Rotinas: uma pasta do projeto, um agente ou equipe e uma instrução com `{arquivo}`; cada arquivo novo vira uma tarefa, com barra de progresso, tentar de novo as que falharam e faixa de aviso quando o lote termina. O Assistente cria isso pelo chat (`criar_pasta_entrada`). ⬜ Aviso do Windows fora do navegador e aba de resultados com os arquivos gerados.
 
 ### Empacotamento (Windows)
 - ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos (testado em pasta limpa, sem Node, com Smart App Control ligado e arquivos marcados como baixados da internet).

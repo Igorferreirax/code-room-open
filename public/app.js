@@ -8,6 +8,7 @@ import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
+import { folderJobDialogHtml, noticesBarHtml, emptyJobForm, formFromJob, payloadFromJobForm } from './folderjobs-ui.js';
 import { providerDialogHtml, emptyForm, formFromCatalog, formFromSpec, payloadFromForm } from './providers-ui.js';
 import { LofiRadio, TRACKS } from './radio.js';
 
@@ -178,7 +179,7 @@ function render() {
   tickClocks();
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
-  $('update-bar').innerHTML = U.updateBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
+  $('update-bar').innerHTML = U.updateBarHtml(ctx) + noticesBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
   applyPrefs(); renderAsst();
 }
 function drawOffice() {
@@ -198,6 +199,9 @@ $('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value
 document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
 
 // ---------- Atualização ----------
+// ---------- Pastas de entrada (lotes) ----------
+function readFjForm() { const f = $('fj-form'); if (!f) return; const d = Object.fromEntries(new FormData(f)); ctx.ui.fjForm = { ...(ctx.ui.fjForm || emptyJobForm(ctx.project)), name: d.name || '', projectId: d.projectId || '', dir: d.dir || '', exts: d.exts || '', who: d.who || '', instruction: d.instruction || '', outputNote: d.outputNote || '', parallel: d.parallel || 1 }; }
+function renderFj() { if ($('fj-dialog').open || true) $('fj-body').innerHTML = folderJobDialogHtml(ctx); }
 // ---------- Outras IAs (conectadas pela pessoa) ----------
 function syncProviderNames() { for (const c of ctx.state.connectors || []) if (c.custom) { V.PROVIDER[c.id] = c.name; PROVIDER_NAMES[c.id] = c.name; } }
 async function loadProviders() { try { ctx.providers = await api('providers'); } catch { ctx.providers = { catalog: [], custom: [], max: 10 }; } if (ctx.view === 'connections') render(); renderProv(); }
@@ -378,6 +382,17 @@ const actions = {
     updateRadioUi();
   },
   // ---- Atualização: verificar, adiar, baixar com SHA-256 e instalar (só o computador) ----
+  'fj-new': () => { ctx.ui.fjForm = emptyJobForm(ctx.project); renderFj(); $('fj-dialog').showModal(); },
+  'fj-edit': id => { const j = ctx.state.folderJobs.find(x => x.id === id); if (!j) return; ctx.ui.fjForm = formFromJob(j); renderFj(); $('fj-dialog').showModal(); },
+  'fj-close': () => $('fj-dialog').close(),
+  'fj-toggle': id => { ctx.ui.fjOpen = ctx.ui.fjOpen === id ? null : id; render(); },
+  'fj-run': async id => { await api(`folderjobs/${id}/run`, {}); notify('Procurando arquivos novos…'); await refresh(); },
+  'fj-pause': async id => { await api(`folderjobs/${id}/pause`, {}); await refresh(); },
+  'fj-resume': async id => { await api(`folderjobs/${id}/resume`, {}); await refresh(); },
+  'fj-retry': async id => { const r = await api(`folderjobs/${id}/retry`, {}); notify(`${r.retried} arquivo(s) voltaram para a fila.`); await refresh(); },
+  'fj-delete': async id => { const j = ctx.state.folderJobs.find(x => x.id === id); if (!j || !confirm(`Remover a pasta de entrada “${j.name}”? Os arquivos e as tarefas ficam como estão.`)) return; await api(`folderjobs/${id}/delete`, {}); await refresh(); },
+  'notice-seen': async id => { await api('notices/seen', { id }); await refresh(); },
+  'notice-open': async (id, b) => { await api('notices/seen', { id }); ctx.ui.fjOpen = b?.dataset.job || null; await refresh(); await go('routines'); },
   'prov-open': async () => { ctx.ui.provForm = emptyForm(); ctx.ui.provTest = {}; if (!ctx.providers) await loadProviders(); $('prov-dialog').showModal(); renderProv(); loadProviders(); },
   'prov-close': () => { $('prov-dialog').close(); },
   'prov-pick': key => { const c = ctx.providers?.catalog?.find(x => x.key === key); if (!c) return; ctx.ui.provForm = formFromCatalog(c); ctx.ui.provTest = { ...(ctx.ui.provTest || {}), form: null }; renderProv(); },
@@ -571,6 +586,7 @@ document.addEventListener('submit', async e => {
     else if (fid.startsWith('batch-approve-')) { const d = Object.fromEntries(new FormData(f)); await api(`batches/${f.dataset.batch}/approve`, { voiceCredits: Number(d.voiceCredits), flowCap: Number(d.flowCap) }); notify('Créditos aprovados. A produção começou.'); await refresh(); }
     else if (fid === 'recipe-form') { await api('recipes', readRecipeForm(f)); ctx.ui.panel = null; ctx.ui.recipeDraft = null; notify('Receita salva.'); await refresh(); }
     else if (fid === 'recipe-run-form') { const d = Object.fromEntries(new FormData(f)); await api(`recipes/${d.rid}/run`, { objective: d.objective }); ctx.ui.panel = null; notify('Rodada iniciada.'); await refresh(); }
+    else if (fid === 'fj-form') { readFjForm(); const j = await api('folderjobs', payloadFromJobForm(ctx.ui.fjForm)); $('fj-dialog').close(); ctx.ui.fjOpen = j.id; await refresh(); notify(j.counts.total ? `${j.counts.total} arquivo(s) encontrados. O lote começou.` : 'Pasta de entrada criada. Ponha os arquivos nela.'); }
     else if (fid === 'prov-form') { readProvForm(); ctx.providers = await api('providers', payloadFromForm(ctx.ui.provForm)); $('prov-dialog').close(); await refresh(); notify('IA conectada. Agora ela aparece ao criar um agente.'); }
     else if (fid === 'routine-form') { await saveRoutine(); ctx.ui.panel = null; notify('Rotina salva.'); render(); }
   } catch (err) { notify(err.message, true); if (fid === 'login-form') { ctx.ui.loginError = err.message; renderLogin(); } }

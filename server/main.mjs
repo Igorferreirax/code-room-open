@@ -34,6 +34,7 @@ import { addEntry, balances, suggestCategory, CATEGORIES } from './finance.mjs';
 import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 import { createSkillFile } from './myskills.mjs';
+import { FolderJobs } from './folderjobs.mjs';
 import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, MAX_CUSTOM, findProgram, launcher } from './providers.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -86,11 +87,20 @@ async function startAssistantTask({ projectId, teamId, agentId, objective }) {
   if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
   const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
 }
-const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec) });
+const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
 const publisher = new Publisher(store, { dataDir: data });
+// Pasta de entrada: uma tarefa (ou fluxo da equipe) por arquivo novo; {arquivo} na instrução vira o caminho do arquivo.
+const folderJobs = new FolderJobs(store, (job, item, nonce) => {
+  const objective = job.instruction.split('{arquivo}').join(item.rel) + (job.outputNote ? `
+
+Onde salvar: ${job.outputNote}` : ''), requestId = `folder:${job.id}:${nonce}`;
+  if (job.target.type === 'agent') { const { task } = createTask(store, { projectId: job.projectId, agentId: job.target.id, requestId, objective }); void runner.pump(); return { taskId: task.id }; }
+  const r = orchestrator.startSequential({ projectId: job.projectId, teamId: job.target.id, requestId, objective, maxReviewRounds: 1 }); void runner.pump(); return { flowId: r.flow.id };
+});
+async function createFolderJob(b) { const j = folderJobs.save(b), pr = store.get('projects', j.projectId); await mkdir(join(pr.path, j.dir), { recursive: true }); folderJobs.process(j.id); return j; }
 const routines = new Routines(store, (r, slot) => {
   const requestId = `routine:${r.id}:${slot}`;
   if (r.target.type === 'recipe') return { runId: recipes.start(r.target.id, { objective: r.objective }).id };
@@ -227,7 +237,7 @@ const handle = async (req, res) => {
       }
       if (get && p === '/api/state') {
         const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
-        return send(res, 200, { projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
+        return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
       }
       if (get && p === '/api/providers') { masterOnly(auth); return send(res, 200, providersView()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
@@ -381,6 +391,15 @@ const handle = async (req, res) => {
           return send(res, 201, recipes.start(m[1], b));
         }
         if ((m = p.match(/^\/api\/recipe-runs\/([a-zA-Z0-9-]+)\/(approve|cancel)$/))) return send(res, 200, m[2] === 'approve' ? recipes.approve(m[1]) : recipes.cancel(m[1]));
+        if (p === '/api/folderjobs') { masterOnly(auth); const j = await createFolderJob(b); return send(res, 201, folderJobs.view(store.get('folderjobs', j.id))); }
+        if ((m = p.match(/^\/api\/folderjobs\/([a-zA-Z0-9-]+)\/(run|pause|resume|retry|delete)$/))) {
+          masterOnly(auth);
+          if (m[2] === 'delete') { folderJobs.remove(m[1]); return send(res, 200, { ok: true }); }
+          if (m[2] === 'run') { folderJobs.runNow(m[1]); return send(res, 200, folderJobs.view(store.get('folderjobs', m[1]))); }
+          if (m[2] === 'retry') { const r = folderJobs.retryFailed(m[1]); return send(res, 200, { ...r, job: folderJobs.view(store.get('folderjobs', m[1])) }); }
+          folderJobs.setStatus(m[1], m[2] === 'pause' ? 'paused' : 'active'); return send(res, 200, folderJobs.view(store.get('folderjobs', m[1])));
+        }
+        if (p === '/api/notices/seen') { masterOnly(auth); for (const n of store.list('notices')) if (b.all === true || n.id === b.id) store.put('notices', { ...n, seen: true }); return send(res, 200, { ok: true }); }
         if (p === '/api/routines') return send(res, 200, routines.save(b));
         if ((m = p.match(/^\/api\/routines\/([a-zA-Z0-9-]+)\/(pause|resume|run|delete)$/))) {
           if (m[2] === 'run') { const r = store.get('routines', m[1]); if (!r) throw new Error('Rotina inexistente.'); return send(res, 200, routines.run(r)); }
@@ -481,7 +500,7 @@ async function networkView() {
 server.listen(port, '127.0.0.1', async () => {
   updates.start();
   console.log(`Code Room → http://127.0.0.1:${port}/#${key}`);
-  try { await runner.start(); routines.start(); moduleList().catch(() => {}); } catch (e) { console.error('Falha ao iniciar o executor:', e.message); }
+  try { await runner.start(); routines.start(); folderJobs.start(); moduleList().catch(() => {}); } catch (e) { console.error('Falha ao iniciar o executor:', e.message); }
   try { await syncListeners(); for (const b of bound) console.log(`Acesso remoto (${b.kind}): http://${b.ip}:${port}/`); } catch (e) { console.error('Rede:', e.message); }
   const t = setInterval(() => syncListeners().catch(() => {}), 20000); t.unref?.(); // o Tailscale pode conectar depois do serviço
 });

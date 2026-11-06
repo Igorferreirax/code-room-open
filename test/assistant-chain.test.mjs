@@ -54,3 +54,12 @@ test('skill criada pelo Assistente: grava SKILL.md válido, entra como pasta ext
   await createSkillFile(store, data, { name: 'outra-skill', description: 'Outra skill de teste', instructions: 'z'.repeat(30) }); assert.equal(store.get('settings', 'skillRoots').roots.length, 1, 'a pasta base entra uma vez só');
   await assert.rejects(() => createSkillFile(store, data, { name: '../fora', description: 'x'.repeat(12), instructions: 'y'.repeat(30) }), /inválido/);
 });
+
+test('criar_pasta_entrada: instrução precisa citar {arquivo}, projeto e agente/equipe reais, extensões viram texto, planejados valem na mesma resposta', () => {
+  const w = world({ teams: [{ id: 't1', name: 'Vídeo', members: [] }] });
+  const p = o => normalizeAction({ acao: 'criar_pasta_entrada', nome: 'Cortes', projeto: 'Video X', agente: 'Montador', extensoes: ['mp4', 'mov'], instrucao: 'Edite {arquivo} com a skill motion-graphics.', ...o }, w);
+  const ok = p({}); assert.equal(ok.valid, true); assert.deepEqual(ok.payload, { name: 'Cortes', projectId: 'p1', dir: 'ENTRADA', exts: 'mp4,mov', instruction: 'Edite {arquivo} com a skill motion-graphics.', outputNote: '', parallel: 1, agentId: 'a3' }); assert.match(ok.summary, /cota/); assert.equal(ok.detail, ok.payload.instruction);
+  assert.equal(p({ agente: undefined, equipe: 'Vídeo' }).payload.teamId, 't1'); assert.equal(p({ pasta: 'BRUTOS', paralelo: 2, salvar: 'SAIDA/' }).payload.parallel, 2);
+  assert.match(p({ instrucao: 'sem marcador' }).error, /\{arquivo\}/); assert.match(p({ projeto: 'Nada' }).error, /projeto/); assert.match(p({ agente: 'Fantasma' }).error, /não existe/); assert.match(p({ equipe: 'Vídeo' }).error, /OU/); assert.match(p({ nome: '' }).error, /nome/);
+  assert.equal(normalizeAction({ acao: 'criar_pasta_entrada', nome: 'N', projeto: 'Novo', agente: 'Novo Ag', instrucao: 'x {arquivo}' }, world({ agents, projects: [] }), { agents: ['Novo Ag'], teams: [], projects: ['Novo'], skills: [] }).valid, true);
+});

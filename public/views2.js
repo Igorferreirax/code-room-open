@@ -5,6 +5,7 @@ import { heroScene, thumb, themeImg, avatar, agentAv } from './art.js';
 import { updatesSettingsHtml } from './updates-ui.js';
 import { agentTip } from './activity.js';
 import { providersCardHtml } from './providers-ui.js';
+import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
 export const COMMANDS = {
@@ -341,6 +342,7 @@ export function viewRoutines(ctx) {
   <div class="filters"><div class="input-icon">${icon('search', 18)}<input id="routine-q" placeholder="Buscar rotinas por nome ou projeto…" aria-label="Buscar rotinas" value="${esc(ctx.ui.routineQ || '')}"></div><select id="routine-proj" style="width:200px" aria-label="Filtrar por projeto"><option value="">Todos os projetos</option>${ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${ctx.ui.routineProj === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" data-act="new-routine">${icon('plus', 18)} Nova rotina</button></div>
   ${rs.length ? `<div class="tbl rtable"><table><thead><tr><th>Nome da rotina</th><th>Projeto</th><th>Disparo</th><th>Última execução</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6">Nenhuma rotina neste filtro.</td></tr>'}</tbody></table></div>` : empty('Nenhuma rotina ainda. Crie uma para executar um agente ou uma equipe em horário fixo.')}
   ${batchesCard(ctx)}
+  <div style="margin-top:16px">${folderJobsCardHtml(ctx)}</div>
   <section class="card" style="margin-top:16px"><div class="card-h"><h2>Últimas execuções</h2></div>${hist.length ? `<div class="tbl"><table><thead><tr><th>Data e hora</th><th>Rotina</th><th>Projeto</th><th>Resultado</th><th>Detalhes</th></tr></thead><tbody>${hist.map(x => { const [rs1, det] = res(x); return `<tr><td>${new Date(x.h.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(x.r.name)}</td><td>${esc(pname(x.r.projectId))}</td><td>${rs1}</td><td class="muted small">${esc(String(det || '').slice(0, 80))}</td></tr>`; }).join('')}</tbody></table></div>` : '<p class="muted">Nenhuma execução registrada.</p>'}
   ${note('Rotinas só rodam com o Code Room aberto e o computador ligado. Se a hora marcada passar com o serviço desligado, a execução é registrada como ignorada e não roda com atraso.', 'info')}</section></div>`;
 }

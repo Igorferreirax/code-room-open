@@ -107,6 +107,16 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       if (world.skills.some(k => lc(k.name) === nome) || planned.skills.some(x => lc(x) === nome)) return bad('criar_skill', `Já existe uma skill chamada “${nome}”.`);
       return { type: 'criar_skill', summary: `Criar a skill “${nome}”: ${desc}. Fica em uma pasta do Code Room (minhas-skills) e vale para qualquer agente.`, detail: instr, payload: { name: nome, description: desc, instructions: instr }, valid: true };
     }
+    case 'criar_pasta_entrada': {
+      const nome = short(raw.nome, 100); if (!nome) return bad('criar_pasta_entrada', 'A pasta de entrada precisa de um nome.');
+      const instr = String(raw.instrucao ?? '').trim(); if (!instr.includes('{arquivo}')) return bad('criar_pasta_entrada', 'A instrução precisa citar {arquivo}, que vira o caminho de cada arquivo.'); if (instr.length > 3000) return bad('criar_pasta_entrada', 'A instrução passou de 3000 caracteres.');
+      const pr = findProject(raw.projeto); if (pr.error) return bad('criar_pasta_entrada', pr.error);
+      if (!!raw.equipe === !!raw.agente) return bad('criar_pasta_entrada', 'Informe a equipe OU o agente que processa cada arquivo, não os dois.');
+      const payload = { name: nome, projectId: pr.project.id, dir: String(raw.pasta || 'ENTRADA'), exts: Array.isArray(raw.extensoes) ? raw.extensoes.join(',') : String(raw.extensoes ?? ''), instruction: instr, outputNote: short(raw.salvar, 300), parallel: Number(raw.paralelo) || 1 }; let who;
+      if (raw.equipe) { const t = findTeam(raw.equipe); if (t.error) return bad('criar_pasta_entrada', t.error); payload.teamId = t.team.id; who = `a equipe “${t.team.name}”`; }
+      else { const a = find(raw.agente); if (a.error) return bad('criar_pasta_entrada', a.error); payload.agentId = a.agent.id; who = `o agente “${a.agent.name}”`; }
+      return { type: 'criar_pasta_entrada', summary: `Criar a pasta de entrada “${nome}” no projeto “${pr.project.name}” (pasta ${payload.dir}${payload.exts ? `, tipos ${payload.exts}` : ''}): cada arquivo novo vira uma tarefa de ${who}, e você é avisado ao terminar. Gasta a cota da sua IA a cada arquivo.`, detail: instr, payload, valid: true };
+    }
     case 'abrir_tela': { const v = VIEWS[raw.tela]; return v ? { type: 'abrir_tela', summary: `Abrir a tela ${raw.tela}`, payload: { view: v }, valid: true } : bad('abrir_tela', 'Tela desconhecida.'); }
     default: return null;   // ação desconhecida é ignorada
   }
@@ -147,8 +157,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill }) {
-    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill });
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob }) {
+    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob });
     this.dir = join(dataDir, 'assistente');
   }
   get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], thread: { id: 't1', title: 'Conversa 1' }, others: [], order: ['t1'], pending: null, briefing: null, error: null }; }
@@ -273,6 +283,7 @@ export class Assistant {
     else if (r.type === 'definir_skills') { const old = this.store.get('agents', r.payload.agentId); const ag = this.saveAgent({ ...old, skillIds: r.payload.skillIds }); result = `Skills de “${ag.name}” atualizadas.`; }
     else if (r.type === 'criar_projeto') { const pr = await this.saveProject(r.payload); result = `Projeto “${pr.name}” criado.`; projectId = pr.id; }
     else if (r.type === 'ligar_agentes') { await this.saveLink(r.payload); result = 'Ligação criada: o trabalho passa de um agente ao outro.'; projectId = r.payload.projectId; }
+    else if (r.type === 'criar_pasta_entrada') { const j = await this.saveFolderJob(r.payload); result = `Pasta de entrada criada. Ponha os arquivos em “${j.dir}” e eles entram sozinhos.`; projectId = r.payload.projectId; taskView = 'routines'; }
     else if (r.type === 'criar_skill') { await this.saveSkill(r.payload); result = `Skill “${r.payload.name}” criada. Já aparece em Skills.`; }
     else if (r.type === 'iniciar_tarefa') { const o = await this.startTask(r.payload); result = r.payload.teamId ? 'Fluxo da equipe iniciado. Acompanhe em Tarefas.' : 'Tarefa iniciada. Acompanhe em Tarefas.'; projectId = r.payload.projectId; taskView = o?.id ? 'tasks' : null; }
     else if (r.type === 'abrir_tela') result = 'Tela aberta.';

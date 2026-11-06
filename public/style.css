@@ -426,3 +426,9 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 @media (max-width:760px){.chat{right:0;bottom:0;width:100vw;height:100dvh;border-radius:0;border:0}.chat-bubble{right:14px;bottom:14px}}
 @media (prefers-reduced-motion:reduce),:root[data-anim=off] *{}
 .cw-foot .composer textarea{min-height:48px;line-height:1.35;padding-top:12px}
+
+/* Pastas de entrada (lotes) */
+.fj-row{border-top:1px solid var(--line);padding:12px 0}.fj-head{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:space-between}
+.fj-bar{display:flex;height:10px;border-radius:999px;background:var(--panel2);overflow:hidden;margin:10px 0 4px;border:1px solid var(--line)}.fj-bar i{display:block;height:100%}.fj-bar i.ok{background:#2dd4a0}.fj-bar i.bad{background:#ef5b5b}
+.fj-items{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto}.fj-items li{display:flex;gap:8px;align-items:center;font-size:.85rem}.fj-items .grow{overflow-wrap:anywhere}
+#fj-dialog{width:min(680px,94vw);max-height:92vh;overflow:auto}.notice-bar{background:rgba(45,212,160,.12);border-color:rgba(45,212,160,.4)}
