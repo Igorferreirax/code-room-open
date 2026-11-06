@@ -340,3 +340,47 @@ ul.plain{list-style:none;margin:8px 0 10px;padding:0;display:grid;gap:6px}ul.pla
 @keyframes tourpulse{0%,100%{box-shadow:0 0 0 0 rgba(74,143,255,.55)}50%{box-shadow:0 0 0 10px rgba(74,143,255,0)}}
 @media (prefers-reduced-motion:reduce){.tour-hl{animation:none}}
 @media (max-width:760px){.tour{left:10px;right:10px;bottom:104px;width:auto}.onb-card h2{font-size:1.35rem}.onb-actions .btn{flex:1 1 100%}.onb-actions .grow{display:none}}
+
+/* ---- Atualização ---- */
+.update-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 26px;background:var(--accent-soft);border-bottom:1px solid var(--line);font-size:.92rem}.update-bar .grow{flex:1}
+#update-dialog{width:min(620px,94vw)}.upd-notes{max-height:38vh;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:.7em .9em;font:inherit;font-size:.9rem;margin:0 0 12px}
+.upd-ok{color:var(--ok)}.upd-err{color:var(--bad)}.upd-busy{background:var(--accent-soft);border:1px solid var(--line);border-radius:10px;padding:.8em 1em}
+#update-dialog progress{width:100%;height:10px;margin:4px 0 12px}#update-dialog .btn-row{align-items:center;gap:12px;flex-wrap:wrap}#update-dialog .grow{flex:1}
+@media (max-width:760px){.update-bar{padding:8px 14px}.update-bar .grow{display:none}}
+
+/* ---- Marca: gato no monitor + nome em pixels ---- */
+.brand{min-width:0}.brand .wm{display:inline-flex;align-items:center}.logo-mark{flex:none;image-rendering:pixelated}.brand .wordmark{display:block}
+@media (max-width:560px){.brand .wm{display:none}}
+
+/* ---- Canvas ao vivo: quem está trabalhando fica verde, quem espera fica âmbar, o trabalho viaja pela linha ---- */
+.cv-node.st-running{border-color:#5fe3b0;background:linear-gradient(135deg,rgba(95,227,176,.18),rgba(95,227,176,.05)),var(--panel);box-shadow:0 0 0 1px rgba(95,227,176,.55),0 0 26px rgba(95,227,176,.3)}
+.cv-node.st-waiting{border-color:#f5b73b;border-style:dashed;background:linear-gradient(135deg,rgba(245,183,59,.1),rgba(245,183,59,.02)),var(--panel)}
+.cv-node.st-failed{border-color:var(--bad);box-shadow:0 0 0 1px rgba(239,91,91,.45),0 0 18px rgba(239,91,91,.2)}
+html[data-motion=on] .cv-node.st-running{animation:cvglow 1.8s ease-in-out infinite}@keyframes cvglow{0%,100%{box-shadow:0 0 0 1px rgba(95,227,176,.55),0 0 20px rgba(95,227,176,.22)}50%{box-shadow:0 0 0 1px rgba(95,227,176,.75),0 0 34px rgba(95,227,176,.42)}}
+.cv-typing{position:absolute;right:12px;top:10px;display:inline-flex;gap:3px;align-items:flex-end;height:12px}.cv-typing i{width:5px;height:5px;border-radius:50%;background:#5fe3b0}
+html[data-motion=on] .cv-typing i{animation:cvdot 1s ease-in-out infinite}html[data-motion=on] .cv-typing i:nth-child(2){animation-delay:.16s}html[data-motion=on] .cv-typing i:nth-child(3){animation-delay:.32s}@keyframes cvdot{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-5px);opacity:1}}
+.cv-edge.team.live{color:#5fe3b0}.cv-edge.team.live .line{stroke-dasharray:8 6;opacity:1;stroke-width:2}html[data-motion=on] .cv-edge.team.live .line{animation:cvflow .9s linear infinite}
+.cv-edge.live .line{stroke-width:2.5;opacity:1;filter:drop-shadow(0 0 4px rgba(95,227,176,.7))}
+.cv-pulse{display:none;fill:#baffe3;filter:drop-shadow(0 0 5px #5fe3b0)}html[data-motion=on] .cv-pulse{display:block}
+.cv-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0 0;color:var(--muted)}.cv-legend span{display:inline-flex;align-items:center;gap:6px}.cv-legend .lg{display:inline-block;width:12px;height:12px;border-radius:4px;border:2px solid var(--line)}
+.cv-legend .lg.run{border-color:#5fe3b0;background:rgba(95,227,176,.35)}.cv-legend .lg.wait{border:2px dashed #f5b73b}.cv-legend .lg.bad{border-color:var(--bad)}.cv-legend .lg.flow{width:22px;height:3px;border:0;border-radius:2px;background:#5fe3b0}
+
+/* ---- Rádio da Sala ---- */
+.linkbtn{background:none;border:0;color:var(--accent-h);font:inherit;cursor:pointer;padding:0;margin-right:12px}.linkbtn:hover,.linkbtn:focus-visible{text-decoration:underline}
+.radio{display:inline-flex;align-items:center;gap:8px;margin-left:14px}.radio-vol{width:90px;accent-color:var(--accent)}
+@media (max-width:760px){.linkbtn{min-height:40px;padding:0 6px}.radio{margin-left:0}}
+
+/* ---- Assistente (painel lateral) ---- */
+.asst{position:fixed;right:0;top:60px;bottom:0;width:min(400px,94vw);background:var(--bg2);border-left:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:10px;overflow:auto;z-index:26;box-shadow:var(--shadow)}
+.asst[hidden]{display:none}.asst .card-h h2{font-size:1.3rem}
+#shell.asst-open .main{margin-right:min(400px,94vw)}
+.asst-btn{margin-right:4px}.asst-btn[aria-pressed=true]{border-color:var(--accent,#5fe3b0)}
+.as-log{flex:1;min-height:120px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px}
+.as-msg{display:flex;flex-direction:column;gap:2px;max-width:94%}.as-msg.me{align-self:flex-end;align-items:flex-end}.as-msg small{color:var(--muted);font-size:.72rem}
+.as-bubble{border:1px solid var(--line);background:var(--panel2);border-radius:12px;padding:8px 12px;font-size:.92rem;line-height:1.45;overflow-wrap:anywhere}
+.as-msg.me .as-bubble{background:rgba(95,227,176,.12);border-color:rgba(95,227,176,.35)}
+.as-bubble p{margin:.3em 0}.as-bubble ul{margin:.3em 0;padding-left:1.2em}.as-code{background:rgba(0,0,0,.25);border-radius:8px;padding:8px;overflow:auto;font-size:.82rem;white-space:pre-wrap}
+.as-card{border:1px dashed var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;background:rgba(255,255,255,.03)}.as-card.bad{border-color:rgba(239,91,91,.5)}.as-card p{margin:.25em 0}
+.as-done{color:#5fe3b0}.as-wait{color:var(--muted);font-style:italic}.as-empty .chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.as-form textarea{width:100%;resize:vertical;min-height:52px;max-height:160px;box-sizing:border-box}
+@media (max-width:760px){.asst{width:100vw}#shell.asst-open .main{margin-right:0}}

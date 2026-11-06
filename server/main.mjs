@@ -17,7 +17,7 @@ import { Orchestrator } from './orchestrator.mjs';
 import { Routines } from './routines.mjs';
 import { Recipes } from './recipes.mjs';
 import { connectors, check, REMOTE_PROVIDERS } from './connectors.mjs';
-import { scanSkills, auditSummary } from './skills.mjs';
+import { scanSkills, auditSummary, usable } from './skills.mjs';
 import { createTask, retryTask } from './tasks.mjs';
 import { safeFile, contentType, mintToken, checkToken } from './deliverables.mjs';
 import { emptyContext, cleanContext } from './context.mjs';
@@ -30,9 +30,11 @@ import { limitsView, claudeFromEvent } from './usage.mjs';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { addEntry, balances, suggestCategory, CATEGORIES } from './finance.mjs';
+import { Updates, readPackageVersion } from './updates.mjs';
+import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 
-const VERSION = '0.2.0';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const VERSION = readPackageVersion(join(root, 'package.json'));   // uma só fonte da versão
 const data = resolve(process.env.CODE_ROOM_DATA || join(root, '.data'));
 mkdirSync(data, { recursive: true });
 const keyFile = join(data, 'access.key');
@@ -57,8 +59,14 @@ for (const r of store.list('runs')) {
 let modules = [], modulesAt = 0;
 async function moduleList() { if (Date.now() - modulesAt > 5 * 60000) { modules = await probeModules(); modulesAt = Date.now(); } return modules; }
 const installed = agent => !!connectors().find(c => c.id === agent.provider)?.path;
+const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '' });
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
 const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
+const assistantWorld = async () => {
+  const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
+  return { agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+};
+const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -76,6 +84,17 @@ function authLevel(req) { const v = req.headers['x-code-room-key']; if (okKey(v)
 const masterOnly = auth => { if (auth !== 'master') throw new Error('Esta ação só pode ser feita no computador (chave principal).'); };
 function text(value, max = 200) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`Texto obrigatório (até ${max} caracteres).`); return value.trim(); }
 function optional(value, max = 10000) { if (value == null) return ''; if (typeof value !== 'string' || value.length > max) throw new Error('Texto inválido ou muito longo.'); return value.trim(); }
+function saveAgent(b) {
+          if (!connectors().some(c => c.id === b.provider)) throw new Error('Provedor inválido');
+          if (REMOTE_PROVIDERS.includes(b.provider) && b.mode !== 'read') throw new Error('Agentes remotos (Hermes) são somente leitura: eles não enxergam os arquivos deste computador.');
+          if (!['read', 'write'].includes(b.mode)) throw new Error('Permissão inválida');
+          if (!Array.isArray(b.skillIds) || b.skillIds.length > 8 || b.skillIds.some(s => typeof s !== 'string')) throw new Error('Escolha até 8 skills.');
+          const prev = b.id ? store.get('agents', b.id) : null;
+          const commands = [...new Set((b.commands ?? prev?.commands ?? []).map(c => String(c).trim()).filter(Boolean))]; if (commands.length > 10 || commands.some(c => !/^[\w.-]{1,40}$/.test(c))) throw new Error('Programas liberados: até 10 nomes simples (ex.: yt-dlp, ffmpeg), sem caminhos nem espaços.');
+          const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
+          const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
+          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: optional(b.model, 150), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+}
 async function body(req) { let size = 0, chunks = []; for await (const chunk of req) { size += chunk.length; if (size > 100000) throw new Error('Requisição muito grande'); chunks.push(chunk); } return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 
@@ -152,6 +171,7 @@ const handle = async (req, res) => {
       const auth = authLevel(req);
       if (!auth) { tFail(ip); return send(res, 401, { error: 'Abra o Code Room pelo iniciador ou informe a chave local.' }); }
       tOk(ip);
+      if (get && p === '/api/updates') return send(res, 200, updates.status());
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
       if (get && p === '/api/devices') { masterOnly(auth); return send(res, 200, devices.list().map(d => devices.view(d))); }
       if (get && p === '/api/usage/limits') return send(res, 200, { providers: limitsView(store), now: new Date().toISOString() });
@@ -175,9 +195,10 @@ const handle = async (req, res) => {
         return send(res, 200, { files: out });
       }
       if (get && p === '/api/state') {
-        const tasks = store.list('tasks').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
-        return send(res, 200, { projects: store.list('projects'), agents: store.list('agents'), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
+        const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
+        return send(res, 200, { projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
       }
+      if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
       if (get && p === '/api/stream') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
         let last = Number(req.headers['last-event-id'] || url.searchParams.get('since') || store.lastSeq());
@@ -214,7 +235,13 @@ const handle = async (req, res) => {
       if (req.method === 'POST') {
         if (!req.headers['content-type']?.startsWith('application/json')) return send(res, 415, { error: 'Envie JSON' });
         const b = await body(req);
-        if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale !== false }); await syncListeners(); return send(res, 200, await networkView()); }
+        // Atualização (só o computador, com a chave principal): consultar, ligar/desligar, adiar, baixar com conferência de SHA-256 e instalar.
+        if (p === '/api/updates/check') { masterOnly(auth); return send(res, 200, await updates.check({ force: true })); }
+        if (p === '/api/updates/settings') { masterOnly(auth); return send(res, 200, updates.setEnabled(b.enabled === true)); }
+        if (p === '/api/updates/dismiss') { masterOnly(auth); return send(res, 200, updates.dismiss(b.version)); }
+        if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
+        if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
+        if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale === true }); await syncListeners(); return send(res, 200, await networkView()); }
         if (p === '/api/usage/refresh') {
           // Leitura sob demanda dos limites do Claude: uma chamada mínima (usa um pouco da sua cota). Só quando você pede.
           const c = connectors().find(x => x.id === 'claude'); if (!c?.path) throw new Error('Claude Code não encontrado.');
@@ -268,17 +295,16 @@ const handle = async (req, res) => {
           if (store.list('projects').some(x => x.path === canonical)) throw new Error('Esta pasta já está cadastrada.');
           return send(res, 201, store.put('projects', { id: randomUUID(), name: text(b.name), path: canonical, area: optional(b.area, 60) || 'Geral', createdAt: new Date().toISOString() }));
         }
-        if (p === '/api/agents') {
-          if (!connectors().some(c => c.id === b.provider)) throw new Error('Provedor inválido');
-          if (REMOTE_PROVIDERS.includes(b.provider) && b.mode !== 'read') throw new Error('Agentes remotos (Hermes) são somente leitura: eles não enxergam os arquivos deste computador.');
-          if (!['read', 'write'].includes(b.mode)) throw new Error('Permissão inválida');
-          if (!Array.isArray(b.skillIds) || b.skillIds.length > 8 || b.skillIds.some(s => typeof s !== 'string')) throw new Error('Escolha até 8 skills.');
-          const prev = b.id ? store.get('agents', b.id) : null;
-          const commands = [...new Set((b.commands ?? prev?.commands ?? []).map(c => String(c).trim()).filter(Boolean))]; if (commands.length > 10 || commands.some(c => !/^[\w.-]{1,40}$/.test(c))) throw new Error('Programas liberados: até 10 nomes simples (ex.: yt-dlp, ffmpeg), sem caminhos nem espaços.');
-          const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
-          const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
-          return send(res, 200, store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: optional(b.model, 150), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 }));
+        if (p.startsWith('/api/assistant/')) {
+          masterOnly(auth); const a = p.slice('/api/assistant/'.length);
+          if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
+          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000)));
+          if (a === 'reset') return send(res, 200, await assistant.reset());
+          if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));
+          if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
+          if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
         }
+        if (p === '/api/agents') return send(res, 200, saveAgent(b));
         if (p === '/api/runs' || p === '/api/tasks') {
           const agent = store.get('agents', b.agentId);
           if (agent && !installed(agent)) throw Object.assign(new Error('Provedor não instalado.'), { failureKind: 'executable_missing' });
@@ -415,6 +441,7 @@ async function networkView() {
 }
 // O executor só assume o trabalho depois de ocupar a porta: assim, qualquer claim antigo pertence a um serviço morto.
 server.listen(port, '127.0.0.1', async () => {
+  updates.start();
   console.log(`Code Room → http://127.0.0.1:${port}/#${key}`);
   try { await runner.start(); routines.start(); moduleList().catch(() => {}); } catch (e) { console.error('Falha ao iniciar o executor:', e.message); }
   try { await syncListeners(); for (const b of bound) console.log(`Acesso remoto (${b.kind}): http://${b.ip}:${port}/`); } catch (e) { console.error('Rede:', e.message); }

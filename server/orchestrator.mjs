@@ -4,7 +4,7 @@ import { emptyContext, mayShare } from './context.mjs';
 import { planPrompt, parsePlan, validatePlan } from './supervisor.mjs';
 
 const STOP_RE = /SEM PEND[ÊE]NCIAS|VEREDITO:\s*APROVADO/i, DEFAULT_HOPS = 3;
-const ROLES = ['desenvolvedor', 'revisor', 'editor', 'pesquisador', 'financeiro', 'operacoes', 'supervisor'];
+export const ROLES = ['desenvolvedor', 'revisor', 'editor', 'pesquisador', 'financeiro', 'operacoes', 'supervisor'];
 const now = () => new Date().toISOString();
 const verdictOf = text => { const all = [...String(text || '').matchAll(/\b(APROVADO|REPROVADO)\b/g)]; return all.length ? (all.at(-1)[1] === 'APROVADO' ? 'approved' : 'rejected') : 'unknown'; };
 

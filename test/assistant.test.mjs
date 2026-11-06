@@ -1,0 +1,143 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { parseActions, normalizeAction, stateSummary, buildPrompt, briefingPrompt, checkBriefing, chooseProvider, loadManual, Assistant, ASSISTANT_PROJECT } from '../server/assistant.mjs';
+import { setup, addProject, addAgent, waitFor, tempDir } from './helpers.mjs';
+
+const world = (over = {}) => ({
+  agents: [{ id: 'a1', name: 'Desenvolvedor', role: 'dev', provider: 'codex', mode: 'write' }, { id: 'a2', name: 'Revisor', role: 'rev', provider: 'claude', mode: 'read' }, { id: 'a3', name: 'Gemini', role: 'x', provider: 'agy', mode: 'read' }, { id: 'a4', name: 'Revisor', role: 'dup', provider: 'agy', mode: 'read' }],
+  teams: [{ name: 'Equipe Antiga', members: [] }], connected: new Set(['codex', 'claude']),
+  skills: [{ id: 's1', name: 'copywriting', recognized: true }, { id: 's2', name: 'quebrada', recognized: true, blocked: 'falta programa' }, { id: 's3', name: 'sem-cabecalho', recognized: false }], ...over });
+const FENCE = '```';
+const block = j => FENCE + 'code-room-action\n' + JSON.stringify(j) + '\n' + FENCE;
+
+test('ações: extrai só blocos code-room-action válidos, limpa o texto, limita a 5 e ignora JSON quebrado ou grande demais', () => {
+  const t = `Vou criar.\n${block({ acao: 'abrir_tela', tela: 'equipes' })}\ntexto no meio\n${FENCE}code-room-action\n{ quebrado\n${FENCE}\n${block({ acao: 'criar_equipe', nome: 'X', membros: [] })}\n${FENCE}json\n{"acao":"abrir_tela"}\n${FENCE}`;
+  const r = parseActions(t); assert.equal(r.actions.length, 2, 'o quebrado e o bloco json comum ficam de fora'); assert.ok(!r.text.includes('code-room-action')); assert.match(r.text, /Vou criar\.[\s\S]*texto no meio/); assert.ok(r.text.includes(FENCE + 'json'), 'bloco que não é nosso fica no texto');
+  const many = Array.from({ length: 9 }, (_, i) => block({ acao: 'abrir_tela', tela: 'sala', n: i })).join('\n'); assert.equal(parseActions(many).actions.length, 5);
+  assert.equal(parseActions(block({ acao: 'x', lixo: 'a'.repeat(5000) })).actions.length, 0, 'bloco grande demais é descartado'); assert.equal(parseActions('\uFEFF' + block({ acao: 'abrir_tela', tela: 'sala' })).actions.length, 1);
+  assert.deepEqual(parseActions(null), { text: '', actions: [] }); assert.deepEqual(parseActions(block([1, 2])).actions, [], 'só objetos');
+});
+
+test('criar_equipe: nomes viram ids reais; papel, agente inexistente, nome ambíguo e equipe repetida são recusados', () => {
+  const ok = normalizeAction({ acao: 'criar_equipe', nome: ' Equipe Dev ', membros: [{ papel: 'desenvolvedor', agente: 'desenvolvedor' }, { papel: 'revisor', agente: 'Gemini' }] }, world());
+  assert.equal(ok.valid, true); assert.deepEqual(ok.payload, { name: 'Equipe Dev', members: [{ role: 'desenvolvedor', agentId: 'a1' }, { role: 'revisor', agentId: 'a3' }] }); assert.match(ok.summary, /Criar a equipe “Equipe Dev”: desenvolvedor → Desenvolvedor, revisor → Gemini/);
+  const err = (m, re, n = 'Nova') => { const r = normalizeAction({ acao: 'criar_equipe', nome: n, membros: m }, world()); assert.equal(r.valid, false); assert.match(r.error, re); };
+  err([{ papel: 'chefe', agente: 'Gemini' }], /Papel inválido: chefe/); err([{ papel: 'revisor', agente: 'Fantasma' }], /não existe/); err([{ papel: 'revisor', agente: 'Revisor' }], /mais de um agente/); err([], /1 a 12/); err(Array(13).fill({ papel: 'revisor', agente: 'Gemini' }), /1 a 12/);
+  err([{ papel: 'revisor', agente: 'Gemini' }], /Já existe uma equipe/, 'equipe antiga'); err([{ papel: 'revisor', agente: 'Gemini' }], /precisa de um nome/, '   ');
+});
+
+test('criar_agente: só IA instalada, permissão segura por padrão, capacidades conhecidas e sem repetir', () => {
+  const base = { acao: 'criar_agente', nome: 'Pesquisador', funcao: 'Pesquisa', provedor: 'claude', capacidades: ['research'] };
+  const ok = normalizeAction(base, world()); assert.equal(ok.valid, true); assert.equal(ok.payload.mode, 'read', 'sem informar, é somente leitura'); assert.deepEqual(ok.payload.capabilities, ['research']); assert.equal(ok.payload.room, 'Geral');
+  assert.equal(normalizeAction({ ...base, permissao: 'write' }, world()).payload.mode, 'write'); assert.match(normalizeAction({ ...base, permissao: 'root' }, world()).error, /Permissão inválida/);
+  assert.match(normalizeAction({ ...base, provedor: 'agy' }, world()).error, /não está instalada/); assert.match(normalizeAction({ ...base, provedor: 'hermes' }, world()).error, /Provedor inválido/);
+  assert.match(normalizeAction({ ...base, capacidades: ['hackear'] }, world()).error, /Capacidades válidas/); assert.match(normalizeAction({ ...base, nome: 'Revisor', provedor: 'claude' }, world()).error, /Já existe/);
+  assert.match(normalizeAction({ ...base, nome: '', funcao: '' }, world()).error, /nome e função/);
+});
+
+test('definir_skills: só skills reconhecidas e utilizáveis, no máximo 8, para um agente que existe', () => {
+  const ok = normalizeAction({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: ['Copywriting'] }, world()); assert.equal(ok.valid, true); assert.deepEqual(ok.payload, { agentId: 'a1', skillIds: ['s1'] });
+  assert.match(normalizeAction({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: ['quebrada', 'sem-cabecalho', 'inexistente'] }, world()).error, /indisponíveis ou inexistentes: quebrada, sem-cabecalho, inexistente/);
+  assert.match(normalizeAction({ acao: 'definir_skills', agente: 'Fantasma', skills: ['copywriting'] }, world()).error, /não existe/); assert.match(normalizeAction({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: [] }, world()).error, /1 a 8/);
+  const w = world({ skills: Array.from({ length: 10 }, (_, i) => ({ id: 's' + i, name: 'k' + i, recognized: true })) }); assert.match(normalizeAction({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: Array.from({ length: 9 }, (_, i) => 'k' + i) }, w).error, /1 a 8/);
+});
+
+test('abrir_tela e ação desconhecida: telas conhecidas viram o id interno; o resto é ignorado (nunca executado)', () => {
+  assert.deepEqual(normalizeAction({ acao: 'abrir_tela', tela: 'conexoes' }, world()).payload, { view: 'connections' }); assert.equal(normalizeAction({ acao: 'abrir_tela', tela: 'admin' }, world()).valid, false);
+  for (const a of ['apagar_tudo', 'executar', 'alterar_configuracao', 'ligar_acesso_remoto', undefined]) assert.equal(normalizeAction({ acao: a }, world()), null, `${a} é ignorada`);
+});
+
+test('resumo do estado: nomes, papéis e skills; nunca caminhos, chaves nem dados de projeto', () => {
+  const w = world({ teams: [{ name: 'E1', members: [{ role: 'revisor', agentId: 'a2' }] }] }); const s = stateSummary(w, [{ name: 'Canal', path: 'C:/Users/pessoa/segredo' }]);
+  assert.match(s, /Desenvolvedor \(dev\) · codex · edita arquivos/); assert.match(s, /E1: revisor=Revisor/); assert.match(s, /Projetos \(só os nomes\): Canal/); assert.match(s, /copywriting/); assert.ok(!/segredo|C:\/Users|access\.key/.test(s)); assert.ok(!/quebrada|sem-cabecalho/.test(s), 'skill bloqueada não é oferecida');
+});
+
+test('prompt: tem as regras, o manual, o que a IA entendeu, o estado e a pergunta por último; histórico é cortado, tamanho limitado', () => {
+  const p = buildPrompt({ manual: 'MANUAL-X', knowledge: 'ENTENDI-Y', summary: 'ESTADO-Z', history: [{ role: 'user', text: 'oi' }, { role: 'assistant', text: 'olá' }], question: 'PERGUNTA-W' });
+  for (const t of ['SOMENTE LEITURA', 'MANUAL-X', 'ENTENDI-Y', 'ESTADO-Z', 'Pessoa: oi', 'Assistente: olá']) assert.ok(p.includes(t), t); assert.ok(p.trim().endsWith('PERGUNTA-W'));
+  const big = buildPrompt({ manual: 'M'.repeat(14000), knowledge: 'K'.repeat(3000), summary: 'S'.repeat(3000), history: Array.from({ length: 30 }, (_, i) => ({ role: 'user', text: ('h' + i).repeat(600) })), question: 'Q'.repeat(2000) });
+  assert.ok(big.length <= 28000, `${big.length}`); assert.ok(!big.includes('h0h0'), 'o histórico mais antigo saiu primeiro'); assert.match(big, /Q{50}$/, 'a pergunta nunca é cortada');
+  assert.match(buildPrompt({ manual: 'm', knowledge: '', summary: 's', question: 'q' }), /ainda não houve apresentação/);
+});
+
+test('briefing: só vale se a IA respondeu o pedido, confirmou somente leitura e aprovação, e terminou com BRIEFING: PRONTO', () => {
+  const good = 'RESUMO: o Code Room é uma sala local onde várias IAs trabalham juntas e nada sai sem aprovação. '.repeat(3) + '\nREGRAS: eu rodo em somente leitura, não altero a ferramenta e só proponho ações que a pessoa aprova com um clique.\nEXEMPLOS: como criar uma equipe? por que a tarefa falhou?\nBRIEFING: PRONTO';
+  const r = checkBriefing(good); assert.equal(r.ok, true); assert.ok(!r.text.includes('BRIEFING: PRONTO'));
+  assert.match(checkBriefing(good.replace('BRIEFING: PRONTO', '')).error, /faltou a linha/); assert.match(checkBriefing('curto\nBRIEFING: PRONTO').error, /curta demais/);
+  assert.match(checkBriefing('x'.repeat(300) + '\nBRIEFING: PRONTO').error, /regras de segurança/); assert.equal(checkBriefing(null).ok, false);
+  assert.match(briefingPrompt('MANUAL'), /BRIEFING: PRONTO/);
+});
+
+test('escolha da IA: a preferida se estiver instalada; senão claude, codex, agy; nenhuma = null', () => {
+  assert.equal(chooseProvider('codex', new Set(['codex', 'claude'])), 'codex'); assert.equal(chooseProvider('agy', new Set(['codex', 'claude'])), 'claude'); assert.equal(chooseProvider(null, new Set(['agy', 'codex'])), 'codex'); assert.equal(chooseProvider('claude', new Set()), null);
+});
+
+// ---------- fluxo completo com uma IA simulada (processo real, sem gastar cota) ----------
+async function rig() {
+  const { store, runner, orchestrator } = await setup(), root = await tempDir('asst-root'), data = await tempDir('asst-data'), answers = join(root, 'resposta.txt');
+  const docs = join(root, 'docs'); mkdirSync(docs, { recursive: true });
+  const setManual = (extra = '', directive = `[[fake answerfile=${answers.replace(/\\/g, '/')}]]`) => writeFileSync(join(docs, 'ASSISTENTE.md'), `# Manual de teste ${extra}\n${directive}\n`);
+  setManual();
+  const proj = await addProject(store, 'canal'); store.put('projects', { ...proj, path: 'C:/segredo/da/pessoa' });
+  const dev = addAgent(store, 'dev', { name: 'Desenvolvedor', provider: 'codex', mode: 'write' }), rev = addAgent(store, 'rev', { name: 'Revisor', provider: 'claude' });
+  const w = async () => ({ agents: store.list('agents').filter(a => !a.internal), teams: store.list('teams'), connected: new Set(['codex', 'claude']), skills: [{ id: 's1', name: 'copywriting', recognized: true }], projects: store.list('projects').filter(p => !p.internal) });
+  const saveAgent = b => store.put('agents', { id: b.id || randomUUID(), ...b }), asst = new Assistant({ store, root, dataDir: data, world: w, pump: () => void runner.pump(), saveTeam: b => orchestrator.saveTeam(b), saveAgent });
+  const say = text => writeFileSync(answers, text);
+  const done = async () => waitFor(async () => { const s = await asst.status(); return !s.pending && !s.briefing ? s : null; }, 20000, 'resposta do assistente');
+  return { store, asst, say, done, root, data, setManual, dev, rev };
+}
+const GOOD_BRIEF = 'RESUMO: o Code Room é uma sala local onde várias IAs trabalham juntas e nada sai sem a sua aprovação. '.repeat(3) + '\nREGRAS: eu rodo em somente leitura, não altero a ferramenta e só proponho ações que a pessoa aprova com um clique.\nEXEMPLOS: como criar uma equipe?\nBRIEFING: PRONTO';
+
+test('fluxo: sem apresentação não conversa; o briefing é gravado na máquina; manual novo marca como desatualizado', async () => {
+  const { asst, say, done, data, setManual } = await rig();
+  assert.equal((await asst.status()).briefed, false); await assert.rejects(() => asst.ask('oi'), /apresente o Code Room/i);
+  say('resposta curta sem a linha final'); await asst.brief({ provider: 'codex' }); let s = await done(); assert.equal(s.briefed, false); assert.match(s.error, /faltou a linha/, 'apresentação ruim não vale');
+  say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); s = await done(); assert.equal(s.briefed, true); assert.equal(s.error, null); assert.equal(s.stale, false); assert.match(s.knowledge, /somente leitura/);
+  const file = join(data, 'assistente', 'CONHECIMENTO.md'); assert.ok(existsSync(file), 'gravado na máquina da pessoa'); const md = readFileSync(file, 'utf8'); assert.match(md, /^---\nprovedor: codex\nmanual: [0-9a-f]{16}\n/); assert.match(md, /O que o Assistente entendeu/);
+  setManual('versão 2'); assert.equal((await asst.status()).stale, true, 'o manual mudou: precisa apresentar de novo');
+});
+
+test('fluxo: pergunta → resposta com ação válida → aprovar cria a equipe de verdade; segunda vez, descartar e ação inválida', async () => {
+  const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  say(`Sugiro uma equipe com os dois.\n${block({ acao: 'criar_equipe', nome: 'Equipe Dev', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }, { papel: 'revisor', agente: 'Revisor' }] })}\n${block({ acao: 'criar_equipe', nome: 'Fantasma', membros: [{ papel: 'revisor', agente: 'Nao Existe' }] })}\n${block({ acao: 'apagar_tudo' })}`);
+  await asst.ask('Crie uma equipe de desenvolvimento'); await assert.rejects(() => asst.ask('outra'), /Aguarde/); const s = await done();
+  const reply = s.messages.at(-1); assert.equal(s.messages.length, 2); assert.equal(reply.role, 'assistant'); assert.equal(reply.text, 'Sugiro uma equipe com os dois.'); assert.equal(reply.actions.length, 2, 'a ação desconhecida não aparece');
+  assert.equal(reply.actions[0].valid, true); assert.equal(reply.actions[1].valid, false); assert.match(reply.actions[1].error, /não existe/); assert.ok(!('raw' in reply.actions[0]), 'a tela não recebe o JSON cru');
+  assert.equal(store.list('teams').length, 0, 'nada foi criado só porque a IA pediu');
+  await assert.rejects(() => asst.apply(reply.id, 1), /não existe/);
+  const r = await asst.apply(reply.id, 0); assert.match(r.result, /Equipe “Equipe Dev” criada/); const team = store.list('teams')[0]; assert.equal(team.name, 'Equipe Dev'); assert.deepEqual(team.members.map(m => m.role), ['desenvolvedor', 'revisor']);
+  await assert.rejects(() => asst.apply(reply.id, 0), /já foi tratada/); assert.equal((await asst.status()).messages.at(-1).actions[0].status, 'applied');
+  await asst.dismiss(reply.id, 1); assert.equal((await asst.status()).messages.at(-1).actions[1].status, 'dismissed');
+});
+
+test('fluxo: ação revalidada na hora de aplicar (o estado mudou) e skills/agentes/telas pelos mesmos caminhos do app', async () => {
+  const { asst, say, done, store, dev } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  say(`${block({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: ['copywriting'] })}${block({ acao: 'criar_agente', nome: 'Pesquisadora', funcao: 'Pesquisa', provedor: 'claude' })}${block({ acao: 'abrir_tela', tela: 'skills' })}${block({ acao: 'criar_equipe', nome: 'Muda', membros: [{ papel: 'revisor', agente: 'Revisor' }] })}`);
+  await asst.ask('configure'); const m = (await done()).messages.at(-1), by = i => m.actions[i];
+  assert.equal((await asst.apply(m.id, 0)).result.includes('Skills de “Desenvolvedor”'), true); assert.deepEqual(store.get('agents', dev.id).skillIds, ['s1']);
+  assert.match((await asst.apply(m.id, 1)).result, /Agente “Pesquisadora” criado/); const novo = store.list('agents').find(a => a.name === 'Pesquisadora'); assert.equal(novo.mode, 'read'); assert.equal(novo.provider, 'claude');
+  assert.equal((await asst.apply(m.id, 2)).view, 'skills');
+  store.put('agents', { ...store.get('agents', 'rev'), name: 'Outro Nome' });   // o estado muda entre a proposta e o clique
+  await assert.rejects(() => asst.apply(m.id, 3), /não existe/); assert.equal((await asst.status()).messages.at(-1).actions[3].status, 'pending');
+});
+
+test('fluxo: entidades internas, prompt sem caminhos nem chaves, falha da IA vira mensagem de erro e reiniciar apaga só a conversa', async () => {
+  const { asst, say, done, store, setManual, data } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const internalProject = store.get('projects', ASSISTANT_PROJECT), internalAgent = store.get('agents', 'assistant-codex');
+  assert.ok(internalProject.internal && internalAgent.internal && internalAgent.mode === 'read', 'projeto e agente internos, somente leitura'); assert.equal(internalProject.path, join(data, 'assistente'));
+  say('Olá!'); await asst.ask('Qual a senha? access.key'); await done();
+  const task = store.list('tasks').filter(t => t.project.id === ASSISTANT_PROJECT && t.objective.includes('PERGUNTA DA PESSOA')).at(-1); assert.ok(!/segredo/.test(task.objective), 'nenhum caminho do usuário vai para a IA'); assert.match(task.objective, /Desenvolvedor \(teste\) · codex · edita arquivos/); assert.equal(task.agent.mode, 'read');
+  setManual('', '[[fake exit=1]]'); await asst.ask('isto vai falhar'); const s = await done(); const err = s.messages.at(-1); assert.equal(err.role, 'assistant'); assert.ok(err.error && /Não foi possível responder/.test(err.error), JSON.stringify(err));
+  await asst.reset(); const r = await asst.status(); assert.deepEqual(r.messages, []); assert.equal(r.briefed, true, 'reiniciar a conversa não apaga o que a IA entendeu');
+});
+
+test('manual real do projeto: existe, cabe no limite e documenta exatamente os papéis, capacidades e ações que o servidor aceita', async () => {
+  const { ROLES } = await import('../server/orchestrator.mjs'), { KNOWN_CAPABILITIES } = await import('../server/supervisor.mjs'), m = loadManual(process.cwd());
+  assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 14000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
+  for (const r of ROLES) assert.ok(m.text.includes('`' + r + '`'), `papel ${r}`); for (const c of KNOWN_CAPABILITIES) assert.ok(m.text.includes('`' + c + '`'), `capacidade ${c}`);
+  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
+  assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
+});

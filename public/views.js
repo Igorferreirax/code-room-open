@@ -1,5 +1,6 @@
 // Telas do Code Room (parte 1). Cada função recebe o contexto e devolve HTML.
 // Guia visual: sem dados de demonstração, sem porcentagem inventada, ausência de dado ≠ zero.
+import { wordmark } from './brand.js';
 import { icon } from './icons.js';
 import { banner, heroScene, thumb, avatar, agentAv, logo } from './art.js';
 
@@ -42,16 +43,16 @@ export function railHtml(cur) {
 }
 export function topbarHtml(ctx) {
   const online = ctx.state.agents.filter(a => ctx.agentStatus(a).status !== 'disconnected').length;
-  return `<div class="brand">${logo(28)}<span>Code <b>Room</b></span></div>
+  return `<div class="brand">${logo(28)}<span class="wm">${wordmark(18)}</span></div>
   <label class="project-pill"><span class="sr-only">Projeto</span><select id="project-select">${ctx.state.projects.length ? ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${p.id === ctx.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('') : '<option value="">Nenhum projeto</option>'}</select></label>
-  <div class="top-right"><span class="online"><span class="dot d-${ctx.connection === 'live' ? 'ok' : ctx.connection === 'lost' ? 'warn' : 'idle'}"></span><span>${online} ${online === 1 ? 'agente conectado' : 'agentes conectados'}</span></span>
+  <div class="top-right"><button type="button" class="btn ghost sm asst-btn" data-act="asst-toggle" aria-pressed="${!!ctx.ui.asstOpen}">Assistente</button><span class="online"><span class="dot d-${ctx.connection === 'live' ? 'ok' : ctx.connection === 'lost' ? 'warn' : 'idle'}"></span><span>${online} ${online === 1 ? 'agente conectado' : 'agentes conectados'}</span></span>
   <span class="pill ${ctx.connection === 'live' ? 'ok' : 'warn'}" role="status">${{ live: 'Conectado', connecting: 'Conectando…', lost: 'Reconectando…', off: 'Desconectado' }[ctx.connection]}</span>
   <div class="who"><button data-act="who" aria-haspopup="menu" aria-expanded="${!!ctx.ui.whoOpen}" aria-label="Menu do usuário">${avatar(1, 36)}${icon('down', 16)}</button>${ctx.ui.whoOpen ? `<div class="menu" role="menu"><button role="menuitem" data-nav="settings">${icon('palette', 18)} Aparência</button><button role="menuitem" data-act="onb-open">${icon('sparkle', 18)} Guia de boas-vindas</button><button role="menuitem" data-act="logout">${icon('lock', 18)} Bloquear painel</button></div>` : ''}</div></div>`;
 }
 
 // ---------- Entrada ----------
 export function viewLogin(ctx) {
-  return `<div class="login"><div class="tb"><div class="brand">${logo(28)}<span>Code <b>Room</b></span></div></div>
+  return `<div class="login"><div class="tb"><div class="brand">${logo(28)}<span class="wm">${wordmark(18)}</span></div></div>
   <div class="body"><div class="hero-side">${heroScene()}</div>
   <form class="box" id="login-form" autocomplete="off"><h1>Seu espaço de trabalho,<br><b>conectado.</b></h1><p class="sub">Projetos, agentes e ideias em um só lugar.</p>
     <div class="tabs" role="tablist"><span class="tab on" role="tab" aria-selected="true">${icon('terminal', 18)} Acesso local</span></div>
@@ -181,8 +182,8 @@ export function viewExecution(ctx) {
       <div class="btn-row" style="margin-top:10px"><button class="btn">${icon('send', 16)} Enviar</button></div></form></section>` : ''}
     ${(() => { const iso = d.result?.isolation; if (!iso && !d.isolate) return ''; if (!iso) return `<section class="card"><h2>Worktree isolado</h2><p class="muted small">Esta tarefa roda numa cópia do Git em branch própria; os detalhes aparecem quando ela começar.</p></section>`; return `<section class="card"><div class="card-h"><h2>Worktree isolado</h2>${iso.removed ? '<span class="chip">Removido</span>' : ''}</div><p class="small">Branch <code>${esc(iso.branch)}</code></p><p class="small muted">Pasta: <code>${esc(iso.worktree)}</code></p><p class="small muted">${iso.removed ? 'A cópia e a branch foram descartadas.' : 'Nada foi mesclado. Para integrar, revise a pasta acima e use o Git (por exemplo, confirme as mudanças na branch e faça o merge). Remover descarta as mudanças que não foram integradas.'}</p>${!iso.removed && final ? `<div class="btn-row" style="margin-top:10px"><button class="btn outline sm" data-act="rm-worktree" data-id="${esc(d.id)}">${icon('x', 16)} Remover worktree e branch</button></div>` : ''}</section>`; })()}
     <div class="cols" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:14px"><section class="card" style="margin:0"><div class="card-h"><h2>Saída em tempo real</h2><span class="chip"><span class="dot d-${live ? 'running' : 'idle'}"></span>${esc(PROVIDER[d.agent.provider])}</span><button class="btn ghost sm" data-act="full-out">${icon('external', 16)} ${ctx.ui.fullOut ? 'Reduzir' : 'Tela cheia'}</button></div>
-      <pre class="out ${ctx.ui.fullOut ? 'full' : ''}">${logs.length ? logs.map(e => `<span class="logline"><span class="t">${hm(e.at)}</span><span>${esc((e.text || JSON.stringify(e.usage || '')).slice(0, 400))}</span></span>`).join('\n') : esc(live ? 'Aguardando eventos do agente…' : 'Sem eventos de saída.')}</pre></section>
-      <section class="card" style="margin:0"><div class="card-h"><h2>${final ? 'Resultado' : 'Última saída concluída'}</h2>${d.status === 'completed' ? `<span style="color:var(--ok)">${icon('check', 22)}</span>` : ''}</div>${d.answer ? `<p class="small muted">${esc(new Date(d.updatedAt).toLocaleString('pt-BR'))}</p><pre class="out">${esc(d.answer)}</pre>` : empty(live ? 'Ainda sem resposta do agente.' : 'Sem resposta registrada.')}</section></div>` : ''}
+      <pre class="out ${ctx.ui.fullOut ? 'full' : ''}">${logs.length ? logs.map(e => `<span class="logline"><span class="t">${hm(e.at)}</span><span>${esc((e.text || JSON.stringify(e.usage || '')).slice(0, 400))}</span></span>`).join('\n') : esc(live ? 'Aguardando eventos do agente…' : (d.reason ? 'Não chegou a rodar: ' + String(d.reason).slice(0, 260) : 'Sem eventos de saída.'))}</pre></section>
+      <section class="card" style="margin:0"><div class="card-h"><h2>${final ? 'Resultado' : 'Última saída concluída'}</h2>${d.status === 'completed' ? `<span style="color:var(--ok)">${icon('check', 22)}</span>` : ''}</div>${d.answer ? `<p class="small muted">${esc(new Date(d.updatedAt).toLocaleString('pt-BR'))}</p><pre class="out">${esc(d.answer)}</pre>` : empty(live ? 'Ainda sem resposta do agente.' : (d.reason ? 'Sem resposta porque a tarefa não rodou: ' + String(d.reason).slice(0, 260) : 'Sem resposta registrada.'))}</section></div>` : ''}
   ${tab === 'eventos' ? `<section class="card"><h2>Eventos persistidos</h2><pre class="out full">${esc(logs.map(e => `${time(e.at)} [${e.type}] ${(e.text || JSON.stringify(e.usage || '')).slice(0, 600)}`).join('\n\n') || 'Nenhum evento ainda.')}</pre></section>` : ''}
   ${tab === 'arquivos' ? `<section class="card"><h2>Entregas</h2>${files.length ? files.map(f => `<div class="setting"><span>${icon('file', 20)}</span><span class="grow">${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.path)}</a>` : esc(f.path)}<br><small class="muted">${esc({ created: 'criado', modified: 'alterado', deleted: 'removido' }[f.change] || f.change)} · ${kb(f.bytes)}${f.sha256 ? ` · sha256 ${esc(f.sha256.slice(0, 10))}` : ''}</small></span></div>`).join('') + '<p class="muted small" style="margin-top:8px">Abrir uma entrega não a publica nem a aprova.</p>' : empty(live ? 'Ainda não há arquivos registrados; eles aparecem quando a execução terminar.' : 'Nenhum arquivo criado ou alterado.')}</section>` : ''}
   </div>

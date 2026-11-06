@@ -5,6 +5,9 @@ import * as W from './views2.js';
 import { icon } from './icons.js';
 import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
 import * as O from './onboarding.js';
+import * as U from './updates-ui.js';
+import { assistantHtml } from './assistant-ui.js';
+import { LofiRadio } from './radio.js';
 
 const $ = id => document.getElementById(id);
 const { esc } = V;
@@ -173,6 +176,7 @@ function render() {
   tickClocks();
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
+  $('update-bar').innerHTML = U.updateBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
   applyPrefs();
 }
 function drawOffice() {
@@ -181,6 +185,45 @@ function drawOffice() {
   renderPhotoOffice(officeHost, { stations: ctx.roomAgents().slice(0, ctx.maxStations).map(model), supervisor: sup ? model(sup) : null, onSelect: openDrawer });
 }
 const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach(el => el.textContent = V.dur(Date.now() - Date.parse(el.dataset.since)));
+
+// ---------- Rádio da Sala ----------
+let radio = null;
+function updateRadioUi() {
+  const on = !!radio?.playing, b = $('radio-btn'), v = $('radio-vol'); if (!b) return;
+  b.textContent = on ? '⏸ Rádio da Sala (tocando)' : '♪ Rádio da Sala'; b.setAttribute('aria-pressed', String(on)); v.hidden = !on; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
+}
+$('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { volume: x }); });
+document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
+
+// ---------- Atualização ----------
+// ---------- Assistente (painel lateral; só no computador) ----------
+let asstTimer = null;
+function renderAsst() {
+  const el = $('asst'); el.hidden = !ctx.ui.asstOpen; $('shell').classList.toggle('asst-open', !!ctx.ui.asstOpen); if (!ctx.ui.asstOpen) return;
+  const ta = $('asst-input'); if (ta) ctx.ui.asstDraft = ta.value;
+  const focus = document.activeElement?.id, sel = ta && document.activeElement === ta ? [ta.selectionStart, ta.selectionEnd] : null, log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0;
+  el.innerHTML = assistantHtml(ctx.asst, { draft: ctx.ui.asstDraft });
+  const nl = $('asst-log'); if (nl && (atEnd || n !== ctx.ui.asstCount)) nl.scrollTop = nl.scrollHeight; ctx.ui.asstCount = n;
+  if (focus && $(focus) && !$(focus).disabled) { $(focus).focus(); if (sel && $(focus).setSelectionRange) $(focus).setSelectionRange(sel[0], sel[1]); }
+}
+async function loadAsst() {
+  try { ctx.asst = await api('assistant'); } catch (e) { ctx.asst = { connected: [], manual: { available: true }, messages: [], error: e.message }; }
+  renderAsst(); clearTimeout(asstTimer);
+  if (ctx.ui.asstOpen && (ctx.asst?.pending || ctx.asst?.briefing)) asstTimer = setTimeout(loadAsst, 1500);
+}
+async function asstCall(path, body) { try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); }
+async function loadUpdates() { try { ctx.updates = await api('updates'); render(); } catch {} }
+function watchDownload() {
+  const t = setInterval(async () => { await loadUpdates(); if (ctx.updates?.download?.state !== 'downloading') clearInterval(t); }, 1000);
+}
+// Depois de "Instalar": o serviço fecha e reabre; quando responder com a versão nova, recarrega a página para usar a interface nova.
+function watchInstall(version) {
+  const started = Date.now();
+  const t = setInterval(async () => {
+    if (Date.now() - started > 180000) { clearInterval(t); ctx.ui.updOpen = false; const d = $('update-dialog'); if (d.open) d.close(); notify('A atualização está demorando. Abra o Code Room de novo; se continuar assim, veja o arquivo update.log na pasta de dados.', true); return; }
+    try { const s = await (await fetch('/api/state', { headers: { 'X-Code-Room-Key': key } })).json(); if (s?.runtime?.version === version) { clearInterval(t); location.reload(); } } catch {}
+  }, 2000);
+}
 
 // ---------- Primeiro uso ----------
 const onbFlags = () => store.get('cr.onb', {});
@@ -286,6 +329,29 @@ const actions = {
   'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
+  // ---- Rádio da Sala: lo-fi gerado no navegador. Desligada por padrão; só toca quando a pessoa clica (o navegador não permite tocar sozinho). ----
+  'radio-toggle': async () => {
+    if (radio?.playing) { radio.stop(); radio = null; }
+    else { radio = new LofiRadio(); radio.vol = store.get('cr.radio', {}).volume ?? 0.7; try { await radio.start(); } catch (e) { radio = null; notify(e.message, true); } }
+    updateRadioUi();
+  },
+  // ---- Atualização: verificar, adiar, baixar com SHA-256 e instalar (só o computador) ----
+  'asst-toggle': () => { ctx.ui.asstOpen = !ctx.ui.asstOpen; render(); renderAsst(); if (ctx.ui.asstOpen) { loadAsst(); setTimeout(() => $('asst-input')?.focus(), 50); } },
+  'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
+  'asst-reset': () => asstCall('reset'),
+  'asst-suggest': q => { const ta = $('asst-input'); if (!ta) return; ta.value = q; ctx.ui.asstDraft = q; ta.focus(); ta.setSelectionRange(q.length, q.length); },
+  'asst-apply': async id => { const [m, i] = id.split(':'); try { const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status; if (r.view) await go(r.view); } catch (e) { notify(e.message, true); try { ctx.asst = await api('assistant'); } catch {} } renderAsst(); },
+  'asst-dismiss': async id => { const [m, i] = id.split(':'); await asstCall('dismiss', { messageId: m, index: Number(i) }); },
+  'upd-open': () => { ctx.ui.updOpen = true; render(); const d = $('update-dialog'); if (!d.open) d.showModal(); },
+  'upd-close': () => { ctx.ui.updOpen = false; const d = $('update-dialog'); if (d.open) d.close(); },
+  'upd-later': async () => { try { ctx.updates = await api('updates/dismiss', { version: ctx.updates.latest.version }); render(); } catch (e) { notify(e.message, true); } },
+  'upd-check': async () => { notify('Verificando atualizações…'); try { ctx.updates = await api('updates/check', {}); render(); notify(ctx.updates.error || (ctx.updates.hasUpdate ? `Versão ${ctx.updates.latest.version} disponível.` : 'Você está na versão mais recente.'), !!ctx.updates.error); } catch (e) { notify(e.message, true); } },
+  'upd-toggle': async () => { try { ctx.updates = await api('updates/settings', { enabled: !ctx.updates.enabled }); render(); } catch (e) { notify(e.message, true); } },
+  'upd-download': async () => { try { ctx.updates = await api('updates/download', {}); render(); watchDownload(); } catch (e) { notify(e.message, true); } },
+  'upd-install': async () => {
+    if (!confirm('Instalar a atualização agora? O Code Room vai fechar e abrir sozinho em cerca de 30 segundos. Seus projetos e agentes não são tocados.')) return;
+    try { const v = ctx.updates.download.version; ctx.updates = await api('updates/install', {}); render(); watchInstall(v); } catch (e) { notify(e.message, true); }
+  },
   // ---- Primeiro uso: triagem das IAs e tutorial guiado (pode ser pulado; o guia reabre pelo menu do usuário) ----
   'onb-open': () => { ctx.ui.whoOpen = false; openSetup(); },
   'onb-recheck': async () => { ctx.ui.onb = { ...ctx.ui.onb, msg: '' }; ctx.checks = null; render(); await loadChecks(true); },
@@ -344,7 +410,7 @@ const actions = {
   'routine-del': async id => { ctx.ui.routineMenu = null; await api(`routines/${id}/delete`, {}); notify('Rotina excluída.'); await refresh(); },
   'routine-test': async () => { const r = await saveRoutine(); await api(`routines/${r.id}/run`, {}); notify('Rotina salva e iniciada.'); ctx.ui.panel = null; await refresh(); },
   theme: id => { ctx.prefs.theme = id; savePrefs(); render(); }, 'save-prefs': () => { savePrefs(); notify('Preferências salvas neste navegador.'); },
-  'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); render(); },
+  'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); if (id === 'atualizacoes') loadUpdates(); render(); },
   'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
   'spotify-toggle': () => { ctx.ui.spotifyOpen = !ctx.ui.spotifyOpen; renderSpotify(); },
@@ -532,15 +598,20 @@ document.addEventListener('keydown', e => {   // captura: roda antes do Enter qu
   else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); $('slash-pop')?.remove(); pop = null; }
 }, true);
 
+document.addEventListener('submit', e => { if (e.target.id !== 'asst-form') return; e.preventDefault(); const ta = $('asst-input'), t = ta.value.trim(); if (!t) return; ctx.ui.asstDraft = ''; ta.value = ''; ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text: t, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text: t }); });
+document.addEventListener('keydown', e => { if (e.target.id === 'asst-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('asst-form').requestSubmit(); } });
+document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); });
+$('update-dialog').addEventListener('cancel', e => { if (ctx.updates?.download?.state === 'installing') e.preventDefault(); });
+$('update-dialog').addEventListener('close', () => { ctx.ui.updOpen = false; });
 let started = false;
 async function start() {
   try {
     ctx.state = await api('state'); ctx.authed = true;
     sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
-    loadSkills(); loadChecks(); applyPrefs(); render(); maybeStartOnboarding();
+    loadSkills(); loadChecks(); applyPrefs(); render(); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
     if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
-  } catch (e) { ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
+  } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
 }
 applyPrefs();
 if (pairFromHash) pairWith(pairFromHash).catch(e => { ctx.ui.loginError = e.message; $('login').hidden = false; renderLogin(); });

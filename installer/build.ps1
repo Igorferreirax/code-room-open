@@ -17,8 +17,9 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 # 1) Só o que o app precisa para rodar (sem testes, docs de desenvolvimento nem scripts de teste).
 foreach ($d in 'server', 'public') { Copy-Item -LiteralPath $d -Destination (Join-Path $stage $d) -Recurse }
 New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
-foreach ($f in 'start.ps1', 'stop.ps1', 'criar-atalhos.ps1') { Copy-Item -LiteralPath (Join-Path 'scripts' $f) -Destination (Join-Path $stage 'scripts') }
+foreach ($f in 'start.ps1', 'stop.ps1', 'criar-atalhos.ps1', 'atualizar.ps1') { Copy-Item -LiteralPath (Join-Path 'scripts' $f) -Destination (Join-Path $stage 'scripts') }
 foreach ($f in 'package.json', 'LICENSE', 'README.md', 'README.en.md', 'INSTALAR.md', 'Iniciar-Code-Room.cmd', 'Criar-Atalhos.cmd') { Copy-Item -LiteralPath $f -Destination $stage }
+New-Item -ItemType Directory -Force (Join-Path $stage 'docs') | Out-Null; Copy-Item -LiteralPath 'docs\ASSISTENTE.md' -Destination (Join-Path $stage 'docs')
 Copy-Item -LiteralPath 'installer\code-room.ico' -Destination $stage
 
 # 2) Node embutido + licença

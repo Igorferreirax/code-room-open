@@ -13,7 +13,10 @@ function onPath(name) {
   return (process.env.PATH || '').split(delimiter).some(d => exts.some(x => d && existsSync(join(d, name + x))));
 }
 
-function frontmatter(body) {
+// O BOM (byte invisível que o Bloco de Notas e o Windows PowerShell 5 gravam no começo do arquivo) não pode esconder o cabeçalho.
+const noBom = s => s.replace(/^﻿/, '');
+export function frontmatter(body) {
+  body = noBom(body);
   const m = body.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return null;
   const fields = {};
@@ -41,7 +44,7 @@ export async function scanSkills(projectPath, { limit = 1200, extraRoots = [] } 
       const path = join(dir, e.name);
       if (e.isFile() && e.name === 'SKILL.md') {
         const canonical = await realpath(path); if (seen.has(canonical)) continue; seen.add(canonical);
-        const body = (await readFile(path, 'utf8')).slice(0, 60000);
+        const body = noBom(await readFile(path, 'utf8')).slice(0, 60000);
         const fm = frontmatter(body);
         const name = fm?.name || body.match(/^name:\s*(.+)$/m)?.[1]?.trim() || dir.split(/[\\/]/).at(-1);
         const missing = [], missingRefs = [], dependencies = [];
