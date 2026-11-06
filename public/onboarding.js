@@ -43,7 +43,8 @@ function row(ctx, id) {
 export function setupHtml(ctx) {
   const o = ctx.ui.onb || {}, plan = starterPlan(ctx), ready = ctx.checks != null;
   const nothing = ready && plan.connected.length === 0;
-  const create = plan.agents.length || plan.team
+  // Agentes iniciais são para instalação nova: quem já tem agentes não recebe a oferta.
+  const create = (ctx.state?.agents || []).length === 0 && (plan.agents.length || plan.team)
     ? `<button type="button" class="btn" data-act="onb-create"${o.busy ? ' disabled' : ''}>${o.busy ? 'Criando…' : `Criar agentes iniciais (${plan.agents.length}${plan.team ? ' + equipe' : ''})`}</button>` : '';
   return `<div class="onb-backdrop"><section class="onb-card" role="dialog" aria-modal="true" aria-labelledby="onb-title" tabindex="-1">
     <p class="onb-kicker">Boas-vindas</p><h2 id="onb-title">Vamos conectar as suas IAs</h2>

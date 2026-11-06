@@ -38,6 +38,7 @@ test('agentes iniciais: um por IA conectada, Codex edita e os outros só leem, e
   const again = starterPlan(ctx(all, { agents: [{ provider: 'codex', name: 'Desenvolvedor' }], teams: [{ name: 'Equipe de Desenvolvimento' }] }));
   assert.deepEqual(again.agents.map(a => a.provider), ['claude', 'agy'], 'não repete agente que já existe'); assert.equal(again.team, false, 'nem a equipe');
   const html = setupHtml(ctx(all)); assert.match(html, /Criar agentes iniciais \(3 \+ equipe\)/);
+  const veteran = setupHtml(ctx(all, { agents: [{ provider: 'agy', name: 'Outro' }] })); assert.doesNotMatch(veteran, /onb-create/, 'quem já tem agentes não recebe a oferta de agentes iniciais');
 });
 
 test('tutorial: cobre TODAS as telas do menu, na ordem do menu, e cada passo destaca o botão certo', () => {

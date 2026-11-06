@@ -17,7 +17,7 @@ Legenda: ✅ feito · ⬜ a fazer
 - ✅ Instalador `.exe` gerado (Inno Setup, assistente em português, ícone opcional na área de trabalho). **Não executado em teste**: o Windows 11 com Smart App Control barra instaladores sem assinatura.
 - ⬜ **Assinatura digital** do instalador (necessária para o Smart App Control): [SignPath Foundation](https://signpath.org/) (gratuito para código aberto), Azure Artifact Signing ou certificado pago.
 - ⬜ SHA-256 de cada arquivo publicado junto do Release.
-- ⬜ Aviso de versão nova em Configurações.
+- ⬜ Aviso de **versão nova** com botão Atualizar (verificação opcional no GitHub, SHA-256, sem *downgrade*). Plano e testes em [LANCAMENTO-V1.md](LANCAMENTO-V1.md).
 
 ### Primeiro uso
 - ✅ Triagem para conectar as IAs (Codex, Claude Code, Gemini) com o comando exato de instalar ou entrar, e criação de agentes iniciais.
