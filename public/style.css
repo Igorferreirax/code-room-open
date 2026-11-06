@@ -384,3 +384,8 @@ html[data-motion=on] .cv-typing i{animation:cvdot 1s ease-in-out infinite}html[d
 .as-done{color:#5fe3b0}.as-wait{color:var(--muted);font-style:italic}.as-empty .chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .as-form textarea{width:100%;resize:vertical;min-height:52px;max-height:160px;box-sizing:border-box}
 @media (max-width:760px){.asst{width:100vw}#shell.asst-open .main{margin-right:0}}
+
+/* Listas de seleção abertas (menus nativos) seguem o tema, sem o fundo branco do navegador */
+:root{color-scheme:dark}:root[data-theme=minimal]{color-scheme:light}
+select option,select optgroup{background:var(--panel);color:var(--text)}
+select option:checked{background:var(--accent);color:var(--on-accent,#fff)}

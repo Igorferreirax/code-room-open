@@ -23,7 +23,7 @@ O zip já leva o Node dentro: **você não precisa instalar o Node**. Seus dados
 ## C. Peça para a sua IA instalar
 Cole no Claude Code ou no Codex:
 
-> Instale o Code Room a partir de https://github.com/<seu-usuario>/code-room e abra para mim.
+> Instale o Code Room a partir de https://github.com/Igorferreirax/code-room-open: leia o README, clone o repositório, confira se o Node é 24 ou superior, rode npm start e abra para mim. Não altere nada fora da pasta do projeto.
 
 A IA clona o repositório, confere o Node (24 ou superior) e roda `npm start`.
 

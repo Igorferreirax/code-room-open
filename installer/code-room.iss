@@ -30,6 +30,9 @@ LicenseFile={#StageDir}\LICENSE
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
+WizardImageFile={#SourcePath}\wizard\lateral-164.bmp,{#SourcePath}\wizard\lateral-246.bmp,{#SourcePath}\wizard\lateral-328.bmp
+WizardSmallImageFile={#SourcePath}\wizard\selo-55.bmp,{#SourcePath}\wizard\selo-64.bmp,{#SourcePath}\wizard\selo-110.bmp
+WizardImageAlphaFormat=none
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
@@ -37,6 +40,11 @@ UsePreviousAppDir=yes
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+
+[Messages]
+brazilianportuguese.WelcomeLabel2=Este assistente instala o [name/ver] só para o seu usuário do Windows, sem precisar de administrador.%n%nSeus projetos, agentes e a chave de acesso ficam em uma pasta separada e não são apagados ao atualizar nem ao desinstalar.%n%nFeche outros programas se quiser e clique em Avançar.
+brazilianportuguese.FinishedHeadingLabel=Tudo pronto!
+brazilianportuguese.FinishedLabel=O [name] foi instalado. Ele abre no seu navegador e roda só neste computador.
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar um ícone do Code Room na área de trabalho"; GroupDescription: "Atalhos:"

@@ -10,7 +10,7 @@ import { pipeline } from 'node:stream/promises';
 // Atualização: o SERVIÇO (não o navegador) consulta o último Release público no GitHub, de forma opcional.
 // Só vai um pedido simples (seu IP e o nome do app); nenhum dado seu. Falha silenciosa sem internet.
 // Nunca oferece versão igual ou menor; só baixa arquivos do próprio repositório e só aceita se o SHA-256 bater.
-export const DEFAULT_REPO = 'Igorferreirax/code-room';
+export const DEFAULT_REPO = 'Igorferreirax/code-room-open';
 const MAX_ZIP = 400 * 1024 * 1024, ZIP_RE = /^Code-Room-.+-portatil-win-x64\.zip$/, SUMS = 'SHA256SUMS.txt';
 const HOSTS = ['github.com', 'api.github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com'];
 

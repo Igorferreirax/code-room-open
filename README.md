@@ -25,7 +25,7 @@
 
 ## Começar
 ```bash
-git clone https://github.com/<seu-usuario>/code-room.git
+git clone https://github.com/Igorferreirax/code-room-open.git
 cd code-room
 npm start
 ```
