@@ -12,6 +12,7 @@
 - **Routines.** By schedule, manual, or when a file appears.
 - **Honest usage.** Whatever the provider does not report shows as "unavailable" (`indisponível`), never as zero or invented.
 - **On your phone.** QR pairing (one-time code, per-device token, revocable) over the local network or Tailscale. **Off** by default.
+- **Guided first run.** On a fresh install, a triage checks which AIs (Codex, Claude Code, Gemini) are installed and signed in, shows the exact command to install or log in, and creates starter agents in one click. A step-by-step tour then presents the 12 screens. You can **skip** at any time and replay it from the user menu › Guia de boas-vindas.
 - **Local and private.** The service only listens on `127.0.0.1`. It uses the CLIs you are already logged into; Code Room never stores or shows credentials.
 
 The interface is in Brazilian Portuguese for now.

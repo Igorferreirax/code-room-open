@@ -4,7 +4,7 @@ import { qrSvg } from './qr.js';
 import { heroScene, thumb, themeImg, avatar, agentAv } from './art.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
-const COMMANDS = {
+export const COMMANDS = {
   codex: { name: 'Codex CLI', desc: 'Codificação e automação via terminal', install: 'npm install -g @openai/codex', login: 'codex login', update: 'npm install -g @openai/codex@latest' },
   claude: { name: 'Claude Code', desc: 'Assistente de código da Anthropic', install: 'npm install -g @anthropic-ai/claude-code', login: 'claude auth login', update: 'claude update' },
   agy: { name: 'Antigravity (Gemini)', desc: 'Agente do Google com modelos Gemini', install: 'Instale o Antigravity pelo site oficial do Google', login: 'agy', update: 'agy update' },

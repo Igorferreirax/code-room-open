@@ -46,7 +46,7 @@ export function topbarHtml(ctx) {
   <label class="project-pill"><span class="sr-only">Projeto</span><select id="project-select">${ctx.state.projects.length ? ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${p.id === ctx.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('') : '<option value="">Nenhum projeto</option>'}</select></label>
   <div class="top-right"><span class="online"><span class="dot d-${ctx.connection === 'live' ? 'ok' : ctx.connection === 'lost' ? 'warn' : 'idle'}"></span><span>${online} ${online === 1 ? 'agente conectado' : 'agentes conectados'}</span></span>
   <span class="pill ${ctx.connection === 'live' ? 'ok' : 'warn'}" role="status">${{ live: 'Conectado', connecting: 'Conectando…', lost: 'Reconectando…', off: 'Desconectado' }[ctx.connection]}</span>
-  <div class="who"><button data-act="who" aria-haspopup="menu" aria-expanded="${!!ctx.ui.whoOpen}" aria-label="Menu do usuário">${avatar(1, 36)}${icon('down', 16)}</button>${ctx.ui.whoOpen ? `<div class="menu" role="menu"><button role="menuitem" data-nav="settings">${icon('palette', 18)} Aparência</button><button role="menuitem" data-act="logout">${icon('lock', 18)} Bloquear painel</button></div>` : ''}</div></div>`;
+  <div class="who"><button data-act="who" aria-haspopup="menu" aria-expanded="${!!ctx.ui.whoOpen}" aria-label="Menu do usuário">${avatar(1, 36)}${icon('down', 16)}</button>${ctx.ui.whoOpen ? `<div class="menu" role="menu"><button role="menuitem" data-nav="settings">${icon('palette', 18)} Aparência</button><button role="menuitem" data-act="onb-open">${icon('sparkle', 18)} Guia de boas-vindas</button><button role="menuitem" data-act="logout">${icon('lock', 18)} Bloquear painel</button></div>` : ''}</div></div>`;
 }
 
 // ---------- Entrada ----------

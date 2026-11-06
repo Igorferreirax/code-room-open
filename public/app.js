@@ -4,6 +4,7 @@ import * as V from './views.js';
 import * as W from './views2.js';
 import { icon } from './icons.js';
 import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
+import * as O from './onboarding.js';
 
 const $ = id => document.getElementById(id);
 const { esc } = V;
@@ -171,6 +172,7 @@ function render() {
   const rt = ctx.state.runtime; $('runtime-foot').textContent = rt.version ? `v${rt.version} · serviço ${rt.memoryMB} MB${rt.paused ? ' · novas tarefas pausadas' : ''}` : '';
   tickClocks();
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
+  $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
   applyPrefs();
 }
 function drawOffice() {
@@ -179,6 +181,17 @@ function drawOffice() {
   renderPhotoOffice(officeHost, { stations: ctx.roomAgents().slice(0, ctx.maxStations).map(model), supervisor: sup ? model(sup) : null, onSelect: openDrawer });
 }
 const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach(el => el.textContent = V.dur(Date.now() - Date.parse(el.dataset.since)));
+
+// ---------- Primeiro uso ----------
+const onbFlags = () => store.get('cr.onb', {});
+const setOnb = patch => store.set('cr.onb', { ...onbFlags(), ...patch });
+function openSetup() { ctx.ui.onb = { mode: 'setup' }; ctx.checks = null; render(); loadChecks(true); }
+function finishOnboarding(completed) {
+  setOnb({ setupDone: true, tourDone: true }); ctx.ui.onb = null; render();
+  notify(completed ? 'Tutorial concluído. Para rever: menu do usuário › Guia de boas-vindas.' : 'Tudo bem. Para rever o guia: menu do usuário › Guia de boas-vindas.');
+}
+// Só abre sozinho em instalação nova (sem projetos nem agentes) e uma única vez.
+function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.length === 0 && ctx.state.projects.length === 0) openSetup(); }
 
 // ---------- Navegação ----------
 async function go(view) {
@@ -273,6 +286,23 @@ const actions = {
   'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
+  // ---- Primeiro uso: triagem das IAs e tutorial guiado (pode ser pulado; o guia reabre pelo menu do usuário) ----
+  'onb-open': () => { ctx.ui.whoOpen = false; openSetup(); },
+  'onb-recheck': async () => { ctx.ui.onb = { ...ctx.ui.onb, msg: '' }; ctx.checks = null; render(); await loadChecks(true); },
+  'onb-create': async () => {
+    const plan = O.starterPlan(ctx); if (!plan.agents.length && !plan.team) return;
+    ctx.ui.onb = { ...ctx.ui.onb, busy: true, msg: '' }; render();
+    try {
+      const made = {}; for (const a of plan.agents) made[a.provider] = await api('agents', a);
+      const find = p => made[p]?.id || ctx.state.agents.find(a => a.provider === p && a.name === ({ codex: 'Desenvolvedor', claude: 'Revisor' })[p])?.id;
+      if (plan.team && find('codex') && find('claude')) await api('teams', { name: 'Equipe de Desenvolvimento', members: [{ role: 'desenvolvedor', agentId: find('codex') }, { role: 'revisor', agentId: find('claude') }] });
+      await refresh(); ctx.ui.onb = { ...ctx.ui.onb, busy: false, msg: `Pronto: ${plan.agents.length} agente(s)${plan.team ? ' e a Equipe de Desenvolvimento' : ''} criados. Você ajusta tudo em Agentes e ferramentas.` }; render();
+    } catch (e) { ctx.ui.onb = { ...ctx.ui.onb, busy: false, msg: '' }; render(); notify(e.message, true); }
+  },
+  'onb-tour': () => { setOnb({ setupDone: true }); ctx.ui.onb = { mode: 'tour', step: 0 }; go(O.TOUR[0].view); },
+  'onb-next': () => { const o = ctx.ui.onb; if (o.step >= O.TOUR.length - 1) return finishOnboarding(true); o.step++; go(O.TOUR[o.step].view); },
+  'onb-back': () => { const o = ctx.ui.onb; if (o.step > 0) { o.step--; go(O.TOUR[o.step].view); } },
+  'onb-skip': () => finishOnboarding(false),
   'add-skill-root': () => $('skillroot-dialog').showModal(),
   'del-sel': k => selectDelivery(k),
   approve: async () => { const [id] = ctx.ui.delSel.split('|'); await api(`tasks/${id}/approve`, { note: $('review-note')?.value || '' }); ctx.ui.reviewNote = ''; notify('Entrega aprovada. Nada foi publicado.'); await refresh(); },
@@ -343,6 +373,11 @@ document.addEventListener('click', async e => {
   } catch (err) { notify(err.message, true); }
 });
 document.addEventListener('keydown', e => {
+  if (ctx.ui.onb && !e.target.closest?.('input,textarea,select')) {
+    if (e.key === 'Escape') { e.preventDefault(); return finishOnboarding(false); }
+    if (ctx.ui.onb.mode === 'tour' && e.key === 'ArrowRight') { e.preventDefault(); return actions['onb-next'](); }
+    if (ctx.ui.onb.mode === 'tour' && e.key === 'ArrowLeft') { e.preventDefault(); return actions['onb-back'](); }
+  }
   if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else if (ctx.ui.panel) { ctx.ui.panel = null; render(); } else if (ctx.ui.whoOpen) { ctx.ui.whoOpen = false; render(); } }
   if (e.target.id === 'mission' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.pcard[role=button]')) { e.preventDefault(); e.target.click(); }
@@ -503,7 +538,7 @@ async function start() {
     ctx.state = await api('state'); ctx.authed = true;
     sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
-    loadSkills(); loadChecks(); applyPrefs(); render();
+    loadSkills(); loadChecks(); applyPrefs(); render(); maybeStartOnboarding();
     if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
   } catch (e) { ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
 }

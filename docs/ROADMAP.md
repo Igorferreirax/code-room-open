@@ -20,8 +20,9 @@ Legenda: ✅ feito · ⬜ a fazer
 - ⬜ Aviso de versão nova em Configurações.
 
 ### Primeiro uso
-- ⬜ Tela de boas-vindas com a verificação do ambiente em linguagem simples.
-- ⬜ Projeto e agentes de demonstração.
+- ✅ Triagem para conectar as IAs (Codex, Claude Code, Gemini) com o comando exato de instalar ou entrar, e criação de agentes iniciais.
+- ✅ Tutorial guiado pelas 12 telas, com opção de pular e de rever pelo menu do usuário.
+- ⬜ Incluir na triagem a verificação do ambiente de vídeo (ffmpeg, Python, HyperFrames) e um projeto de demonstração.
 
 ### Biblioteca de skills
 - ⬜ Biblioteca inicial de skills genéricas, instalada como pasta extra de skills.

@@ -14,6 +14,7 @@
 - **Rotinas.** Por horário, manuais ou quando um arquivo aparece.
 - **Consumo honesto.** O que o provedor não informa aparece como “indisponível”, nunca como zero nem inventado.
 - **No celular.** Pareamento por QR (código de uso único, token por aparelho, revogável) pela rede local ou pelo Tailscale. Vem **desligado** por padrão.
+- **Primeiro uso guiado.** Em uma instalação nova, uma triagem confere quais IAs (Codex, Claude Code, Gemini) estão instaladas e conectadas, mostra o comando exato para instalar ou entrar, e cria agentes iniciais com um clique. Depois, um tutorial passo a passo apresenta as 12 telas. Dá para **pular** a qualquer momento e rever pelo menu do usuário › Guia de boas-vindas.
 - **Local e privado.** O serviço escuta só em `127.0.0.1`. Usa os CLIs que você já tem logados; o Code Room não guarda nem mostra credenciais.
 
 ## Requisitos
@@ -36,6 +37,7 @@ npm test          # testes do backend e das telas (sem navegador)
 npm run audit     # ataques reais contra um serviço isolado (chave, Host/Origin forjados, travessia de pasta...)
 npm run check     # sintaxe de todos os arquivos
 npm run test:ui   # roteiro no navegador (precisa de Chrome e Playwright para Python)
+npm run test:onboarding   # triagem das IAs e tutorial guiado, no navegador (idem)
 ```
 Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais ficam em `scripts/validate-real.mjs` e são manuais.
 
