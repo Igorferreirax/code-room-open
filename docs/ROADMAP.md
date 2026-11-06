@@ -13,8 +13,9 @@ Legenda: ✅ feito · ⬜ a fazer
 
 ## Próximos passos
 ### Empacotamento (Windows)
-- ⬜ Zip portátil com Node dentro, dados fora da pasta do programa.
-- ⬜ Instalador `.exe` (atalho e menu Iniciar). Sem assinatura digital aparece o aviso do SmartScreen.
+- ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos (testado em pasta limpa, sem Node, com Smart App Control ligado e arquivos marcados como baixados da internet).
+- ✅ Instalador `.exe` gerado (Inno Setup, assistente em português, ícone opcional na área de trabalho). **Não executado em teste**: o Windows 11 com Smart App Control barra instaladores sem assinatura.
+- ⬜ **Assinatura digital** do instalador (necessária para o Smart App Control): [SignPath Foundation](https://signpath.org/) (gratuito para código aberto), Azure Artifact Signing ou certificado pago.
 - ⬜ SHA-256 de cada arquivo publicado junto do Release.
 - ⬜ Aviso de versão nova em Configurações.
 

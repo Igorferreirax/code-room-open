@@ -3,6 +3,7 @@
 # - Pacote Windows: os dados ficam em %LOCALAPPDATA%\CodeRoom\data (fora da pasta do programa, para atualizar sem perder nada).
 #   Rodando pelo código-fonte, ficam em .data\ dentro do projeto. CODE_ROOM_DATA e CODE_ROOM_PORT têm prioridade.
 # - CODE_ROOM_NO_BROWSER=1 não abre o navegador (usado nos testes).
+# - No primeiro uso do pacote Windows pergunta se quer o ícone na área de trabalho (uma vez só).
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $bundledNode = Join-Path $projectRoot 'runtime\node.exe'
@@ -45,5 +46,19 @@ if (-not $reachable) {
     }
   }
   if (-not $reachable) { throw 'Não foi possível conectar ao Code Room.' }
+}
+# Primeiro uso do pacote Windows: pergunta UMA vez se quer o ícone na área de trabalho (e no menu Iniciar).
+# CODE_ROOM_NO_PROMPT=1 não pergunta (testes); CODE_ROOM_ATALHOS_AUTO=1 responde "sim" sozinho (testes).
+$asked = Join-Path $dataDir 'atalhos-perguntado'
+if ($packaged -and -not (Test-Path -LiteralPath $asked) -and $env:CODE_ROOM_NO_PROMPT -ne '1') {
+  try {
+    $yes = $true
+    if ($env:CODE_ROOM_ATALHOS_AUTO -ne '1') {
+      Add-Type -AssemblyName System.Windows.Forms
+      $yes = [System.Windows.Forms.MessageBox]::Show("Quer criar um ícone do Code Room na área de trabalho e no menu Iniciar?`n`nVocê pode apagar o ícone quando quiser.", 'Code Room', 'YesNo', 'Question') -eq 'Yes'
+    }
+    if ($yes) { & (Join-Path $PSScriptRoot 'criar-atalhos.ps1') | Out-Null }
+    Set-Content -LiteralPath $asked -Value (Get-Date -Format o)
+  } catch {}
 }
 if ($env:CODE_ROOM_NO_BROWSER -ne '1') { Start-Process -FilePath ("$base/#" + $key) }

@@ -4,19 +4,20 @@ Escolha uma das três formas.
 
 > **Estado:** os pacotes das opções A e B ainda não foram publicados nos Releases. Até lá, use a opção C ou rode pelo código (`npm start`, veja o [README](README.md)).
 
-## A. Zip portátil (sem instalar nada)
+## A. Zip portátil (recomendado, funciona em qualquer Windows 10 ou 11)
 1. Baixe o `.zip` na página de [Releases](../../releases) do repositório e descompacte em qualquer pasta (por exemplo, `C:\CodeRoom`).
 2. Dê dois cliques em `Iniciar-Code-Room.cmd`. O navegador abre já autenticado.
-3. Para ter o **ícone na área de trabalho** e no menu Iniciar, dê dois cliques em `Criar-Atalhos.cmd` (não precisa de administrador). Para fechar o serviço, use o atalho **Fechar o Code Room** no menu Iniciar.
+3. Na primeira vez, o Code Room **pergunta se você quer o ícone na área de trabalho** e no menu Iniciar (responda uma vez só). Se disser não e mudar de ideia, dê dois cliques em `Criar-Atalhos.cmd`. Para fechar o serviço, use o atalho **Fechar o Code Room** no menu Iniciar.
 4. Na primeira vez, abra **Rotinas › Verificar o ambiente**: ele diz o que falta (ffmpeg, CLIs).
 
 O zip já leva o Node dentro: **você não precisa instalar o Node**. Seus dados (projetos, histórico, chave de acesso) ficam em `%LOCALAPPDATA%\CodeRoom\data`, fora da pasta do programa: para atualizar, basta descompactar a versão nova por cima ou ao lado, sem perder nada.
 
-## B. Instalador `.exe`
+## B. Instalador `.exe` (ainda sem assinatura digital)
 1. Baixe o instalador na página de Releases e abra.
-2. Se o Windows mostrar **“O Windows protegeu o seu PC”**, é esperado: o instalador é novo e não tem assinatura digital paga. Não significa que um vírus foi encontrado.
-   - Clique em **Mais informações** e depois em **Executar assim mesmo**.
-   - Para conferir antes, compare o SHA-256 do arquivo com o publicado na página do Release: `Get-FileHash .\Code-Room-Setup.exe -Algorithm SHA256`.
+2. Como o instalador **ainda não tem assinatura digital**, o Windows pode reagir de dois jeitos:
+   - **“O Windows protegeu o seu PC” (SmartScreen):** é esperado, e não significa que um vírus foi encontrado. Clique em **Mais informações** e depois em **Executar assim mesmo**.
+   - **“Uma política de Controle de Aplicativo bloqueou este arquivo” (Smart App Control, comum no Windows 11):** esse bloqueio **não tem a opção de executar assim mesmo**. Nesse caso, use a **opção A (zip portátil)**, que funciona com o Smart App Control ligado.
+   - Para conferir o arquivo antes, compare o SHA-256 com o publicado na página do Release: `Get-FileHash .\Code-Room-0.2.0-Setup.exe -Algorithm SHA256`.
 3. Termine a instalação (não precisa de administrador). O assistente cria o **ícone do Code Room na área de trabalho** (você pode desmarcar) e no menu Iniciar, junto com o atalho **Fechar o Code Room**.
 
 ## C. Peça para a sua IA instalar
