@@ -67,6 +67,7 @@ try:
                 page.locator(f'[data-act=task][data-id="{done_task["id"]}"]').first.click(); time.sleep(0.8)
                 check('execução: tarefa finalizada mostra "Continuar a conversa" com escolha de agente', page.locator('#followup-form select[name=agentId] option').count() == 4 and 'mesma sessão' in page.inner_text('#followup-form'))
                 page.select_option('#project-select', p['id']); page.click('[data-nav=room]'); time.sleep(2.0)
+                page.click('#chat-bubble'); page.wait_for_selector('#mission', state='visible'); check('chat: o chat nasce minimizado e o balão abre a janela com a barra de mensagem', page.is_visible('#chat') and page.is_visible('#target'))
                 page.click('#mission'); page.keyboard.type('/hyper')
                 try: page.wait_for_selector('#slash-pop [data-pick]', timeout=15000)
                 except Exception: pass
@@ -80,6 +81,7 @@ try:
                 page.click('[data-act=opts]'); time.sleep(0.3)
                 check('compositor: opção "Isolar em worktree" disponível', page.locator('#isolate').count() == 1)
                 page.click('[data-act=opts]'); time.sleep(0.2)
+                page.click('[data-act=chat-min]'); time.sleep(0.2); check('chat: minimizar devolve o balão e esconde a janela', page.is_visible('#chat-bubble') and not page.is_visible('#chat'))
                 # ---- Canvas (terceira vista da Sala) ----
                 page.on('dialog', lambda d: d.accept())
                 page.click('[data-act=view-mode][data-id=canvas]'); time.sleep(0.8)
@@ -196,7 +198,6 @@ try:
             if not (o and d): continue
             swipe(o['x'] + 7, o['y'] + 7, d['x'] + d['width'] / 2, d['y'] + d['height'] / 2, 14); time.sleep(0.6)
             if api('state')['links']: break
-        if len(api('state')['links']) != 1: print('   [diag]', tp.evaluate("[...document.querySelectorAll('.cv-node')].map(e => [e.textContent.slice(0, 6), Math.round(e.getBoundingClientRect().x), Math.round(e.getBoundingClientRect().y), Math.round(e.getBoundingClientRect().width)])"), tp.evaluate("[innerWidth, innerHeight, scrollY, document.querySelector('#cv').scrollLeft, JSON.stringify(document.getElementById('composer-root').getBoundingClientRect())]"), 'o', o, 'd', d)
         check('toque: arrastar do ponto de saída com o dedo cria a ligação', len(api('state')['links']) == 1, api('state')['links'])
         for l in api('state')['links']: api(f"links/{l['id']}/delete", {})
         tctx.close()

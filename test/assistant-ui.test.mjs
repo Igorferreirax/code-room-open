@@ -13,8 +13,8 @@ test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, des
   assert.match(assistantHtml({ ...base, connected: [] }), /Nenhuma IA instalada/);
   assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /não altera nada/);
   assert.match(assistantHtml({ ...base, briefing: { status: 'running' } }), /está lendo o manual/);
-  { const h = assistantHtml({ ...base, stale: true }); assert.match(h, /O manual mudou[\s\S]*Apresentar de novo/); assert.match(h, /id="asst-input"/, 'manual novo não bloqueia a conversa'); }
-  assert.match(assistantHtml(base), /asst-suggest/); assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /Pensando…[\s\S]*disabled/);
+  { const h = assistantHtml({ ...base, stale: true }); assert.match(h, /O manual mudou[\s\S]*Apresentar de novo/); assert.match(h, /id="asst-log"/, 'manual novo não bloqueia a conversa'); assert.ok(!h.includes('asst-input'), 'a entrada fica na barra do chat, não aqui'); }
+  assert.match(assistantHtml(base), /asst-suggest/); assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /Pensando…/);
   assert.match(assistantHtml({ ...base, manual: { available: false } }), /não foi encontrado/);
 });
 
@@ -27,4 +27,23 @@ test('cartões de ação: válida tem Criar e Descartar; inválida só explica; 
   const done = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: true, status: 'applied', summary: 'x', result: 'Equipe criada.' }));
   assert.ok(!done.includes('asst-apply')); assert.match(done, /✔ Equipe criada/);
   assert.ok(!assistantHtml(m({ idx: 0, type: 'abrir_tela', valid: true, status: 'pending', summary: '<img src=x>' })).includes('<img src=x>'), 'resumo escapado');
+});
+
+import { whoIs, chatHeaderHtml, targetBodyHtml, bubbleHtml } from '../public/chat-ui.js';
+const cctx = (over = {}) => ({ ui: {}, prefs: {}, asstOk: true, project: 'p1', asst: { briefed: true, provider: 'claude', threads: [{ id: 't1', title: 'Conversa 1', active: true, count: 0 }], messages: [] },
+  state: { agents: [{ id: 'a1', name: 'Diretor', role: 'Dirige', provider: 'claude' }], teams: [{ id: 't9', name: 'Doc', members: [{ role: 'desenvolvedor', agentId: 'a1' }] }], runs: [{ id: 'r1', status: 'completed', agent: { id: 'a1', name: 'Diretor' }, project: { id: 'p1', name: 'Canal' }, prompt: 'roteiro', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(), deliverables: [] }] },
+  agentStatus: () => ({ status: 'idle', label: 'Inativo' }), supervisorAgent: () => null, ...over });
+
+test('janela do chat: cabeçalho muda com quem se fala (Assistente, agente, equipe) e mostra as conversas só no Assistente', () => {
+  assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · só propõe/); assert.match(chatHeaderHtml(cctx()), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
+  const two = cctx(); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false, waiting: true }, { id: 't2', title: '<b>Código</b>', active: true }];
+  const h = chatHeaderHtml(two); assert.match(h, /aria-selected="true"[^>]*data-id="t2"|data-id="t2"[^>]*>/); assert.match(h, /esperando resposta/); assert.match(h, /asst-thread-del" data-id="t2"/); assert.ok(!h.includes('<b>Código</b>'));
+  const ag = chatHeaderHtml(cctx({ ui: { target: 'a:a1' } })); assert.match(ag, /Diretor[\s\S]*missão direta/); assert.ok(!ag.includes('asst-new-thread'), 'conversas só no Assistente');
+  assert.match(chatHeaderHtml(cctx({ ui: { target: 't:t9' } })), /Equipe Doc/); assert.equal(whoIs(cctx({ ui: { target: 'a:inexistente' } })).kind, 'none');
+});
+
+test('janela do chat: missão direta mostra a atividade do agente ou da equipe; sem agente, orienta; balão mostra aviso e atividade', () => {
+  const b = targetBodyHtml(cctx({ ui: { target: 'a:a1' } })); assert.match(b, /Missão direta/); assert.match(b, /Diretor<\/b> concluiu/); assert.match(b, /data-act="task" data-id="r1"/);
+  assert.match(targetBodyHtml(cctx({ ui: { target: 't:t9' } })), /a equipe deve fazer/); assert.match(targetBodyHtml(cctx({ ui: { target: 'a:zzz' } })), /Crie um agente/);
+  assert.match(bubbleHtml(cctx(), { unread: true, busy: true }), /cb-dot[\s\S]*|cb-busy/); assert.ok(!bubbleHtml(cctx()).includes('cb-dot')); assert.match(bubbleHtml(cctx(), { busy: true }), /cb-busy/);
 });

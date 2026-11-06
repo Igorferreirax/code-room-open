@@ -12,7 +12,7 @@ Legenda: ✅ feito · ⬜ a fazer
 - ✅ Auditoria de segurança automatizada (`npm run audit`).
 
 - ✅ Identidade visual (gato no monitor, letreiro pixel), Rádio Lo-Fi (estação com 5 faixas geradas no navegador, 0 MB) e Canvas ao vivo (verde = trabalhando, linha com o trabalho viajando).
-- ✅ **Assistente**: um chat só (barra de baixo + painel). A IA da pessoa lê o manual, e o que entendeu fica gravado na máquina. Propõe projeto, agentes, equipe, skills (inclusive criar uma), ligações e tarefa; cada passo só roda com aprovação.
+- ✅ **Assistente**: um chat só (janela estilo mensageiro). A IA da pessoa lê o manual, e o que entendeu fica gravado na máquina. Propõe projeto, agentes, equipe, skills (inclusive criar uma), ligações e tarefa; cada passo só roda com aprovação.
 
 ## Próximos passos
 ### Fase 2: ver o trabalho acontecendo
@@ -22,8 +22,8 @@ Legenda: ✅ feito · ⬜ a fazer
 
 ### Fase 2: um chat só, estilo mensageiro
 - ✅ O manual novo não bloqueia mais o Assistente: ele só avisa que dá para reapresentar (o manual vai inteiro em cada resposta).
-- ⬜ **Chat único estilo Messenger**: janela flutuante com foto do agente, que minimiza para um balão no canto (com aviso de resposta nova) e volta no ponto em que parou. Substitui o painel lateral e a barra de baixo (missão direta vira uma conversa com o agente ou equipe escolhido).
-- ⬜ **Várias conversas** (uma por equipe, projeto ou assunto), cada uma com seu histórico, em abas ou balões.
+- ✅ **Chat único estilo Messenger**: janela flutuante com a foto de quem responde, que minimiza para um balão no canto (com aviso de resposta nova) e volta no ponto em que parou. Substitui o painel lateral e a barra de baixo; a missão direta é uma conversa com o agente ou a equipe escolhidos na própria janela.
+- ✅ **Várias conversas** com o Assistente (até 8), em abas, cada uma com seu histórico; a resposta volta para a conversa que perguntou. ⬜ Várias janelas abertas ao mesmo tempo e uma conversa por equipe com histórico próprio.
 
 ### Fase 2: conectar o Code Room ao mundo
 - ⬜ **Servidor MCP do Code Room**: para a IA da pessoa (Claude, Codex…) controlar o Code Room por conexão MCP quando o terminal não for opção. Somente leitura por padrão; criar e iniciar exigem aprovação.

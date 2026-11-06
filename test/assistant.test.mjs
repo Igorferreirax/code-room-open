@@ -184,3 +184,19 @@ test('fluxo: cadeia por @menções com skill nova: criar_skill, definir_skills, 
   await asst.apply(m.id, 2); const l = store.list('links')[0]; assert.equal(l.from, dev.id); assert.equal(l.to, rev.id); assert.equal(l.maxHops, 2);
   const r = await asst.apply(m.id, 3); assert.match(r.result, /Tarefa iniciada/); assert.equal(r.view, 'tasks');
 });
+
+test('conversas: cada uma tem o seu histórico e título; a resposta volta para a conversa que perguntou mesmo se você trocou; apagar e limites funcionam', async () => {
+  const { asst, say, done } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  let s = await asst.status(); assert.equal(s.threads.length, 1); assert.equal(s.threads[0].title, 'Conversa 1'); const first = s.thread;
+  say('Resposta da conversa 1'); await asst.ask('Monte uma equipe de edição de vídeo para o documentário'); s = await done();
+  assert.equal(s.threads[0].title, 'Monte uma equipe de edição d', 'o título vem da primeira pergunta'); assert.equal(s.messages.length, 2);
+  s = await asst.newThread(); assert.equal(s.threads.length, 2); assert.equal(s.messages.length, 0, 'conversa nova começa vazia'); assert.notEqual(s.thread, first); const second = s.thread; assert.equal(s.threads[1].title, 'Conversa 2');
+  say('Resposta da conversa 2'); await asst.ask('Revise o código do projeto'); s = await done(); assert.match(s.messages.at(-1).text, /conversa 2/); assert.equal(s.threads[1].title, 'Revise o código do projeto');
+  s = await asst.selectThread(first); assert.equal(s.messages.length, 2); assert.match(s.messages.at(-1).text, /conversa 1/, 'histórico da primeira intacto'); assert.deepEqual(s.threads.map(t => t.id), [first, second], 'a ordem das abas não muda ao trocar');
+  // pergunta na 1, troca para a 2 antes da resposta: a resposta cai na 1
+  say('Chegou depois'); await asst.ask('Outra pergunta'); s = await asst.selectThread(second); assert.equal(s.threads.find(t => t.id === first).waiting, true); await assert.rejects(() => asst.deleteThread(first), /esperando uma resposta/);
+  s = await done(); assert.equal(s.messages.length, 2, 'a conversa 2 não recebeu a resposta da 1'); s = await asst.selectThread(first); assert.equal(s.messages.length, 4); assert.match(s.messages.at(-1).text, /Chegou depois/);
+  await assert.rejects(() => asst.selectThread('nao-existe'), /não encontrada/);
+  s = await asst.deleteThread(second); assert.equal(s.threads.length, 1); assert.equal(s.thread, first); s = await asst.deleteThread(first); assert.equal(s.threads.length, 1); assert.equal(s.messages.length, 0, 'apagar a última deixa uma vazia');
+  for (let i = 0; i < 7; i++) await asst.newThread(); await assert.rejects(() => asst.newThread(), /Limite de 8/);
+});

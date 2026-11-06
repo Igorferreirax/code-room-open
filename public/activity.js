@@ -13,8 +13,8 @@ export function ago(ms) {
 }
 
 // Eventos do projeto, do mais novo para o mais antigo. Cada tarefa vira um evento com o estado atual dela.
-export function activityEvents(ctx, { projectId = ctx.project, agentId = null, limit = 30, now = Date.now() } = {}) {
-  return (ctx.state.runs || []).filter(t => (!projectId || t.project?.id === projectId) && (!agentId || t.agent?.id === agentId))
+export function activityEvents(ctx, { projectId = ctx.project, agentId = null, agentIds = null, limit = 30, now = Date.now() } = {}) {
+  return (ctx.state.runs || []).filter(t => (!projectId || t.project?.id === projectId) && (!agentId || t.agent?.id === agentId) && (!agentIds || agentIds.includes(t.agent?.id)))
     .map(t => ({ id: t.id, at: Date.parse(t.updatedAt || t.createdAt) || 0, status: t.status, agent: t.agent?.name || '?', agentId: t.agent?.id, text: SHORT(t.prompt, 90), reason: t.reason || '', files: (t.deliverables || []).length, project: t.project?.name || '' }))
     .sort((a, b) => b.at - a.at).slice(0, limit).map(e => ({ ...e, ago: ago(now - e.at) }));
 }

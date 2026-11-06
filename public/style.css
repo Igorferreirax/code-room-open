@@ -364,9 +364,6 @@ html[data-motion=on] .cv-typing i{animation:cvdot 1s ease-in-out infinite}html[d
 @media (max-width:760px){.linkbtn{min-height:40px;padding:0 6px}.radio{margin-left:0}}
 
 /* ---- Assistente (painel lateral) ---- */
-.asst{position:fixed;right:0;top:60px;bottom:0;width:min(400px,94vw);background:var(--bg2);border-left:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:10px;overflow:auto;z-index:26;box-shadow:var(--shadow)}
-.asst[hidden]{display:none}.asst .card-h h2{font-size:1.3rem}
-#shell.asst-open .main{margin-right:min(400px,94vw)}
 .asst-btn{margin-right:4px}.asst-btn[aria-pressed=true]{border-color:var(--accent,#5fe3b0)}
 .as-log{flex:1;min-height:120px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px}
 .as-msg{display:flex;flex-direction:column;gap:2px;max-width:94%}.as-msg.me{align-self:flex-end;align-items:flex-end}.as-msg small{color:var(--muted);font-size:.72rem}
@@ -376,7 +373,6 @@ html[data-motion=on] .cv-typing i{animation:cvdot 1s ease-in-out infinite}html[d
 .as-card{border:1px dashed var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;background:rgba(255,255,255,.03)}.as-card.bad{border-color:rgba(239,91,91,.5)}.as-card p{margin:.25em 0}
 .as-done{color:#5fe3b0}.as-wait{color:var(--muted);font-style:italic}.as-empty .chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .as-form textarea{width:100%;resize:vertical;min-height:52px;max-height:160px;box-sizing:border-box}
-@media (max-width:760px){.asst{width:100vw}#shell.asst-open .main{margin-right:0}}
 
 /* Listas de seleção abertas (menus nativos) seguem o tema, sem o fundo branco do navegador */
 :root{color-scheme:dark}:root[data-theme=minimal]{color-scheme:light}
@@ -403,3 +399,30 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 #prov-dialog{width:min(640px,94vw);max-height:90vh;overflow:auto}.prov-test{margin:8px 0}
 
 .as-stale{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px dashed var(--line);border-radius:10px;padding:6px 10px;font-size:.8rem;color:var(--muted)}
+
+/* ---- Chat único (janela estilo mensageiro) ---- */
+.chat{position:fixed;right:16px;bottom:16px;width:min(410px,calc(100vw - 32px));height:min(660px,calc(100vh - 84px));display:flex;flex-direction:column;background:var(--bg2);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.45);z-index:40;overflow:hidden}
+.chat[hidden],.chat-bubble[hidden]{display:none}
+.cw-head{border-bottom:1px solid var(--line);background:var(--panel)}
+.cw-top{display:flex;align-items:center;gap:10px;padding:10px 12px}.cw-who{flex:1;min-width:0;display:flex;flex-direction:column}.cw-who b{font-size:1rem}.cw-who small{color:var(--muted);font-size:.74rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cw-face{width:40px;height:40px;border-radius:50%;background:var(--bg);border:2px solid var(--accent);display:grid;place-items:center;overflow:hidden;flex:none}.cw-face svg,.cw-face img{width:100%;height:100%;object-fit:cover}
+.cw-threads{display:flex;gap:4px;padding:0 10px 8px;overflow-x:auto;scrollbar-width:thin}
+.cw-th{display:inline-flex;align-items:center;flex:none;border:1px solid var(--line);border-radius:999px;background:var(--panel2);font-size:.76rem}.cw-th>button{background:none;border:0;color:inherit;padding:.25em .7em;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cw-th.on{border-color:var(--accent);background:var(--accent-soft)}.cw-th.add{padding:.25em .7em;cursor:pointer;background:none;color:var(--muted)}.cw-x{padding:0 .5em 0 0!important;color:var(--muted)!important}
+.cw-wait{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:cw-pulse 1s infinite}
+.cw-body{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}.cw-body .as-log{flex:1;min-height:0}
+.cw-direct p{margin:.4em 0}
+.cw-foot{border-top:1px solid var(--line);background:var(--bg2)}
+.cw-foot .composer-bar{position:static;padding:8px;margin:0!important;border:0;background:none}.cw-foot .composer{display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:'tg tg tg' 'cl tx sd';gap:6px;padding:6px;min-height:0;align-items:center}
+.cw-foot .composer .target{grid-area:tg;max-width:none;width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:.3em .2em;font-size:.82rem}.cw-foot .composer>.iconbtn{grid-area:cl}.cw-foot .composer textarea{grid-area:tx;min-height:40px;max-height:130px}.cw-foot .composer .sendbtn{grid-area:sd;width:42px;height:42px}.cw-foot .composer .hint{display:none}
+.cw-foot .opts-pop{bottom:calc(100% + 6px);left:6px;right:6px}.cw-foot .foot{display:none}
+.chat-bubble{position:fixed;right:18px;bottom:18px;width:62px;height:62px;border-radius:50%;border:2px solid var(--accent);background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.45);display:grid;place-items:center;z-index:40;cursor:pointer;padding:0}.chat-bubble:hover{transform:translateY(-2px)}
+.cb-face{width:44px;height:44px;display:block}.cb-face svg{width:100%;height:100%}
+.cb-dot{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#ef5b5b;border:2px solid var(--bg2);animation:cw-pulse 1.4s infinite}
+.cb-busy{position:absolute;inset:-5px;border-radius:50%;border:2px solid transparent;border-top-color:var(--accent);animation:cw-spin 1s linear infinite}
+@keyframes cw-pulse{50%{opacity:.45}}@keyframes cw-spin{to{transform:rotate(360deg)}}
+.as-empty{display:flex;gap:10px;align-items:flex-start}.as-face{width:30px;height:30px;flex:none;border-radius:50%;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;overflow:hidden}.as-face svg{width:100%;height:100%}
+.as-msg.ai{flex-direction:row;align-items:flex-end;gap:6px}.as-col{display:flex;flex-direction:column;gap:2px;min-width:0}
+.as-dots i{display:inline-block;width:5px;height:5px;margin-right:3px;border-radius:50%;background:var(--muted);animation:cw-pulse 1s infinite}.as-dots i:nth-child(2){animation-delay:.2s}.as-dots i:nth-child(3){animation-delay:.4s}
+@media (max-width:760px){.chat{right:0;bottom:0;width:100vw;height:100dvh;border-radius:0;border:0}.chat-bubble{right:14px;bottom:14px}}
+@media (prefers-reduced-motion:reduce),:root[data-anim=off] *{}
+.cw-foot .composer textarea{min-height:48px;line-height:1.35;padding-top:12px}

@@ -335,6 +335,9 @@ const handle = async (req, res) => {
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
           if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000)));
           if (a === 'reset') return send(res, 200, await assistant.reset());
+          if (a === 'thread/new') return send(res, 200, await assistant.newThread());
+          if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
+          if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
           if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));

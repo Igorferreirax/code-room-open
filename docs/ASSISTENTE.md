@@ -12,7 +12,7 @@ Serve para qualquer trabalho com arquivos: programar, editar vídeo, pesquisar, 
 - **Projeto**: uma pasta do computador. Os agentes trabalham dentro dela; projetos não se misturam.
 - **Agente**: nome + função + IA por trás (provedor) + modelo (opcional) + **permissão** (`read` = só lê; `write` = edita arquivos do projeto) + capacidades + skills.
 - **Equipe**: um conjunto de agentes com papéis. O fluxo básico é **desenvolvedor → revisor**: o primeiro faz, o segundo confere e pode devolver para correção (número de voltas limitado).
-- **Tarefa (missão)**: um pedido dado a uma equipe ou a um agente, escrito no campo de baixo da tela. Cada tarefa tem estado (na fila, rodando, concluída, falhou, cancelada) e uma saída.
+- **Tarefa (missão)**: um pedido dado a uma equipe ou a um agente, escrito no chat (o balão no canto direito da tela, que abre a janela de conversa). Cada tarefa tem estado (na fila, rodando, concluída, falhou, cancelada) e uma saída.
 - **Ligação (repasse)**: no Canvas, ligar o agente A ao B faz o trabalho concluído de A virar uma tarefa de B, com resumo e arquivos. Há limite de idas e voltas; o ciclo para quando alguém escreve “SEM PENDÊNCIAS”. Vale para missões avulsas de um agente.
 - **Skill**: instrução reutilizável (arquivo `SKILL.md`) que um agente pode usar. Qualquer skill instalada vale para qualquer agente. Um agente pode ter **até 8 skills**. Uma skill pode aparecer como “indisponível” quando falta um programa ou uma dependência; o motivo aparece na tela de Skills.
 - **Rotina**: tarefa agendada (por horário, manual ou quando um arquivo aparece).

@@ -7,6 +7,7 @@ import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
 import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
+import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { providerDialogHtml, emptyForm, formFromCatalog, formFromSpec, payloadFromForm } from './providers-ui.js';
 import { LofiRadio, TRACKS } from './radio.js';
 
@@ -163,7 +164,7 @@ function render() {
   $('topbar').innerHTML = V.topbarHtml(ctx); $('rail').innerHTML = V.railHtml(ctx.view);
   $('view').setAttribute('aria-label', TITLES[ctx.view]);
   $('view').innerHTML = VIEWS[ctx.view](ctx);
-  $('composer-root').innerHTML = ctx.view === 'connections' ? '' : V.composerBar(ctx);
+  $('composer-root').innerHTML = V.composerBar(ctx);
   setTimeout(updatePop, 0);
   const panel = $('panel');
   const content = ctx.ui.panel === 'new-project' ? V.panelNewProject(ctx) : ctx.ui.panel === 'context' ? V.panelContext(ctx) : ctx.ui.panel === 'routine' ? W.panelRoutine(ctx) : ctx.ui.panel === 'recipe' ? panelRecipe(ctx) : ctx.ui.panel === 'recipe-run' ? panelRecipeRun(ctx) : '';
@@ -178,7 +179,7 @@ function render() {
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
   $('update-bar').innerHTML = U.updateBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
-  applyPrefs();
+  applyPrefs(); renderAsst();
 }
 function drawOffice() {
   const model = a => { const s = ctx.agentStatus(a); return { agent: a, status: s.status === 'queued' ? 'waiting' : s.status, label: `${a.name}, ${a.role}. ${s.label}${s.task ? '. Tarefa: ' + s.task.prompt.slice(0, 60) : ''}` }; };
@@ -207,26 +208,43 @@ async function testProv(payload, key) {
   try { ctx.ui.provTest[key] = await api('providers/test', payload); } catch (e) { ctx.ui.provTest[key] = { ok: false, error: e.message }; }
   render(); renderProv();
 }
-// ---------- Assistente (painel lateral; só no computador) ----------
+// ---------- Chat único (estilo mensageiro): janela flutuante com o Assistente e as missões diretas; balão quando minimizado ----------
 let asstTimer = null;
+if (ctx.ui.asstOpen === undefined) ctx.ui.asstOpen = store.get('cr.chat', {}).open ?? false;
+function setChatOpen(v) {
+  ctx.ui.asstOpen = !!v; store.set('cr.chat', { open: !!v }); renderAsst();
+  if (v) { loadAsst(); setTimeout(() => $('mission')?.focus({ preventScroll: true }), 80); }
+}
 function renderAsst() {
-  const el = $('asst'); el.hidden = !ctx.ui.asstOpen; $('shell').classList.toggle('asst-open', !!ctx.ui.asstOpen); if (!ctx.ui.asstOpen) return;
-  const ta = $('asst-input'); if (ta) ctx.ui.asstDraft = ta.value;
-  const focus = document.activeElement?.id, sel = ta && document.activeElement === ta ? [ta.selectionStart, ta.selectionEnd] : null, log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0;
-  el.innerHTML = assistantHtml(ctx.asst, { draft: ctx.ui.asstDraft });
-  const nl = $('asst-log'); if (nl && (atEnd || n !== ctx.ui.asstCount)) nl.scrollTop = nl.scrollHeight; ctx.ui.asstCount = n;
-  if (focus && $(focus) && !$(focus).disabled) { $(focus).focus(); if (sel && $(focus).setSelectionRange) $(focus).setSelectionRange(sel[0], sel[1]); }
+  const win = $('chat'), bubble = $('chat-bubble'); if (!win) return;
+  if (!ctx.authed) { win.hidden = true; bubble.hidden = true; return; }
+  const open = !!ctx.ui.asstOpen, nA = (ctx.asst?.messages || []).filter(m => m.role === 'assistant').length;
+  if (open || ctx.ui.chatSeen == null) ctx.ui.chatSeen = nA;
+  win.hidden = !open; bubble.hidden = open; document.querySelector('.asst-btn')?.setAttribute('aria-pressed', String(open));
+  const unread = !open && nA > ctx.ui.chatSeen, busy = !!(ctx.asst?.pending || ctx.asst?.briefing), bh = bubbleHtml(ctx, { unread, busy });
+  if (ctx.ui._bh !== bh) { bubble.innerHTML = bh; ctx.ui._bh = bh; } bubble.setAttribute('aria-label', unread ? 'Abrir o chat: resposta nova' : 'Abrir o chat');
+  if (!open) return;
+  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? assistantHtml(ctx.asst) : targetBodyHtml(ctx);
+  if (ctx.ui._ch !== head) { $('chat-head').innerHTML = head; ctx.ui._ch = head; }
+  if (ctx.ui._cb !== body) {
+    const log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0, keep = $('asst').scrollTop;
+    $('asst').innerHTML = body; ctx.ui._cb = body; const nl = $('asst-log');
+    if (nl && (atEnd || n !== ctx.ui.asstCount || ctx.ui.asstThread !== ctx.asst?.thread)) nl.scrollTop = nl.scrollHeight; else $('asst').scrollTop = keep;
+    ctx.ui.asstCount = n; ctx.ui.asstThread = ctx.asst?.thread;
+  }
 }
 async function loadAsst() {
-  try { ctx.asst = await api('assistant'); } catch (e) { ctx.asst = { connected: [], manual: { available: true }, messages: [], error: e.message }; }
+  try { ctx.asst = await api('assistant'); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
   renderAsst(); clearTimeout(asstTimer);
-  if (ctx.ui.asstOpen && (ctx.asst?.pending || ctx.asst?.briefing)) asstTimer = setTimeout(loadAsst, 1500);
+  if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500);
 }
-// Entrada única: o texto da barra de baixo vai para o Assistente (abre o painel; se ainda não houve apresentação, deixa o texto pronto).
+// Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
 async function askAssistant(text) {
-  ctx.ui.asstOpen = true; render(); await loadAsst();
-  if (!ctx.asst?.briefed || ctx.asst?.stale || ctx.asst?.pending) { ctx.ui.asstDraft = text; renderAsst(); if (!ctx.asst?.briefed) notify('Antes, apresente o Code Room à sua IA no painel do Assistente. O seu texto ficou salvo lá.'); return; }
-  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text });
+  if (!ctx.ui.asstOpen) setChatOpen(true);
+  await loadAsst();
+  if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
+  if (!ctx.asst?.briefed) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
+  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text }); return true;
 }
 async function applyAsst(id) {
   const [m, i] = id.split(':'); const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
@@ -322,7 +340,7 @@ const actions = {
   'proj-context': async id => { ctx.ui.panel = 'context'; ctx.ui.panelId = id; ctx.projectContext = null; render(); await loadContext(id); },
   'close-panel': () => { ctx.ui.panel = null; render(); },
   'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } render(); },
-  'ask-agent': id => { ctx.ui.target = 'a:' + id; closeDrawer(); go('room').then(() => $('mission')?.focus()); },
+  'ask-agent': id => { ctx.ui.target = 'a:' + id; ctx.ui.asstOpen = true; store.set('cr.chat', { open: true }); closeDrawer(); go('room').then(() => { renderAsst(); $('mission')?.focus(); }); },
   'add-member': () => { ctx.teamDraft.members.push({ role: ctx.teamDraft.members.length ? 'revisor' : 'desenvolvedor', agentId: ctx.state.agents[0]?.id }); render(); },
   'del-member': i => { ctx.teamDraft.members.splice(Number(i), 1); render(); },
   'load-team': id => { const t = ctx.state.teams.find(x => x.id === id); ctx.teamDraft = { id: t.id, name: t.name, members: t.members.map(m => ({ ...m })) }; if ($('team-name')) $('team-name').value = t.name; render(); },
@@ -368,10 +386,15 @@ const actions = {
   'prov-test': id => testProv({ id }, id),
   'prov-test-form': () => { readProvForm(); testProv(payloadFromForm(ctx.ui.provForm), 'form'); },
   'skill-cat': id => { ctx.ui.skillCat = id || ''; ctx.ui.skillMore = false; render(); },
-  'asst-toggle': () => { ctx.ui.asstOpen = !ctx.ui.asstOpen; render(); renderAsst(); if (ctx.ui.asstOpen) { loadAsst(); setTimeout(() => $('asst-input')?.focus(), 50); } },
+  'asst-toggle': () => setChatOpen(!ctx.ui.asstOpen),
+  'chat-open': () => setChatOpen(true),
+  'chat-min': () => setChatOpen(false),
+  'asst-new-thread': () => asstCall('thread/new'),
+  'asst-thread': id => asstCall('thread/select', { id }),
+  'asst-thread-del': id => { if (confirm('Apagar esta conversa? O histórico dela some.')) return asstCall('thread/delete', { id }); },
   'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
   'asst-reset': () => asstCall('reset'),
-  'asst-suggest': q => { const ta = $('asst-input'); if (!ta) return; ta.value = q; ctx.ui.asstDraft = q; ta.focus(); ta.setSelectionRange(q.length, q.length); },
+  'asst-suggest': q => { const ta = $('mission'); if (!ta) return; ta.value = q; ta.focus(); ta.setSelectionRange(q.length, q.length); },
   'asst-apply': async id => { try { await applyAsst(id); } catch (e) { notify(e.message, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); } },
   'asst-apply-all': async mid => {
     const msg = ctx.asst?.messages?.find(x => x.id === mid); const todo = (msg?.actions || []).filter(a => a.status === 'pending');
@@ -492,7 +515,7 @@ document.addEventListener('change', async e => {
     else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
     else if (t.id === 'pref-volume') { ctx.prefs.volume = Number(t.value) / 100; savePrefs(); render(); }
-    else if (t.id === 'target') { ctx.ui.target = t.value; const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer (ex.: editar um documentário)…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
+    else if (t.id === 'target') { ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
     else if (t.id === 'music-file') { const f = t.files[0]; if (!f) return; if (audioUrl) URL.revokeObjectURL(audioUrl); audioUrl = URL.createObjectURL(f); const a = $('audio'); a.src = audioUrl; a.play().catch(() => {}); notify('Tocando ' + f.name); }
     else if (t.dataset?.act === 'skill-agent') {
@@ -516,7 +539,7 @@ document.addEventListener('submit', async e => {
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
       const mm = text.match(/^@([\w.:-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
-      if (target === 'assistant') { $('mission').value = ''; return askAssistant(text); }
+      if (target === 'assistant') { if (await askAssistant(text)) $('mission').value = ''; return; }
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
       if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
@@ -551,7 +574,7 @@ document.addEventListener('submit', async e => {
     else if (fid === 'prov-form') { readProvForm(); ctx.providers = await api('providers', payloadFromForm(ctx.ui.provForm)); $('prov-dialog').close(); await refresh(); notify('IA conectada. Agora ela aparece ao criar um agente.'); }
     else if (fid === 'routine-form') { await saveRoutine(); ctx.ui.panel = null; notify('Rotina salva.'); render(); }
   } catch (err) { notify(err.message, true); if (fid === 'login-form') { ctx.ui.loginError = err.message; renderLogin(); } }
-  finally { if ($('send')) $('send').disabled = !(ctx.project && ctx.state.agents.length); }
+  finally { if ($('send')) $('send').disabled = !(V.targetOf(ctx) === 'assistant' || (ctx.project && ctx.state.agents.length)); }
 });
 
 let pickedSkills = new Set();
@@ -625,8 +648,6 @@ document.addEventListener('keydown', e => {   // captura: roda antes do Enter qu
   else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); $('slash-pop')?.remove(); pop = null; }
 }, true);
 
-document.addEventListener('submit', e => { if (e.target.id !== 'asst-form') return; e.preventDefault(); const ta = $('asst-input'), t = ta.value.trim(); if (!t) return; ctx.ui.asstDraft = ''; ta.value = ''; ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text: t, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text: t }); });
-document.addEventListener('keydown', e => { if (e.target.id === 'asst-input' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('asst-form').requestSubmit(); } });
 document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); });
 $('update-dialog').addEventListener('cancel', e => { if (ctx.updates?.download?.state === 'installing') e.preventDefault(); });
 $('update-dialog').addEventListener('close', () => { ctx.ui.updOpen = false; });
@@ -636,7 +657,7 @@ async function start() {
     ctx.state = await api('state'); ctx.authed = true;
     sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
-    loadSkills(); loadChecks(); applyPrefs(); render(); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
+    loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
     if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
 }

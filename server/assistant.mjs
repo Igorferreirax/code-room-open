@@ -12,7 +12,7 @@ import { ROLES } from './orchestrator.mjs';
 export const ASSISTANT_PROJECT = 'assistant-internal', PROVIDER_ORDER = ['claude', 'codex', 'agy'];
 const AREAS = ['Programação', 'Vídeo', 'Financeiro', 'Pesquisa', 'Operações', 'Geral'];
 const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: 'teams', receitas: 'recipes', agentes: 'agents', entregas: 'deliveries', skills: 'skills', consumo: 'usage', rotinas: 'routines', conexoes: 'connections', configuracoes: 'settings' };
-const MAX_MANUAL = 14000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
+const MAX_THREADS = 8, MAX_MANUAL = 14000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
 const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -151,8 +151,16 @@ export class Assistant {
     Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill });
     this.dir = join(dataDir, 'assistente');
   }
-  get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], pending: null, briefing: null, error: null }; }
-  #save(patch) { const next = { ...this.s, id: 'assistant', ...patch }; next.messages = (next.messages || []).slice(-MAX_MESSAGES); this.store.put('settings', next); return next; }
+  get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], thread: { id: 't1', title: 'Conversa 1' }, others: [], order: ['t1'], pending: null, briefing: null, error: null }; }
+  #save(patch) {
+    const next = { ...this.s, id: 'assistant', ...patch };
+    if (!next.thread) { next.thread = { id: 't1', title: 'Conversa 1' }; next.others = next.others || []; next.order = [next.thread.id, ...next.others.map(o => o.id)]; }   // instalação anterior: 1 conversa só
+    next.messages = (next.messages || []).slice(-MAX_MESSAGES); next.others = (next.others || []).map(o => ({ ...o, messages: (o.messages || []).slice(-MAX_MESSAGES) })); this.store.put('settings', next); return next;
+  }
+  #threadList(s) {
+    const all = [{ id: s.thread?.id || 't1', title: s.thread?.title || 'Conversa 1', count: (s.messages || []).length, active: true }, ...(s.others || []).map(o => ({ id: o.id, title: o.title, count: (o.messages || []).length, active: false }))];
+    const order = s.order || all.map(t => t.id); return order.map(id => all.find(t => t.id === id)).filter(Boolean).map(t => ({ ...t, waiting: s.pending?.threadId === t.id }));
+  }
 
   // Entidades internas (projeto e agente do assistente): não aparecem nas telas do app.
   #ensure(provider) {
@@ -173,7 +181,7 @@ export class Assistant {
     const taskOf = id => id ? this.store.get('tasks', id) : null, pt = taskOf(s.pending?.taskId), bt = taskOf(s.briefing?.taskId);
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
-      briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null,
+      briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, threads: this.#threadList(s), thread: s.thread?.id || 't1',
       pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
@@ -194,13 +202,14 @@ export class Assistant {
     if (p) {
       const t = this.store.get('tasks', p.taskId);
       if (ended(t) || !t) {
-        const msgs = [...(this.s.messages || [])];
+        const tid = p.threadId || this.s.thread?.id, inActive = tid === (this.s.thread?.id || tid), msgs = inActive ? [...(this.s.messages || [])] : [...((this.s.others || []).find(o => o.id === tid)?.messages || [])];
+        const putMsgs = extra => inActive ? this.#save({ ...extra, messages: msgs }) : this.#save({ ...extra, others: (this.s.others || []).map(o => o.id === tid ? { ...o, messages: msgs } : o) });
         if (t?.status === 'completed') {
           const { text, actions } = parseActions(answerOf(t)), w = await this.worldFn();
           const planned = { agents: [], teams: [], projects: [], skills: [] }, acts = actions.map(raw => { const n = normalizeAction(raw, w, planned); if (n?.valid) { if (n.type === 'criar_agente') planned.agents.push(n.payload.name); else if (n.type === 'criar_equipe') planned.teams.push(n.payload.name); else if (n.type === 'criar_projeto') planned.projects.push(n.payload.name); else if (n.type === 'criar_skill') planned.skills.push(n.payload.name); } return { raw, n }; }).filter(x => x.n).map((x, idx) => ({ idx, ...x.n, raw: x.raw, status: 'pending' }));
           msgs.push({ id: randomUUID(), role: 'assistant', text: text || '(a IA não escreveu uma resposta)', at: new Date(this.now()).toISOString(), taskId: t.id, actions: acts });
-          this.#save({ pending: null, messages: msgs, error: null });
-        } else { msgs.push({ id: randomUUID(), role: 'assistant', text: '', error: `Não foi possível responder: ${short(t?.reason || t?.status || 'tarefa não encontrada', 300)}`, at: new Date(this.now()).toISOString(), taskId: p.taskId }); this.#save({ pending: null, messages: msgs }); }
+          putMsgs({ pending: null, error: null });
+        } else { msgs.push({ id: randomUUID(), role: 'assistant', text: '', error: `Não foi possível responder: ${short(t?.reason || t?.status || 'tarefa não encontrada', 300)}`, at: new Date(this.now()).toISOString(), taskId: p.taskId }); putMsgs({ pending: null }); }
       }
     }
   }
@@ -223,10 +232,34 @@ export class Assistant {
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
     const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q), history: (s.messages || []).filter(m => m.text), question: q }), task = this.#task(p, prompt, 'ask');
-    this.#save({ pending: { kind: 'ask', taskId: task.id, at: new Date(this.now()).toISOString() }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
+    const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
+    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();
   }
   reset() { this.#save({ messages: [], error: null }); return this.status(); }
+  // ---------- várias conversas (cada uma com o seu histórico) ----------
+  async newThread() {
+    const s = this.s; const all = this.#threadList(s); if (all.length >= MAX_THREADS) throw new Error(`Limite de ${MAX_THREADS} conversas. Apague uma para abrir outra.`);
+    let n = all.length + 1; while (all.some(t => t.title === `Conversa ${n}`)) n++; const id = 't' + randomUUID().slice(0, 8);
+    const th = s.thread || { id: 't1', title: 'Conversa 1' };
+    this.#save({ others: [...(s.others || []), { id: th.id, title: th.title, messages: s.messages || [] }], thread: { id, title: `Conversa ${n}` }, messages: [], order: [...(s.order || all.map(t => t.id)), id], error: null }); return this.status();
+  }
+  async selectThread(id) {
+    const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' }; if (id === th.id) return this.status();
+    const target = (s.others || []).find(o => o.id === id); if (!target) throw new Error('Conversa não encontrada.');
+    this.#save({ others: [...(s.others || []).filter(o => o.id !== id), { id: th.id, title: th.title, messages: s.messages || [] }], thread: { id: target.id, title: target.title }, messages: target.messages || [], error: null }); return this.status();
+  }
+  async deleteThread(id) {
+    const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' };
+    if (s.pending?.threadId === id) throw new Error('Esta conversa está esperando uma resposta. Aguarde terminar.');
+    const order = (s.order || [th.id]).filter(x => x !== id);
+    if (id === th.id) {
+      const next = (s.others || [])[0]; if (!next) { this.#save({ thread: { id: th.id, title: 'Conversa 1' }, messages: [], order: [th.id], error: null }); return this.status(); }
+      this.#save({ others: (s.others || []).slice(1), thread: { id: next.id, title: next.title }, messages: next.messages || [], order, error: null }); return this.status();
+    }
+    if (!(s.others || []).some(o => o.id === id)) throw new Error('Conversa não encontrada.');
+    this.#save({ others: (s.others || []).filter(o => o.id !== id), order }); return this.status();
+  }
   async setProvider(p) { if (!PROVIDER_ORDER.includes(p)) throw new Error('IA inválida.'); const w = await this.worldFn(); if (!w.connected.has(p)) throw new Error('Essa IA não está instalada.'); this.#save({ provider: p }); return this.status(); }
 
   // Aplica UMA ação aprovada: valida de novo (o estado pode ter mudado) e só então executa, pelos mesmos caminhos do resto do app.

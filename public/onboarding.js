@@ -61,7 +61,7 @@ export function setupHtml(ctx) {
 export const TOUR = [
   { view: 'room', target: '[data-nav=room]', title: 'A Sala', text: 'Aqui moram os seus agentes. Cada um tem nome, função e estado em tempo real. Alterne entre Cenário, Lista e Canvas: no Canvas, arraste de um agente a outro para o trabalho de um virar a tarefa do próximo.' },
   { view: 'projects', target: '[data-nav=projects]', title: 'Projetos', text: 'Um projeto é uma pasta do seu computador. Cadastre a pasta e os agentes trabalham ali, sem se misturar com os outros projetos.' },
-  { view: 'tasks', target: '[data-nav=tasks]', title: 'Tarefas', text: 'Dê missões pelo campo de baixo: escolha uma equipe ou use @agente e /skill. Nesta tela você acompanha cada tarefa e o que ela produziu.' },
+  { view: 'tasks', target: '[data-nav=tasks]', title: 'Tarefas', text: 'Dê missões pelo chat (o balão no canto direito): converse com o Assistente ou escolha uma equipe ou um agente, e use @agente e /skill. Nesta tela você acompanha cada tarefa e o que ela produziu.' },
   { view: 'teams', target: '[data-nav=teams]', title: 'Equipes', text: 'Junte agentes em fluxos, como desenvolvedor → revisor. Um supervisor pode propor o plano, e o próprio sistema valida antes de executar.' },
   { view: 'recipes', target: '[data-nav=recipes]', title: 'Receitas', text: 'Modelos prontos para começar, como “App novo: desenvolver, revisar e testar” e fluxos de vídeo com prévia para você aprovar.' },
   { view: 'agents', target: '[data-nav=agents]', title: 'Agentes e ferramentas', text: 'Crie e ajuste agentes: nome, função, a IA por trás (Codex, Claude Code ou Gemini), o modelo, a permissão (somente leitura ou edita arquivos) e as skills.' },
