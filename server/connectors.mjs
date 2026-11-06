@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join, delimiter } from 'node:path';
 import { homedir } from 'node:os';
+import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
 
 export function executable(name, candidates = []) {
   return [...candidates, ...(process.env.PATH || '').split(delimiter).map(d => join(d, process.platform === 'win32' ? name + '.exe' : name))].find(p => p && existsSync(p)) || null;
@@ -22,7 +23,8 @@ export function connectors() {
     { id: 'codex', name: 'Codex', path: executable('codex', [join(home, 'AppData', 'Local', 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe')]), skills: 'Configuração nativa + skills selecionadas', permissions: 'Sandbox somente leitura ou escrita no projeto. Aprovações interativas ainda não disponíveis.', capabilities: { resume: true, interactiveApproval: false, reportsModel: false, reportsCost: false, cancel: 'process-tree' } },
     { id: 'claude', name: 'Claude Code', path: executable('claude', [join(home, 'AppData', 'Roaming', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'), join(home, '.local', 'bin', 'claude.exe')]), skills: 'Configuração nativa + skills selecionadas', permissions: 'Políticas nativas; solicitações adicionais são negadas nesta versão.', capabilities: { resume: true, interactiveApproval: false, reportsModel: true, reportsCost: true, cancel: 'process-tree' } },
     { id: 'agy', name: 'Antigravity (Gemini)', path: executable('agy', [join(home, 'AppData', 'Local', 'agy', 'bin', 'agy.exe')]), skills: 'Skills selecionadas entram no prompt', permissions: 'Modo plano (leitura) ou aceitar edições no projeto. Aprovações interativas não estão disponíveis.', capabilities: { resume: true, interactiveApproval: false, reportsModel: false, reportsCost: false, cancel: 'process-tree' } },
-    { id: 'hermes', name: 'Hermes Agent (servidor remoto)', path: hermes?.ssh || null, remote: hermes, skills: 'Skills selecionadas entram no prompt (só texto)', permissions: 'Roda isolado em um servidor remoto: NÃO enxerga arquivos deste computador. Só leitura e texto. Não é usado em projetos Financeiro.', capabilities: { resume: false, interactiveApproval: false, reportsModel: true, reportsCost: false, cancel: 'process-tree' } }
+    { id: 'hermes', name: 'Hermes Agent (servidor remoto)', path: hermes?.ssh || null, remote: hermes, skills: 'Skills selecionadas entram no prompt (só texto)', permissions: 'Roda isolado em um servidor remoto: NÃO enxerga arquivos deste computador. Só leitura e texto. Não é usado em projetos Financeiro.', capabilities: { resume: false, interactiveApproval: false, reportsModel: true, reportsCost: false, cancel: 'process-tree' } },
+    ...customConnectors(),
   ];
 }
 
@@ -30,6 +32,7 @@ export function connectors() {
 export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs = 20 * 60 * 1000 } = {}) {
   const provider = connectors().find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
+  if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
   const mode = agent.mode === 'write' ? 'workspace-write' : 'read-only';
   let args;
   if (agent.provider === 'codex') {
@@ -122,6 +125,7 @@ export async function check() {
   const result = [];
   for (const c of connectors()) {
     if (!c.path) { result.push({ id: c.id, installed: false, path: null, version: null, authenticated: null, method: null }); continue; }
+    if (c.custom) { const l = launcher(c.path), v = l ? await run(l.file, [...l.pre, ...(c.spec.versionArgs || ['--version'])], 15000) : { out: '' }; result.push({ id: c.id, installed: true, path: c.path, version: v.out.split(String.fromCharCode(10))[0] || null, authenticated: null, method: 'conta ou chave da própria IA (o Code Room não guarda credenciais)', custom: true }); continue; }
     const version = c.id === 'hermes' ? await run(c.path, ['-T', '-p', c.remote.port, '-i', c.remote.key, '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', c.remote.host, `${c.remote.bin} --version`], 15000) : await run(c.path, ['--version']);
     let authenticated = null, method = null;
     if (c.id === 'codex') {

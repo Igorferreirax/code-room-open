@@ -1,6 +1,7 @@
 import { icon } from './icons.js';
 import { avatar, agentAv } from './art.js';
 import { esc, idx, PROVIDER } from './views.js';
+import { agentTip } from './activity.js';
 
 // Canvas: os agentes como cartões numa tela, com ligações reais entre eles.
 // Uma ligação A → B faz o trabalho concluído de A virar tarefa de B (resumo e arquivos), e B → A faz os dois se responderem
@@ -26,7 +27,7 @@ function curve(a, b) { const dx = Math.max(50, Math.abs(b.x - a.x) / 2); return 
 function nodeHtml(ctx, a, p) {
   const s = ctx.agentStatus(a), st = s.status === 'queued' ? 'waiting' : s.status, ic = STATE_ICON[st];
   const badge = st === 'idle' ? '<span class="cv-zzz" aria-hidden="true">z<b>Z</b></span>' : st === 'running' ? '<span class="cv-typing" aria-hidden="true"><i></i><i></i><i></i></span>' : ic ? `<span class="cv-st b-${ic[1]}" aria-hidden="true">${icon(ic[0], 18)}</span>` : '';
-  return `<div class="cv-node st-${st}" role="button" tabindex="0" data-agent="${esc(a.id)}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" aria-label="${esc(a.name)}, ${esc(a.role)}. ${esc(s.label)}">
+  return `<div class="cv-node st-${st}" role="button" tabindex="0" data-agent="${esc(a.id)}" title="${esc(agentTip(ctx, a))}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" aria-label="${esc(a.name)}, ${esc(a.role)}. ${esc(s.label)}">
     <span class="cv-av">${agentAv(a, idx(ctx, a), 36)}</span>
     <span class="cv-meta"><b>${esc(a.name)}</b><small>${esc(a.role)}</small><small class="cv-prov">${esc(PROVIDER[a.provider] || a.provider)}${a.model ? ' · ' + esc(a.model) : ''}</small></span>${badge}
     <i class="cv-port in" aria-hidden="true"></i><i class="cv-port out" data-out="${esc(a.id)}" title="Arraste até outro agente para ligar" aria-hidden="true"></i></div>`;

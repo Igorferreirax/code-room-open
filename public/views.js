@@ -3,6 +3,7 @@
 import { wordmark } from './brand.js';
 import { icon } from './icons.js';
 import { banner, heroScene, thumb, avatar, agentAv, logo } from './art.js';
+import { activityCardHtml, agentTip } from './activity.js';
 
 export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const STATUS = { queued: 'Na fila', waiting_dependency: 'Aguardando dependência', running: 'Em execução', cancelling: 'Cancelando', completed: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada', interrupted: 'Interrompida', blocked: 'Bloqueada', needs_decision: 'Aguardando decisão' };
@@ -87,7 +88,7 @@ export function needsYou(ctx) {
 export function viewRoom(ctx) {
   const agents = ctx.roomAgents(), sup = ctx.supervisorAgent(), rooms = ctx.rooms(), run = ctx.currentMission(), mode = ctx.viewMode();
   const stations = agents.slice(0, ctx.maxStations), more = agents.length - stations.length;
-  const strip = agents.slice(0, 3).map(a => { const s = ctx.agentStatus(a); return `<button class="s" data-act="agent" data-id="${esc(a.id)}"><span class="dot d-${s.status}"></span><b>${esc(a.name)}</b> · ${esc(s.label)}</button>`; }).join('') || '<span class="muted">Nenhum agente neste ambiente.</span>';
+  const strip = agents.slice(0, 3).map(a => { const s = ctx.agentStatus(a); return `<button class="s" data-act="agent" data-id="${esc(a.id)}" title="${esc(agentTip(ctx, a))}"><span class="dot d-${s.status}"></span><b>${esc(a.name)}</b> · ${esc(s.label)}</button>`; }).join('') || '<span class="muted">Nenhum agente neste ambiente.</span>';
   const caps = [...new Set(agents.flatMap(a => a.capabilities || []))].filter(c => c !== 'supervise');
   const capChip = c => `<span class="chip ${c === 'code' ? 'c-code' : c.startsWith('video') ? 'c-video' : c === 'research' ? 'c-res' : ''}">${icon(c === 'code' ? 'code' : c.startsWith('video') ? 'film' : c === 'research' ? 'search' : 'sparkle', 16)} ${esc(CAPS[c] || c)}</span>`;
   const u = ctx.usageTotals(ctx.state.runs.filter(t => inProject(ctx, t)));
@@ -99,6 +100,7 @@ export function viewRoom(ctx) {
       <div class="status-strip">${strip}<button class="more" data-nav="deliveries">Ver entregas ${icon('arrow', 16)}</button></div></section>
     <aside>
       ${needsYou(ctx)}
+      ${activityCardHtml(ctx)}
       <section class="card"><div class="card-h"><h2>Missão atual</h2></div>${run ? missionCard(ctx, run) : empty('Nenhuma missão neste projeto.')}</section>
       <section class="card"><h2>Supervisor</h2><label class="sr-only" for="sup-select">Escolher supervisor</label><select id="sup-select"><option value="">Escolher modelo</option>${ctx.state.agents.filter(a => a.mode === 'read').map(a => `<option value="${esc(a.id)}" ${sup?.id === a.id ? 'selected' : ''}>${esc(a.name)} · ${esc(PROVIDER[a.provider])}</option>`).join('')}</select>
         <div class="sup-bubble">${sup ? agentAv(sup, idx(ctx, sup), 40) : avatar(3, 40)}<span>${esc(supText)}</span></div>${planBlock(ctx)}</section>
@@ -108,7 +110,7 @@ export function viewRoom(ctx) {
 }
 export function agentRow(ctx, a) {
   const s = ctx.agentStatus(a);
-  return `<button class="row" data-act="agent" data-id="${esc(a.id)}"><span class="dot d-${s.status}"></span><span><strong>${esc(a.name)}</strong><br><small class="muted">${esc(a.role)} · ${esc(a.room)}</small></span><span class="muted small">${esc(PROVIDER[a.provider])}</span><span class="pill mute">${esc(s.label)}</span></button>`;
+  return `<button class="row" data-act="agent" data-id="${esc(a.id)}" title="${esc(agentTip(ctx, a))}"><span class="dot d-${s.status}"></span><span><strong>${esc(a.name)}</strong><br><small class="muted">${esc(a.role)} · ${esc(a.room)}</small></span><span class="muted small">${esc(PROVIDER[a.provider])}</span><span class="pill mute">${esc(s.label)}</span></button>`;
 }
 function missionCard(ctx, run) {
   const items = run.kind === 'flow' ? run.steps.map(s => ({ id: s.id, text: `${s.agent}: ${(STATUS[s.status] || s.status).toLowerCase()}`, st: s.status })) : [{ id: run.task.id, text: `${run.task.agent.name}: ${(STATUS[run.task.status] || run.task.status).toLowerCase()}`, st: run.task.status }];

@@ -16,21 +16,28 @@ Legenda: ✅ feito · ⬜ a fazer
 
 ## Próximos passos
 ### Fase 2: ver o trabalho acontecendo
-- ⬜ **Atividade por agente**: ao passar o mouse (ou tocar) no agente, mostrar o que ele está fazendo agora, há quanto tempo e a última entrega.
-- ⬜ **Linha do tempo do projeto**: as últimas atividades de todos os agentes (começou, terminou, falhou, entregou, aprovou), filtrável por agente.
+- ✅ **Atividade por agente**: ao passar o mouse no agente (Sala, Canvas, lista e Agentes) a dica mostra o que ele faz agora ou a última coisa que fez, com o motivo da falha.
+- ✅ Cartão **Atividade recente** na Sala (últimas 8 atividades do projeto, clicáveis). ⬜ Página própria da linha do tempo, com filtro por agente e por dia.
 - ⬜ **Relatórios das rotinas dentro do app**: cada rotina grava o resultado em uma pasta do projeto e aparece em uma aba “Resultados” (ex.: vagas e cursos do dia), com histórico e botão de abrir a pasta.
+
+### Fase 2: um chat só, estilo mensageiro
+- ✅ O manual novo não bloqueia mais o Assistente: ele só avisa que dá para reapresentar (o manual vai inteiro em cada resposta).
+- ⬜ **Chat único estilo Messenger**: janela flutuante com foto do agente, que minimiza para um balão no canto (com aviso de resposta nova) e volta no ponto em que parou. Substitui o painel lateral e a barra de baixo (missão direta vira uma conversa com o agente ou equipe escolhido).
+- ⬜ **Várias conversas** (uma por equipe, projeto ou assunto), cada uma com seu histórico, em abas ou balões.
 
 ### Fase 2: conectar o Code Room ao mundo
 - ⬜ **Servidor MCP do Code Room**: para a IA da pessoa (Claude, Codex…) controlar o Code Room por conexão MCP quando o terminal não for opção. Somente leitura por padrão; criar e iniciar exigem aprovação.
 - ⬜ **Ferramentas locais** (ex.: HyperFrames aberto no navegador, ffmpeg, scripts): cadastrar nome, comando ou endereço local e pasta de saída; o agente recebe a ferramenta liberada e a pessoa vê o que ele rodou.
 - ⬜ **Hermes na VPS**: assistente de conexão por SSH (host, chave, comando), com teste na hora, e o Hermes aparecendo na triagem do primeiro uso junto com Claude, Codex e Gemini.
-- ⬜ Triagem do primeiro uso com cartões grandes por IA (logo, estado, botão Conectar), incluindo o Hermes.
+- ✅ **Conectar outra IA** (Conexões › Outras IAs): lista com Gemini CLI, OpenCode, Qwen Code, Amp, Copilot CLI, Aider e Goose, ou uma IA própria (programa, argumentos, `{prompt}` ou entrada padrão), com botão **Testar** que roda de verdade. Roda sem shell. Os argumentos de cada IA da lista são sugestões a confirmar com o Testar.
+- ⬜ Triagem do primeiro uso com cartões grandes por IA (logo, estado, botão Conectar), incluindo o Hermes e as outras IAs.
 
 ### Fase 2: organização e manutenção
 - ⬜ **Retenção e limpeza**: política por tipo de dado (histórico de tarefas, saídas, entregas aprovadas, lixeira, worktrees), com limite por tela, botão “Limpar o que é antigo” com prévia do que será apagado e nada apagado sem confirmação. Entregas aprovadas ficam; lixeira esvazia só por ação da pessoa.
-- ⬜ **Skills por categoria** (vídeo, texto, código, pesquisa, marketing…), com filtro, favoritas e escondidas.
+- ✅ **Skills por categoria** (vídeo, código, marketing, pesquisa, texto, design), com filtro e contagem. ⬜ Favoritas e escondidas.
 - ⬜ **Orquestrações próprias**: salvar um arranjo de agentes, ligações e tarefa como “receita” reutilizável, criado pelo Assistente.
-- ⬜ Aviso claro, na tela de Skills, sobre skills que citam a pasta `tools/` que não existe (69 casos comuns) e botão para ignorar.
+- ✅ Skills que só citam documentos de apoio ausentes (pasta `tools/`) deixam de aparecer como aviso: funcionam sem eles.
+- ⬜ **Pasta vinculada a um agente** (ex.: 15 vídeos verticais editados com uma skill, com aviso ao terminar): generalizar o modo de lote.
 
 ### Empacotamento (Windows)
 - ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos (testado em pasta limpa, sem Node, com Smart App Control ligado e arquivos marcados como baixados da internet).

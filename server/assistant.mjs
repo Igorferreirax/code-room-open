@@ -56,13 +56,13 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
     }
     case 'criar_agente': {
       const nome = short(raw.nome, 100), funcao = short(raw.funcao, 200); if (!nome || !funcao) return bad('criar_agente', 'O agente precisa de nome e função.');
-      if (!['codex', 'claude', 'agy'].includes(raw.provedor)) return bad('criar_agente', 'Provedor inválido. Use codex, claude ou agy.');
+      if (!(['codex', 'claude', 'agy'].includes(raw.provedor) || /^x-[a-z0-9-]{1,40}$/.test(String(raw.provedor)))) return bad('criar_agente', 'Provedor inválido. Use codex, claude, agy ou o id de uma IA conectada por você (começa com x-).');
       if (!world.connected.has(raw.provedor)) return bad('criar_agente', `A IA “${raw.provedor}” não está instalada neste computador.`);
       const mode = raw.permissao === 'write' ? 'write' : 'read'; if (raw.permissao && !['read', 'write'].includes(raw.permissao)) return bad('criar_agente', 'Permissão inválida. Use read ou write.');
       const caps = Array.isArray(raw.capacidades) ? [...new Set(raw.capacidades)] : []; if (caps.some(c => !KNOWN_CAPABILITIES.includes(c))) return bad('criar_agente', `Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
       const room = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
       if (world.agents.some(a => a.name.trim().toLowerCase() === nome.toLowerCase() && a.provider === raw.provedor)) return bad('criar_agente', `Já existe o agente “${nome}” nessa IA.`);
-      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model: '', instructions: '', mode, skillIds: [], commands: [], capabilities: caps }, valid: true };
+      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model: '', instructions: '', mode, skillIds: [], commands: [], capabilities: caps }, valid: true };
     }
     case 'definir_skills': {
       const r = find(raw.agente); if (r.error) return bad('definir_skills', r.error);
@@ -173,7 +173,7 @@ export class Assistant {
     const taskOf = id => id ? this.store.get('tasks', id) : null, pt = taskOf(s.pending?.taskId), bt = taskOf(s.briefing?.taskId);
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
-      briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected], messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null,
+      briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null,
       pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }

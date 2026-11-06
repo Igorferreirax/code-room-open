@@ -3,6 +3,8 @@ import { icon } from './icons.js';
 import { qrSvg } from './qr.js';
 import { heroScene, thumb, themeImg, avatar, agentAv } from './art.js';
 import { updatesSettingsHtml } from './updates-ui.js';
+import { agentTip } from './activity.js';
+import { providersCardHtml } from './providers-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
 export const COMMANDS = {
@@ -51,7 +53,7 @@ export function viewTeams(ctx) {
 // ---------- Agentes e ferramentas ----------
 export function viewAgents(ctx) {
   const tab = ctx.ui.agentsTab || 'mine', st = ctx.state;
-  const mine = st.agents.length ? `<div class="agents-grid">${st.agents.map(a => { const s = ctx.agentStatus(a); return `<article class="agent-card">${agentAv(a, idx(ctx, a), 56)}<div><strong>${esc(a.name)}</strong> <small class="muted">${esc(a.role)}</small><div class="chips" style="margin-top:6px"><span class="chip">${esc(PROVIDER[a.provider])}</span><span class="chip">${esc(a.model || 'modelo padrão')}</span><span class="chip">${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}</span><span class="chip">${esc(a.room)}</span>${(a.capabilities || []).map(k => `<span class="chip c-code">${esc(CAPS[k] || k)}</span>`).join('')}<span class="chip">${a.skillIds.length} skill(s)</span></div></div><div style="text-align:right"><span class="pill mute"><span class="dot d-${s.status}"></span>${esc(s.label)}</span><br> <button class="btn ghost sm" data-act="edit-agent" data-id="${esc(a.id)}" style="margin-top:8px">Editar</button></div></article>`; }).join('')}</div>` : empty('Crie seu primeiro agente.');
+  const mine = st.agents.length ? `<div class="agents-grid">${st.agents.map(a => { const s = ctx.agentStatus(a); return `<article class="agent-card" title="${esc(agentTip(ctx, a))}">${agentAv(a, idx(ctx, a), 56)}<div><strong>${esc(a.name)}</strong> <small class="muted">${esc(a.role)}</small><div class="chips" style="margin-top:6px"><span class="chip">${esc(PROVIDER[a.provider])}</span><span class="chip">${esc(a.model || 'modelo padrão')}</span><span class="chip">${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}</span><span class="chip">${esc(a.room)}</span>${(a.capabilities || []).map(k => `<span class="chip c-code">${esc(CAPS[k] || k)}</span>`).join('')}<span class="chip">${a.skillIds.length} skill(s)</span></div></div><div style="text-align:right"><span class="pill mute"><span class="dot d-${s.status}"></span>${esc(s.label)}</span><br> <button class="btn ghost sm" data-act="edit-agent" data-id="${esc(a.id)}" style="margin-top:8px">Editar</button></div></article>`; }).join('')}</div>` : empty('Crie seu primeiro agente.');
   const q = (ctx.ui.toolQ || '').toLowerCase();
   const tools = ['codex', 'claude', 'agy', 'hermes', 'gemini'].filter(id => COMMANDS[id].name.toLowerCase().includes(q));
   const sel = ctx.ui.toolSel || 'codex', cmd = COMMANDS[sel], info = toolInfo(ctx, sel);
@@ -134,6 +136,7 @@ export function viewConnections(ctx) {
     <h3 style="margin:16px 0 8px">Autenticação</h3><p class="small ${info.authenticated ? '' : 'muted'}">${info.authenticated == null ? 'Login não verificado.' : info.authenticated ? `Login ativo${info.method ? ' (' + esc(info.method) + ')' : ''}.` : 'Login inativo.'}</p>
     <button class="btn block" data-act="copy" data-id="${esc(cmd.login)}" ${cmd.login && info.installed ? '' : 'disabled'} style="margin-top:8px">${icon('copy', 18)} Copiar comando de login</button><p class="muted small" style="text-align:center;margin-top:8px">Rode <code>${esc(cmd.login || '—')}</code> no terminal e conclua o acesso no fluxo oficial do provedor. O Code Room não captura senha.</p>
     <h3 style="margin:16px 0 8px">Recursos disponíveis</h3><div class="chips"><span class="chip">${icon('file', 16)} Arquivos</span><span class="chip">${icon('terminal', 16)} Comandos</span></div></aside></div>
+  ${providersCardHtml(ctx)}
   ${publishCard(ctx)}
   ${channelsCard(ctx)}
   <section class="card"><h2>Módulos e capacidades</h2>${mods ? mods.map(m => `<div class="module"><strong>${esc(m.name)}</strong> ${Object.entries(m.capabilities).map(([k, v]) => `<span class="pill ${s[v.status][0]}" title="${esc(v.detail)}" style="margin-left:6px">${esc(CAPS[k] || k)}: ${s[v.status][1]}</span>`).join('')}</div>`).join('') : empty('Verificando…')}<p class="muted small" style="margin-top:8px">Uma capacidade só aparece como verificada depois de uma sonda real neste computador.</p></section>
@@ -142,10 +145,19 @@ export function viewConnections(ctx) {
 
 // ---------- Skills ----------
 const skillIcon = n => /code|review|revis|dev/i.test(n) ? 'code' : /video|film|edi/i.test(n) ? 'film' : /search|pesq|research/i.test(n) ? 'search' : /orch|orquest|team/i.test(n) ? 'sitemap' : 'sparkle';
-export const skillState = s => s.missingDependencies.length ? ['bad', 'Programa ausente'] : !s.recognized ? ['warn', 'Não validada'] : s.missingReferences?.length ? ['warn', 'Apoio ausente'] : ['ok', 'Compatível'];
+export const skillState = s => s.missingDependencies.length ? ['bad', 'Programa ausente'] : !s.recognized ? ['warn', 'Não validada'] : ['ok', 'Compatível'];
+// Categorias das skills (deduzidas do nome e da descrição, sem depender de metadados).
+export const SKILL_CATS = [['video', 'Vídeo e áudio', /v[ií]deo|reel|short|legenda|subtitle|editar|editor|b-?roll|thumbnail|motion|hyperframes|remotion|ffmpeg|clip|narra|podcast|audio|áudio|youtube|tiktok/i],
+  ['codigo', 'Código e dev', /c[óo]digo|code|dev(eloper)?\b|git(hub)?|api\b|sdk|debug|test(e|s|ing)?\b|deploy|refactor|typescript|python|react|node|database|sql|firebase|cli\b|review|mcp|orchestr|agent|computer|automa/i],
+  ['marketing', 'Marketing e vendas', /marketing|seo|ads?\b|an[úu]ncio|copy(writing)?|cro\b|landing|email|e-mail|social|launch|lan[çc]amento|pricing|pre[çc]o|funil|funnel|sales|vend|lead|brand|marca|influenc|campanha|analytics|strateg|estrat[ée]gia/i],
+  ['pesquisa', 'Pesquisa e dados', /pesquis|research|search|busca|competitor|concorrent|dados|data\b|scrap|an[áa]lise|analysis|relat[óo]rio|report|customer|cliente|trend|tend[êe]ncia/i],
+  ['texto', 'Texto e documentos', /texto|write|writing|escrev|document|docs?\b|pdf|pptx|xlsx|markdown|notion|obsidian|roteiro|script|article|artigo|blog/i],
+  ['design', 'Design e imagem', /design|imagem|image|ui\b|ux\b|figma|logo|visual|art(e|work)?\b|pixel|ilustra|cor(es)?\b|canvas|diagram/i]];
+export const skillCategory = s => { const t = `${s.name} ${s.description || ''}`; const hit = SKILL_CATS.find(([, , re]) => re.test(s.name)) || SKILL_CATS.find(([, , re]) => re.test(t)); return hit ? hit[0] : 'outros'; };
 export function viewSkills(ctx) {
   const q = (ctx.ui.skillQ || '').toLowerCase(), all = ctx.skills.filter(s => s.preferred !== false);
-  const found = all.filter(s => (s.name + ' ' + s.description + ' ' + s.source).toLowerCase().includes(q));
+  const cat = ctx.ui.skillCat || '', catN = Object.fromEntries([...SKILL_CATS.map(c => [c[0], 0]), ['outros', 0]]); all.forEach(s => catN[skillCategory(s)]++);
+  const found = all.filter(s => (!cat || skillCategory(s) === cat) && (s.name + ' ' + s.description + ' ' + s.source).toLowerCase().includes(q));
   const shown = found.slice(0, ctx.ui.skillMore ? 200 : 24), sel = ctx.skills.find(s => s.id === ctx.ui.skillSel) || shown[0];
   const okN = all.filter(s => skillState(s)[0] === 'ok').length, warnN = all.length - okN;
   const enabledBy = id => ctx.state.agents.filter(a => a.skillIds.includes(id));
@@ -155,6 +167,7 @@ export function viewSkills(ctx) {
   return `<div class="page">${hero('Skills da equipe', 'Skills que os agentes podem usar para executar tarefas.', 'shelf')}
   <div class="filters"><div class="stat" style="min-width:250px;margin:0"><span><span class="dot d-ok"></span> <strong style="display:inline;font-size:1.8rem">${okN}</strong> reconhecidas<br><small>Compatíveis com o ambiente</small></span></div>
     <div class="stat" style="min-width:250px;margin:0"><span><span class="dot d-warn"></span> <strong style="display:inline;font-size:1.8rem">${warnN}</strong> precisam de atenção<br><small>Com pendências ou não validadas</small></span></div>
+    <div class="cat-chips" role="group" aria-label="Categorias" style="flex-basis:100%"><button type="button" class="fchip ${cat ? '' : 'on'}" data-act="skill-cat" data-id="">Todas (${all.length})</button>${[...SKILL_CATS.map(c => [c[0], c[1]]), ['outros', 'Outras']].filter(([k]) => catN[k]).map(([k, l]) => `<button type="button" class="fchip ${cat === k ? 'on' : ''}" data-act="skill-cat" data-id="${k}">${l} (${catN[k]})</button>`).join('')}</div>
     <div class="input-icon">${icon('search', 18)}<input id="skill-q" placeholder="Buscar skills, descrições ou origens…" aria-label="Buscar skills" value="${esc(ctx.ui.skillQ || '')}"></div><button class="btn" data-act="add-skill-root">${icon('folder', 18)} Importar pasta de skills</button></div>
   <div class="cols" style="grid-template-columns:minmax(0,1fr) 400px"><section class="card" style="padding:0"><div class="srow" style="background:var(--panel2);color:var(--muted);font-size:.86rem;cursor:default"><span>Skill</span><span>Origem</span><span>Compatibilidade</span><span>Habilitada</span><span></span></div>${rows || `<div style="padding:16px">${empty('Nenhuma skill neste filtro.')}</div>`}${found.length > shown.length ? `<div style="padding:12px;text-align:center"><button class="btn ghost" data-act="skill-more">Mostrar mais (${found.length - shown.length})</button></div>` : ''}<p class="muted small" style="padding:10px 16px">${ctx.skills.length - all.length} cópia(s) duplicada(s) ocultas; a cópia preferida é a do projeto, depois .agents, .claude e .codex.</p></section>
   ${sel ? `<aside class="card"><div class="card-h" style="align-items:flex-start"><div style="display:flex;gap:14px"><span class="bigico">${icon(skillIcon(sel.name), 30)}</span><div><h2 style="font-size:1.3rem">${esc(sel.name)}</h2></div></div><span class="pill ${skillState(sel)[0]}">${skillState(sel)[1]}</span></div><p class="muted" style="margin-top:8px">${esc(sel.description.length > 260 ? sel.description.slice(0, 260) + '…' : sel.description)}</p>

@@ -7,6 +7,7 @@ import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
 import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
+import { providerDialogHtml, emptyForm, formFromCatalog, formFromSpec, payloadFromForm } from './providers-ui.js';
 import { LofiRadio, TRACKS } from './radio.js';
 
 const $ = id => document.getElementById(id);
@@ -103,7 +104,7 @@ let refreshTimer = null;
 const scheduleRefresh = (ms = 350) => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, ms); };
 async function refresh() {
   try {
-    ctx.state = await api('state');
+    ctx.state = await api('state'); syncProviderNames();
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
     for (const f of Object.values(ctx.flows)) if (f?.id) api('flows/' + f.id).then(v => { ctx.flows[f.id] = v; render(); }).catch(() => {});
     if (ctx.detail) ctx.detail = await api('tasks/' + ctx.detail.id).catch(() => ctx.detail);
@@ -196,6 +197,16 @@ $('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value
 document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
 
 // ---------- Atualização ----------
+// ---------- Outras IAs (conectadas pela pessoa) ----------
+function syncProviderNames() { for (const c of ctx.state.connectors || []) if (c.custom) { V.PROVIDER[c.id] = c.name; PROVIDER_NAMES[c.id] = c.name; } }
+async function loadProviders() { try { ctx.providers = await api('providers'); } catch { ctx.providers = { catalog: [], custom: [], max: 10 }; } if (ctx.view === 'connections') render(); renderProv(); }
+function readProvForm() { const f = $('prov-form'); if (!f) return; const d = Object.fromEntries(new FormData(f)); ctx.ui.provForm = { ...(ctx.ui.provForm || emptyForm()), name: d.name || '', exe: d.exe || '', promptVia: d.promptVia || 'arg', argsText: d.argsText || '', modelFlag: d.modelFlag || '' }; }
+function renderProv() { const d = $('prov-dialog'); if (!d.open) return; $('prov-body').innerHTML = providerDialogHtml(ctx); }
+async function testProv(payload, key) {
+  ctx.ui.provTest = { ...(ctx.ui.provTest || {}), [key]: { running: true } }; render(); renderProv();
+  try { ctx.ui.provTest[key] = await api('providers/test', payload); } catch (e) { ctx.ui.provTest[key] = { ok: false, error: e.message }; }
+  render(); renderProv();
+}
 // ---------- Assistente (painel lateral; só no computador) ----------
 let asstTimer = null;
 function renderAsst() {
@@ -251,6 +262,7 @@ function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.
 async function go(view) {
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
   if (view === 'skills') loadSkills(true);
+  if (view === 'connections') loadProviders();
   if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
   if (view === 'settings') loadStorage();
   if (view === 'usage') loadLimits();
@@ -348,6 +360,14 @@ const actions = {
     updateRadioUi();
   },
   // ---- Atualização: verificar, adiar, baixar com SHA-256 e instalar (só o computador) ----
+  'prov-open': async () => { ctx.ui.provForm = emptyForm(); ctx.ui.provTest = {}; if (!ctx.providers) await loadProviders(); $('prov-dialog').showModal(); renderProv(); loadProviders(); },
+  'prov-close': () => { $('prov-dialog').close(); },
+  'prov-pick': key => { const c = ctx.providers?.catalog?.find(x => x.key === key); if (!c) return; ctx.ui.provForm = formFromCatalog(c); ctx.ui.provTest = { ...(ctx.ui.provTest || {}), form: null }; renderProv(); },
+  'prov-edit': async id => { const s = ctx.providers?.custom?.find(x => x.id === id); if (!s) return; ctx.ui.provForm = formFromSpec(s); ctx.ui.provTest = { ...(ctx.ui.provTest || {}), form: null }; $('prov-dialog').showModal(); renderProv(); },
+  'prov-delete': async id => { const s = ctx.providers?.custom?.find(x => x.id === id); if (!s || !confirm(`Remover “${s.name}”? Os agentes que usam esta IA precisam ser trocados antes.`)) return; ctx.providers = await api('providers/delete', { id }); await refresh(); notify('IA removida.'); },
+  'prov-test': id => testProv({ id }, id),
+  'prov-test-form': () => { readProvForm(); testProv(payloadFromForm(ctx.ui.provForm), 'form'); },
+  'skill-cat': id => { ctx.ui.skillCat = id || ''; ctx.ui.skillMore = false; render(); },
   'asst-toggle': () => { ctx.ui.asstOpen = !ctx.ui.asstOpen; render(); renderAsst(); if (ctx.ui.asstOpen) { loadAsst(); setTimeout(() => $('asst-input')?.focus(), 50); } },
   'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
   'asst-reset': () => asstCall('reset'),
@@ -528,6 +548,7 @@ document.addEventListener('submit', async e => {
     else if (fid.startsWith('batch-approve-')) { const d = Object.fromEntries(new FormData(f)); await api(`batches/${f.dataset.batch}/approve`, { voiceCredits: Number(d.voiceCredits), flowCap: Number(d.flowCap) }); notify('Créditos aprovados. A produção começou.'); await refresh(); }
     else if (fid === 'recipe-form') { await api('recipes', readRecipeForm(f)); ctx.ui.panel = null; ctx.ui.recipeDraft = null; notify('Receita salva.'); await refresh(); }
     else if (fid === 'recipe-run-form') { const d = Object.fromEntries(new FormData(f)); await api(`recipes/${d.rid}/run`, { objective: d.objective }); ctx.ui.panel = null; notify('Rodada iniciada.'); await refresh(); }
+    else if (fid === 'prov-form') { readProvForm(); ctx.providers = await api('providers', payloadFromForm(ctx.ui.provForm)); $('prov-dialog').close(); await refresh(); notify('IA conectada. Agora ela aparece ao criar um agente.'); }
     else if (fid === 'routine-form') { await saveRoutine(); ctx.ui.panel = null; notify('Rotina salva.'); render(); }
   } catch (err) { notify(err.message, true); if (fid === 'login-form') { ctx.ui.loginError = err.message; renderLogin(); } }
   finally { if ($('send')) $('send').disabled = !(ctx.project && ctx.state.agents.length); }
@@ -535,7 +556,8 @@ document.addEventListener('submit', async e => {
 
 let pickedSkills = new Set();
 function editAgent(id) {
-  const f = $('agent-form'); f.reset(); const a = ctx.state.agents.find(x => x.id === id);
+  const f = $('agent-form'); f.reset();
+  const sel = f.elements.provider; [...sel.querySelectorAll('[data-custom]')].forEach(o => o.remove()); for (const c of ctx.state.connectors || []) if (c.custom) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + (c.available ? '' : ' (não encontrada)'); o.dataset.custom = '1'; sel.append(o); } const a = ctx.state.agents.find(x => x.id === id);
   for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
   f.elements.commands.value = (a?.commands || []).join(', ');
   f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));

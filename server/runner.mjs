@@ -145,7 +145,12 @@ export class Runner {
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     let buffer = '', stderr = '', line = 0, errorText = null;
     const consume = text => {
-      let raw; try { raw = JSON.parse(text); } catch { return; }
+      let raw;
+      if (agent.provider.startsWith('x-')) {   // IA conectada pela pessoa: a saída é texto puro, cada linha é parte da resposta
+        const t = text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trimEnd(); if (!t.trim()) return;
+        this.event(attempt.id, { type: 'answer', text: t, eventId: `${attempt.id}:${++line}` }); attempt.answer = (attempt.answer + String.fromCharCode(10) + t).trim().slice(-200000); return;
+      }
+      try { raw = JSON.parse(text); } catch { return; }
       if (raw.type === 'rate_limit_event' && agent.provider === 'claude') { const v = claudeFromEvent(raw.rate_limit_info); if (v) this.store.put('settings', { id: 'limits:claude', windows: v.windows, observedAt: v.observedAt, source: 'última execução do Claude Code' }); return; }
       for (const e of [].concat(normalize(agent.provider, raw) || [])) {  // um evento do provedor pode virar vários (sessão, resposta, uso)
         this.event(attempt.id, { ...e, eventId: `${attempt.id}:${++line}` });

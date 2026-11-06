@@ -13,7 +13,7 @@ test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, des
   assert.match(assistantHtml({ ...base, connected: [] }), /Nenhuma IA instalada/);
   assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /não altera nada/);
   assert.match(assistantHtml({ ...base, briefing: { status: 'running' } }), /está lendo o manual/);
-  assert.match(assistantHtml({ ...base, stale: true }), /O manual mudou[\s\S]*Apresentar de novo/);
+  { const h = assistantHtml({ ...base, stale: true }); assert.match(h, /O manual mudou[\s\S]*Apresentar de novo/); assert.match(h, /id="asst-input"/, 'manual novo não bloqueia a conversa'); }
   assert.match(assistantHtml(base), /asst-suggest/); assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /Pensando…[\s\S]*disabled/);
   assert.match(assistantHtml({ ...base, manual: { available: false } }), /não foi encontrado/);
 });

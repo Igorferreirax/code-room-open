@@ -43,14 +43,15 @@ export function assistantHtml(a, ui = {}) {
   const provSel = `<label class="f small">Qual IA responde<select id="asst-provider" data-asst-provider>${conn.map(p => `<option value="${esc(p)}" ${p === a.provider ? 'selected' : ''}>${esc(PROV[p] || p)}</option>`).join('')}</select></label>`;
   const err = a.error ? `<p class="upd-err" role="alert">${esc(a.error)}</p>` : '';
   if (a.briefing) return `${head}<p role="status"><b>Sua IA está lendo o manual…</b></p><p class="small muted">Ela vai escrever o que entendeu e isso fica gravado só neste computador. Pode levar alguns instantes.</p><progress></progress>${err}`;
-  if (!a.briefed || a.stale) {
-    return `${head}<p>${a.stale ? '<b>O manual mudou.</b> Peça para sua IA ler de novo.' : 'Para ajudar você, a sua IA precisa <b>ler o manual do Code Room</b> uma vez.'}</p>
+  if (!a.briefed) {
+    return `${head}<p>Para ajudar você, a sua IA precisa <b>ler o manual do Code Room</b> uma vez.</p>
     <ul class="small muted"><li>O que ela entender fica gravado <b>neste computador</b>.</li><li>O Assistente <b>não altera nada</b> na ferramenta: ele só conversa e propõe. Você aprova cada coisa com um clique.</li><li>Isso usa um pouco da cota da sua própria IA.</li></ul>
-    ${err}${provSel}<div class="btn-row"><button type="button" class="btn" data-act="asst-brief">${a.stale ? 'Apresentar de novo' : 'Apresentar o Code Room à minha IA'}</button></div>`;
+    ${err}${provSel}<div class="btn-row"><button type="button" class="btn" data-act="asst-brief">Apresentar o Code Room à minha IA</button></div>`;
   }
   const busy = !!a.pending, msgs = a.messages || [];
+  const staleBar = a.stale ? '<div class="as-stale" role="status"><span><b>O manual mudou.</b> O Assistente já usa a versão nova em cada resposta; reapresentar só atualiza o que fica gravado.</span><button type="button" class="btn ghost sm" data-act="asst-brief">Apresentar de novo</button></div>' : '';
   const intro = msgs.length ? '' : `<div class="as-empty"><p><b>Pergunte o que quiser sobre o Code Room.</b></p><div class="chips">${['Monte uma equipe de desenvolvimento e revisão', 'Quais skills combinam com um editor de vídeo?', 'Por que a minha tarefa não rodou?'].map(q => `<button type="button" class="chip" data-act="asst-suggest" data-id="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
-  return `${head}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${busy ? '<div class="as-msg ai"><div class="as-bubble as-wait" role="status">Pensando…</div></div>' : ''}</div>
+  return `${head}${staleBar}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${busy ? '<div class="as-msg ai"><div class="as-bubble as-wait" role="status">Pensando…</div></div>' : ''}</div>
   ${err}<form id="asst-form" class="as-form"><label class="sr-only" for="asst-input">Sua pergunta</label><textarea id="asst-input" rows="2" maxlength="4000" placeholder="Pergunte ou peça ajuda… (Enter envia, Shift+Enter quebra a linha)" ${busy ? 'disabled' : ''}>${esc(ui.draft || '')}</textarea>
   <div class="btn-row"><button class="btn sm" ${busy ? 'disabled' : ''}>Enviar</button><button type="button" class="btn ghost sm" data-act="asst-reset">Limpar conversa</button><span class="grow"></span><small class="muted" title="Lido do manual gravado nesta máquina">${esc(PROV[a.provider] || a.provider || '')} · somente leitura</small></div></form>`;
 }

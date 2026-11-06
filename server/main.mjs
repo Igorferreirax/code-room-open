@@ -29,11 +29,12 @@ import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
 import { execFile } from 'node:child_process';
 import { tmpdir, homedir } from 'node:os';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { addEntry, balances, suggestCategory, CATEGORIES } from './finance.mjs';
 import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 import { createSkillFile } from './myskills.mjs';
+import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, MAX_CUSTOM, findProgram, launcher } from './providers.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = readPackageVersion(join(root, 'package.json'));   // uma só fonte da versão
@@ -62,6 +63,7 @@ let modules = [], modulesAt = 0;
 async function moduleList() { if (Date.now() - modulesAt > 5 * 60000) { modules = await probeModules(); modulesAt = Date.now(); } return modules; }
 const installed = agent => !!connectors().find(c => c.id === agent.provider)?.path;
 const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '' });
+setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
 const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
 const assistantWorld = async () => {
@@ -112,6 +114,9 @@ function saveAgent(b) {
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
           const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
           return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: optional(b.model, 150), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+}
+function providersView() {
+  return { max: MAX_CUSTOM, catalog: catalogView(), custom: customSpecs().map(s => { const f = findProgram(s.exe), l = f ? launcher(f) : null; return { ...s, installed: !!l, unsupported: f && !l ? 'atalho .cmd não suportado' : null, usedBy: store.list('agents').filter(a => a.provider === s.id).length }; }) };
 }
 function saveLink(b) {
   const project = store.get('projects', b.projectId), from = store.get('agents', b.from), to = store.get('agents', b.to);
@@ -224,6 +229,7 @@ const handle = async (req, res) => {
         const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
         return send(res, 200, { projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
       }
+      if (get && p === '/api/providers') { masterOnly(auth); return send(res, 200, providersView()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
       if (get && p === '/api/stream') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
@@ -313,6 +319,16 @@ const handle = async (req, res) => {
           const canonical = await realpath(path); if (!(await stat(canonical)).isDirectory()) throw new Error('Selecione uma pasta.');
           if (store.list('projects').some(x => x.path === canonical)) throw new Error('Esta pasta já está cadastrada.');
           return send(res, 201, store.put('projects', { id: randomUUID(), name: text(b.name), path: canonical, area: optional(b.area, 60) || 'Geral', createdAt: new Date().toISOString() }));
+        }
+        if (p === '/api/providers') { masterOnly(auth); const list = customSpecs(), spec = validateSpec(b, list), next = [...list.filter(x => x.id !== spec.id), spec]; store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 201, providersView()); }
+        if (p === '/api/providers/delete') {
+          masterOnly(auth); const id = text(b.id, 80); if (!getSpec(id)) throw new Error('IA não encontrada.');
+          const used = store.list('agents').filter(a => a.provider === id); if (used.length) throw new Error(`Há agentes usando esta IA: ${used.slice(0, 3).map(a => a.name).join(', ')}. Troque a IA deles antes de remover.`);
+          const next = customSpecs().filter(x => x.id !== id); store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 200, providersView());
+        }
+        if (p === '/api/providers/test') {
+          masterOnly(auth); const spec = b.id ? getSpec(text(b.id, 80)) : validateSpec(b, customSpecs().filter(x => x.id !== b.id)); if (!spec) throw new Error('IA não encontrada.');
+          const dir = await mkdtemp(join(tmpdir(), 'code-room-test-')); try { return send(res, 200, await testSpec(spec, dir)); } finally { rm(dir, { recursive: true, force: true }).catch(() => {}); }
         }
         if (p.startsWith('/api/assistant/')) {
           masterOnly(auth); const a = p.slice('/api/assistant/'.length);

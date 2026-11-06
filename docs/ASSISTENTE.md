@@ -41,7 +41,7 @@ Serve para qualquer trabalho com arquivos: programar, editar vídeo, pesquisar, 
 - Para vídeo: pesquisador/roteirista → editor (com skills de edição) → revisor.
 
 ## 5. Como criar um agente
-- `provider`: `codex`, `claude`, `agy` (Antigravity/Gemini) ou `hermes` (remoto, somente leitura). Só vale o que está instalado.
+- `provider`: `codex`, `claude`, `agy` (Antigravity/Gemini) ou `hermes` (remoto, somente leitura). Só vale o que está instalado. A pessoa também pode conectar outras IAs de terminal (Gemini CLI, OpenCode, Aider…) em Conexões › Outras IAs; elas aparecem com um id que começa com `x-`. Nessas, o Code Room não consegue impedir edições de arquivos, então prefira `read` e avise.
 - `mode`: `read` (padrão e mais seguro) ou `write`.
 - `capabilities` (opcional): `code`, `review`, `research`, `writing`, `video.edit`, `video.render`, `finance`, `ops`, `supervise`.
 - `room` (ambiente): `Programação`, `Vídeo`, `Financeiro`, `Pesquisa`, `Operações` ou `Geral`.
