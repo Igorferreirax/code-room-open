@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Code Room</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head>
+<body>
+<a class="skip" href="#view">Ir para o conteúdo</a>
+<div id="login" hidden></div>
+<div id="shell" hidden>
+<header class="topbar" id="topbar"></header>
+<nav class="rail" id="rail" aria-label="Principal"></nav>
+<div class="main"><div id="notice" role="status" hidden></div><main id="view" tabindex="-1" style="flex:1;outline:none"></main><div id="composer-root"></div><div class="foot" style="padding-top:0"><span id="runtime-foot"></span><span class="credit">Desenvolvido por <a href="https://www.agenciabytelab.com.br" target="_blank" rel="noopener noreferrer">Bytelab</a></span></div></div>
+<aside id="panel" class="sidepanel" hidden></aside>
+<aside id="drawer" class="drawer" role="dialog" aria-labelledby="drawer-title" hidden></aside>
+</div>
+<audio id="audio" loop preload="none" hidden></audio>
+<dialog id="agent-dialog"><form id="agent-form"><div class="card-h"><h2 id="agent-title">Novo agente</h2><button type="button" class="iconbtn" data-close="agent-dialog" aria-label="Fechar"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><input type="hidden" name="id">
+<div class="form-grid"><label class="f">Nome<input name="name" required maxlength="200"></label><label class="f">Especialidade<input name="role" required maxlength="200"></label>
+<label class="f">Ferramenta<select name="provider"><option value="codex">Codex CLI</option><option value="claude">Claude Code</option><option value="agy">Antigravity (Gemini)</option><option value="hermes">Hermes (servidor remoto, só leitura)</option></select></label><label class="f">Modelo<input name="model" maxlength="150" placeholder="Padrão da sua conta"></label>
+<label class="f">Ambiente<input name="room" list="rooms" maxlength="100"><datalist id="rooms"><option value="Programação"><option value="Vídeo"><option value="Pesquisa"><option value="Financeiro"><option value="Operações"></datalist></label>
+<label class="f">Permissão<select name="mode"><option value="read">Somente leitura</option><option value="write">Edita arquivos (projeto confiável)</option></select></label></div>
+<fieldset><legend>Capacidades declaradas</legend><div id="agent-caps" class="chips"></div><p class="muted small" style="margin-top:6px">Declarar não prova: uma capacidade só é aceita em planos se estiver verificada em Conexões.</p></fieldset>
+<label class="f">Instruções do especialista<textarea name="instructions" rows="4" maxlength="10000"></textarea></label>
+<label class="f">Programas liberados (só Claude)<input name="commands" maxlength="200" placeholder="ex.: yt-dlp, ffmpeg, node"><small class="muted">Nomes simples separados por vírgula. O Claude só consegue rodar comandos de terminal destes programas, um por vez. Vazio = nenhum.</small></label>
+<label class="f">Skills habilitadas (até 8)<input id="agent-skill-q" placeholder="Filtrar skills reconhecidas"></label><div id="agent-skills" class="skill-pick"></div>
+<button class="btn block">Salvar agente</button></form></dialog>
+<dialog id="confirm-dialog"><form id="confirm-form" method="dialog"><h2>Tentar de novo?</h2><p class="muted" style="margin:8px 0 14px">A tentativa anterior pode ter deixado arquivos no projeto. Confira a pasta antes de repetir: repetir pode duplicar efeitos.</p><div class="btn-row"><button type="button" class="btn ghost" id="retry-cancel">Voltar</button><button class="btn">Entendi, tentar de novo</button></div></form></dialog>
+<dialog id="flowtest-dialog"><form id="flowtest-form" method="dialog"><h2>Testar o fluxo?</h2><p class="muted" style="margin:8px 0 14px">Isto inicia um fluxo real (desenvolvedor → revisor) no projeto atual, com uma tarefa mínima, e consome a cota dos provedores configurados.</p><div class="btn-row"><button type="button" class="btn ghost" id="flowtest-cancel">Cancelar</button><button class="btn">Iniciar teste</button></div></form></dialog>
+<dialog id="changes-dialog"><div id="changes-body"></div></dialog>
+<dialog id="skillroot-dialog"><form id="skillroot-form" method="dialog"><h2>Importar pasta de skills</h2><p class="muted small" style="margin:6px 0">Pasta que contém subpastas com arquivos SKILL.md. Skills de uma pasta extra são lidas, mas o carregamento nativo dos provedores continua dependendo das pastas próprias deles.</p><label class="f">Caminho completo<input name="path" required placeholder="C:\Skills"></label><div class="btn-row" style="margin-top:14px"><button type="button" class="btn ghost" data-close="skillroot-dialog">Cancelar</button><button class="btn">Adicionar</button></div></form></dialog>
+<div id="spotify-root"></div>
+<script type="module" src="/app.js"></script></body></html>

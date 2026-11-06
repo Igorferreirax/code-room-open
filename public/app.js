@@ -1,0 +1,512 @@
+import { viewRecipes, panelRecipe, panelRecipeRun, readRecipeForm, draftFrom } from './recipes.js';
+import { renderPhotoOffice, MAX_STATIONS } from './photo-office.js';
+import * as V from './views.js';
+import * as W from './views2.js';
+import { icon } from './icons.js';
+import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
+
+const $ = id => document.getElementById(id);
+const { esc } = V;
+// A chave pode vir do endereço (#chave), da sessão ou do token deste aparelho (celular pareado). "#pair=CÓDIGO" é um pareamento, não uma chave.
+const hashVal = decodeURIComponent(location.hash.slice(1)), pairFromHash = hashVal.startsWith('pair=') ? hashVal.slice(5).toUpperCase() : '';
+const DEVICE_KEY = 'code-room-device', lsGet = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+let key = (!pairFromHash && hashVal) || sessionStorage.getItem('code-room-key') || lsGet(DEVICE_KEY) || '';
+if (hashVal) history.replaceState(null, '', location.pathname + location.search); // não deixa chave nem código na barra de endereços
+if (location.hash) history.replaceState(null, '', location.pathname);
+const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+
+const ctx = {
+  state: { recipes: [], recipeRuns: [], projects: [], agents: [], teams: [], runs: [], flows: [], plans: [], routines: [], limits: {}, connectors: [], runtime: {} },
+  view: 'room', project: store.get('cr.project', ''), room: '', detail: null, execTab: 'resumo', skills: [], audit: null, checks: null, modules: null, storage: null,
+  projectContext: null, teamDraft: { id: null, name: 'Minha equipe', members: [] }, flows: {}, connection: 'connecting', maxStations: MAX_STATIONS,
+  prefs: { motion: 'auto', list: false, board: true, musicHidden: false, ...store.get('cr.prefs', {}) },
+  ui: { target: '', optsOpen: false, panel: null, panelId: null, whoOpen: false }, authed: false
+};
+const IDLE_MS = 10 * 60 * 1000, DONE_MS = 20 * 1000, FAIL_MS = 30 * 60 * 1000;
+const dismissed = new Set(store.get('cr.dismissed', []));
+let selectedAgent = null, officeHost = null, lastFocus = null, audioUrl = null;
+
+// ---------- API ----------
+async function api(path, body) {
+  const r = await fetch('/api/' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Code-Room-Key': key, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const v = await r.json().catch(() => ({}));
+  if (!r.ok) { if (r.status === 401) logout('Chave inválida ou ausente.'); throw new Error(v.error || 'Não foi possível concluir.'); }
+  return v;
+}
+function notify(msg, bad) { const n = $('notice'); n.textContent = msg; n.className = bad ? 'bad' : ''; n.hidden = false; clearTimeout(notify.t); notify.t = setTimeout(() => n.hidden = true, 9000); }
+function logout(msg) { key = ''; ctx.authed = false; sessionStorage.removeItem('code-room-key'); try { localStorage.removeItem(DEVICE_KEY); } catch {} ctx.ui.loginError = msg || ''; $('shell').hidden = true; $('login').hidden = false; renderLogin(); }
+
+// ---------- Derivações do estado real ----------
+ctx.projectName = () => ctx.state.projects.find(p => p.id === ctx.project)?.name || '';
+ctx.projectNameOf = id => ctx.state.projects.find(p => p.id === id)?.name || '';
+ctx.rooms = () => [...new Set(ctx.state.agents.map(a => a.room || 'Geral'))].sort();
+ctx.supervisorAgent = () => ctx.state.agents.find(a => a.id === store.get('cr.sup.' + ctx.project, ''));
+// As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
+const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
+ctx.viewMode = () => ctx.prefs.mode || (ctx.prefs.list ? 'list' : 'scene');
+ctx.roomAgents = () => {
+  const sup = ctx.supervisorAgent();
+  return ctx.state.agents.filter(a => a.id !== sup?.id && (!ctx.room || a.room === ctx.room))
+    .map(a => ({ a, p: PRIORITY[ctx.agentStatus(a).status] ?? 9 })).sort((x, y) => x.p - y.p || x.a.name.localeCompare(y.a.name)).map(x => x.a);
+};
+ctx.agentStatus = agent => {
+  const label = k => V.AGENT_STATUS[k];
+  const c = ctx.state.connectors.find(x => x.id === agent.provider), chk = ctx.checks?.find(x => x.id === agent.provider);
+  if (c && !c.available || chk && (!chk.installed || chk.authenticated === false)) return { status: 'disconnected', label: label('disconnected') + (chk?.authenticated === false ? ' (sem login)' : ' (CLI ausente)') };
+  // Ocupado em qualquer projeto conta como ocupado; falha, conclusão e inatividade valem só para o projeto atual.
+  const all = ctx.state.runs.filter(t => t.agent.id === agent.id), mine = all.filter(t => !ctx.project || t.project.id === ctx.project);
+  const by = st => all.find(t => st.includes(t.status));
+  let t;
+  if ((t = by(['running', 'cancelling']))) return { status: 'running', label: label('running'), task: t };
+  const proposed = ctx.state.plans.find(p => p.status === 'proposed' && (!ctx.project || p.projectId === ctx.project));
+  if (proposed && agent.id === ctx.supervisorAgent()?.id) return { status: 'decision', label: label('decision') + ' (plano proposto)', task: null };
+  if ((t = by(['needs_decision']))) return { status: 'decision', label: label('decision'), task: t };
+  if ((t = by(['waiting_dependency']))) return { status: 'waiting', label: label('waiting'), task: t };
+  if ((t = by(['queued']))) return { status: 'queued', label: label('queued'), task: t };
+  const last = mine[0], age = last ? Date.now() - Date.parse(last.updatedAt) : Infinity;
+  if (last && ['failed', 'interrupted', 'blocked'].includes(last.status) && age < FAIL_MS && !dismissed.has(last.id)) return { status: 'failed', label: V.STATUS[last.status], task: last };
+  if (last?.status === 'completed' && age < DONE_MS) return { status: 'done', label: label('done'), task: last };
+  return age > IDLE_MS ? { status: 'idle', label: label('idle') + ' (sem atividade recente)', task: last } : { status: 'available', label: label('available'), task: last };
+};
+ctx.usageTotals = runs => {
+  const u = { input: 0, output: 0, cost: 0, inCount: 0, outCount: 0, costCount: 0 };
+  for (const r of runs) { if (r.usage?.input != null) { u.input += r.usage.input; u.inCount++; } if (r.usage?.output != null) { u.output += r.usage.output; u.outCount++; } if (r.usage?.cost != null) { u.cost += r.usage.cost; u.costCount++; } }
+  return u;
+};
+ctx.currentMission = () => {
+  const t = ctx.state.runs.find(x => (!ctx.project || x.project.id === ctx.project) && x.kind === 'work');
+  if (!t) return null;
+  if (t.flowId) { const f = ctx.flows[t.flowId]; if (!f) { loadFlow(t.flowId); return { kind: 'task', task: t, title: t.prompt.slice(0, 80) }; } return { kind: 'flow', title: f.objective.slice(0, 80), steps: f.steps.map(s => ({ id: s.taskId, agent: s.agent, status: s.status })), verdict: f.review?.verdict }; }
+  return { kind: 'task', task: t, title: t.prompt.slice(0, 80) };
+};
+ctx.flowPosition = d => { const f = d.flowId && ctx.flows[d.flowId]; if (!f) return null; const i = f.steps.findIndex(s => s.taskId === d.id); return i < 0 ? null : { i: i + 1, n: f.steps.length }; };
+async function loadFlow(id) { if (ctx.flows['_' + id]) return; ctx.flows['_' + id] = 1; try { ctx.flows[id] = await api('flows/' + id); } catch {} delete ctx.flows['_' + id]; render(); }
+
+// ---------- Tema, fonte e movimento ----------
+function applyPrefs() {
+  const r = document.documentElement, p = ctx.prefs;
+  if (p.theme && p.theme !== 'noite') r.dataset.theme = p.theme; else delete r.dataset.theme;
+  if (p.font && p.font !== 'medium') r.dataset.font = p.font; else delete r.dataset.font;
+  const sys = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const off = p.reduce || p.anim === false || (p.anim === undefined && sys);
+  r.dataset.motion = off ? 'off' : 'on'; r.classList.toggle('tab-hidden', document.hidden);
+  const a = $('audio'); if (a) a.volume = p.volume ?? 0.7;
+}
+const savePrefs = () => { store.set('cr.prefs', ctx.prefs); applyPrefs(); };
+
+// ---------- Dados e tempo real ----------
+let refreshTimer = null;
+const scheduleRefresh = (ms = 350) => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, ms); };
+async function refresh() {
+  try {
+    ctx.state = await api('state');
+    if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
+    for (const f of Object.values(ctx.flows)) if (f?.id) api('flows/' + f.id).then(v => { ctx.flows[f.id] = v; render(); }).catch(() => {});
+    if (ctx.detail) ctx.detail = await api('tasks/' + ctx.detail.id).catch(() => ctx.detail);
+    render();
+  } catch { setConnection('lost'); }
+}
+function setConnection(s) { ctx.connection = s; if (ctx.authed) render(); }
+let lastSeq = 0;
+async function stream() {
+  let wait = 1000;
+  for (;;) {
+    if (!key) { await new Promise(r => setTimeout(r, 1500)); continue; }
+    try {
+      const r = await fetch('/api/stream', { headers: { 'X-Code-Room-Key': key, ...(lastSeq ? { 'Last-Event-ID': String(lastSeq) } : {}) } });
+      if (r.status === 401) { logout('Chave inválida.'); continue; }
+      if (!r.ok) throw new Error('stream');
+      setConnection('live'); wait = 1000; refresh();
+      const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); handleSse(block); }
+      }
+    } catch {}
+    setConnection('lost'); await new Promise(r => setTimeout(r, wait)); wait = Math.min(wait * 2, 10000);
+  }
+}
+function handleSse(block) {
+  const id = block.match(/^id: (\d+)/m)?.[1]; if (id) lastSeq = Math.max(lastSeq, Number(id));
+  if (!/^event: change/m.test(block)) return;
+  const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] || '{}');
+  scheduleRefresh(); if (ctx.detail && data.taskId === ctx.detail.id) scheduleRefresh(150);
+}
+
+// ---------- Renderização ----------
+const VIEWS = { room: V.viewRoom, tasks: V.viewTasks, exec: V.viewExecution, projects: V.viewProjects, teams: W.viewTeams, recipes: viewRecipes, agents: W.viewAgents, deliveries: W.viewDeliveries, skills: W.viewSkills, usage: W.viewUsage, routines: W.viewRoutines, connections: W.viewConnections, settings: W.viewSettings };
+const TITLES = { room: 'Sala', tasks: 'Tarefas', exec: 'Execução', projects: 'Projetos', teams: 'Equipes', recipes: 'Receitas', agents: 'Agentes e ferramentas', deliveries: 'Entregas', skills: 'Skills', usage: 'Consumo e limites', routines: 'Rotinas', connections: 'Conexões', settings: 'Configurações' };
+function snapshotForm() {
+  const out = {}, a = document.activeElement;
+  document.querySelectorAll('#view [id], #view [name], #composer-root [id], #panel [name], #panel [id]').forEach(el => { if (!('value' in el)) return; const k = el.id || (el.form?.id || '') + ':' + el.name; out[k] = el.type === 'checkbox' ? el.checked : el.value; });
+  return { out, focus: a?.id || (a?.name ? (a.form?.id || '') + ':' + a.name : null), sel: a?.selectionStart != null ? [a.selectionStart, a.selectionEnd] : null };
+}
+function restoreForm(snap) {
+  document.querySelectorAll('#view [id], #view [name], #composer-root [id], #panel [name], #panel [id]').forEach(el => { const k = el.id || (el.form?.id || '') + ':' + el.name; if (!(k in snap.out) || !('value' in el)) return; if (el.type === 'file' || el.type === 'range') return; if (el.type === 'checkbox') el.checked = snap.out[k]; else if (el.tagName === 'SELECT') { if ([...el.options].some(o => o.value === snap.out[k]) && !el.dataset.field) el.value = snap.out[k]; } else el.value = snap.out[k]; });
+  if (snap.focus) { const el = document.getElementById(snap.focus) || document.querySelector(`[name="${snap.focus.split(':')[1]}"]`); if (el && el !== document.activeElement) { el.focus(); if (snap.sel && el.setSelectionRange) try { el.setSelectionRange(...snap.sel); } catch {} } }
+}
+function renderLogin() { $('login').innerHTML = V.viewLogin(ctx); }
+let renderQueued = false;
+document.addEventListener('pause', e => { if (renderQueued && e.target.matches?.('.ep-media video')) { renderQueued = false; render(); } }, true);
+async function linkAgents(from, to, maxHops = 3) { try { await api('links', { projectId: ctx.project, from, to, maxHops }); notify('Ligação criada: quando o primeiro terminar, o segundo continua.'); await refresh(); } catch (e) { notify(e.message, true); } }
+async function unlinkAgents(id) { if (!confirm('Remover esta ligação entre agentes?')) return; try { await api(`links/${id}/delete`, {}); await refresh(); } catch (e) { notify(e.message, true); } }
+function render() {
+  if (!ctx.authed) return;
+  if (canvasBusy() || [...document.querySelectorAll('.ep-media video')].some(v => !v.paused && !v.ended)) { renderQueued = true; return; }   // não interrompe arrastar nem vídeo tocando   // não redesenha no meio de um arrastar
+  const snap = snapshotForm();
+  $('topbar').innerHTML = V.topbarHtml(ctx); $('rail').innerHTML = V.railHtml(ctx.view);
+  $('view').setAttribute('aria-label', TITLES[ctx.view]);
+  $('view').innerHTML = VIEWS[ctx.view](ctx);
+  $('composer-root').innerHTML = ctx.view === 'connections' ? '' : V.composerBar(ctx);
+  setTimeout(updatePop, 0); renderSpotify();
+  const panel = $('panel');
+  const content = ctx.ui.panel === 'new-project' ? V.panelNewProject(ctx) : ctx.ui.panel === 'context' ? V.panelContext(ctx) : ctx.ui.panel === 'routine' ? W.panelRoutine(ctx) : ctx.ui.panel === 'recipe' ? panelRecipe(ctx) : ctx.ui.panel === 'recipe-run' ? panelRecipeRun(ctx) : '';
+  panel.hidden = !content; if (content) panel.innerHTML = content;
+  $('shell').classList.toggle('panel-open', !!content);
+  restoreForm(snap);
+  if (ctx.view === 'room' && ctx.viewMode() === 'canvas') { const slot = $('canvas-slot'); if (slot) { slot.innerHTML = canvasHtml(ctx); bindCanvas(slot, ctx, { onOpen: openDrawer, onLink: linkAgents, onUnlink: unlinkAgents, onEnd: () => { if (renderQueued) { renderQueued = false; render(); } } }); } }
+  if (ctx.view === 'room' && ctx.viewMode() === 'scene') { const slot = $('office'); if (slot) { officeHost ||= document.createElement('div'); officeHost.id = 'office'; officeHost.className = 'office-host'; slot.replaceWith(officeHost); drawOffice(); } }
+  document.querySelectorAll('.barchart i[data-h]').forEach(i => i.style.height = i.dataset.h + '%');
+  const rt = ctx.state.runtime; $('runtime-foot').textContent = rt.version ? `v${rt.version} · serviço ${rt.memoryMB} MB${rt.paused ? ' · novas tarefas pausadas' : ''}` : '';
+  tickClocks();
+  if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
+  applyPrefs();
+}
+function drawOffice() {
+  const model = a => { const s = ctx.agentStatus(a); return { agent: a, status: s.status === 'queued' ? 'waiting' : s.status, label: `${a.name}, ${a.role}. ${s.label}${s.task ? '. Tarefa: ' + s.task.prompt.slice(0, 60) : ''}` }; };
+  const sup = ctx.supervisorAgent();
+  renderPhotoOffice(officeHost, { stations: ctx.roomAgents().slice(0, ctx.maxStations).map(model), supervisor: sup ? model(sup) : null, onSelect: openDrawer });
+}
+const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach(el => el.textContent = V.dur(Date.now() - Date.parse(el.dataset.since)));
+
+// ---------- Navegação ----------
+async function go(view) {
+  ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
+  if (view === 'skills') loadSkills(true);
+  if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
+  if (view === 'settings') loadStorage();
+  if (view === 'usage') loadLimits();
+  if (view === 'connections' || view === 'routines') loadPublish();
+  if (view === 'deliveries') { const first = W.deliveryList(ctx)[0]; if (first) selectDelivery(first.key, true); }
+  render(); $('view').focus({ preventScroll: true }); window.scrollTo(0, 0);
+}
+function setProject(id, silent) { ctx.project = id; store.set('cr.project', id); ctx.skills = []; ctx.audit = null; ctx.projectContext = null; if (!silent) { ctx.detail = null; loadSkills(); } }
+async function loadSkills(withAudit) {
+  if (!ctx.project) return; const id = ctx.project;
+  try { const s = await api('skills?project=' + encodeURIComponent(id)); if (id === ctx.project) ctx.skills = s; render(); } catch {}
+}
+async function loadContext(id) { try { ctx.projectContext = await api(`projects/${id}/context`); render(); } catch {} }
+async function loadChecks(force) { if (ctx.checks && !force) return; try { ctx.checks = await api('connectors/check'); render(); } catch {} }
+async function loadModules() { try { ctx.modules = await api('modules'); render(); } catch {} }
+async function loadPublish() { try { ctx.publish = await api('publish/status'); if (['connections', 'routines'].includes(ctx.view)) render(); } catch {} }
+async function loadLimits() { try { ctx.limits = await api('usage/limits'); if (ctx.view === 'usage') render(); } catch {} }
+async function loadRemote() {
+  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); } } catch (e) { notify(e.message, true); }
+  render();
+}
+const deviceName = () => { const ua = navigator.userAgent; return /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Celular Android' : /Windows/.test(ua) ? 'Computador Windows' : /Mac/.test(ua) ? 'Mac' : 'Aparelho'; };
+async function pairWith(code) {
+  const r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: deviceName() }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Não foi possível parear.');
+  key = j.token; try { localStorage.setItem(DEVICE_KEY, key); } catch {}
+  ctx.ui.loginError = ''; await start();
+}
+async function loadStorage() { try { ctx.storage = await api('storage'); render(); } catch {} }
+async function openTask(id, tab) { ctx.execTab = tab || 'resumo'; ctx.detail = await api('tasks/' + id); await go('exec'); }
+async function selectDelivery(k, silent) {
+  ctx.ui.delSel = k; ctx.ui.delText = null; const [id, path] = k.split('|');
+  try { ctx.ui.delDetail = await api('tasks/' + id); const f = ctx.ui.delDetail.deliverables.files.find(x => x.path === path); if (f?.url && ['md', 'txt', 'css', 'js', 'json', 'csv', 'mjs'].includes(path.split('.').pop().toLowerCase())) fetch(f.url).then(r => r.text()).then(t => { ctx.ui.delText = t.slice(0, 60000); render(); }).catch(() => {}); } catch {}
+  if (!silent) render(); else render();
+}
+function openDrawer(id) { lastFocus = document.activeElement; selectedAgent = id; const a = ctx.state.agents.find(x => x.id === id); if (!a) return; const d = $('drawer'); d.innerHTML = V.drawer(ctx, a); d.hidden = false; d.querySelector('button')?.focus(); }
+function closeDrawer() { const was = selectedAgent; selectedAgent = null; $('drawer').hidden = true; if (was && lastFocus?.isConnected) lastFocus.focus(); else if (was) document.querySelector(`[data-agent="${was}"]`)?.focus(); }
+const lines = v => String(v || '').split('\n').map(s => s.trim()).filter(Boolean);
+const concPost = async patch => { const c = ctx.state.runtime.concurrency || { global: 1, provider: {}, video: 1 }; await api('settings/concurrency', { global: c.global, provider: { codex: c.provider?.codex ?? 1, claude: c.provider?.claude ?? 1 }, video: c.video, ...patch }); };
+const limitsPost = async patch => { const l = ctx.state.limits || {}; await api('settings/limits', { timeoutMin: Math.round((l.timeoutMs || 1200000) / 60000), budgetUsd: l.budgetUsd ?? null, budgetEnabled: !!l.budgetEnabled, ...patch }); };
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ---------- Ações ----------
+const actions = {
+  agent: id => openDrawer(id), task: (id, el) => openTask(id, el?.dataset.tab), tab: id => { ctx.execTab = id; render(); },
+  'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
+  'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
+  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'list' ? 'scene' : 'list'; savePrefs(); render(); }, 'view-mode': id => { ctx.prefs.mode = ['scene', 'list', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
+  cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
+  retry: id => { const d = $('confirm-dialog'); d.dataset.id = id; d.showModal(); },
+  'accept-plan': async id => { await api(`plans/${id}/accept`, {}); notify('Plano aceito. As tarefas foram criadas.'); await refresh(); },
+  opts: () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
+  'new-project': () => { ctx.ui.panel = 'new-project'; render(); $('panel').querySelector('input')?.focus(); },
+  'pick-project': id => { setProject(id); go('room'); }, 'proj-filter': id => { ctx.ui.projFilter = id; render(); },
+  'open-folder': async id => { await api(`projects/${id}/open`, {}); notify('Pasta aberta no Explorer.'); },
+  'proj-context': async id => { ctx.ui.panel = 'context'; ctx.ui.panelId = id; ctx.projectContext = null; render(); await loadContext(id); },
+  'close-panel': () => { ctx.ui.panel = null; render(); },
+  'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } render(); },
+  'ask-agent': id => { ctx.ui.target = 'a:' + id; closeDrawer(); go('room').then(() => $('mission')?.focus()); },
+  'add-member': () => { ctx.teamDraft.members.push({ role: ctx.teamDraft.members.length ? 'revisor' : 'desenvolvedor', agentId: ctx.state.agents[0]?.id }); render(); },
+  'del-member': i => { ctx.teamDraft.members.splice(Number(i), 1); render(); },
+  'load-team': id => { const t = ctx.state.teams.find(x => x.id === id); ctx.teamDraft = { id: t.id, name: t.name, members: t.members.map(m => ({ ...m })) }; if ($('team-name')) $('team-name').value = t.name; render(); },
+  'new-team': () => { ctx.teamDraft = { id: null, name: 'Minha equipe', members: [] }; if ($('team-name')) $('team-name').value = 'Minha equipe'; render(); },
+  'save-team': async () => { ctx.teamDraft.name = $('team-name').value; await api('teams', ctx.teamDraft); ctx.teamDraft = { id: null, name: 'Minha equipe', members: [] }; notify('Equipe salva.'); await refresh(); },
+  'test-flow': () => $('flowtest-dialog').showModal(),
+  flow: async id => { const f = await api('flows/' + id); const t = f.steps.find(s => s.status === 'completed') || f.steps[0]; if (t) openTask(t.taskId); },
+  step: async id => {
+    const [k, d] = id.split(':'), n = Number(d), rt = ctx.state.runtime, l = ctx.state.limits || {};
+    if (k === 'global') await concPost({ global: clamp((rt.concurrency?.global || 1) + n, 1, 8) });
+    else if (k === 'rounds') { ctx.prefs.rounds = clamp((ctx.prefs.rounds || 1) + n, 1, 3); savePrefs(); }
+    else if (k === 'timeout') await limitsPost({ timeoutMin: clamp(Math.round((l.timeoutMs || 1200000) / 60000) + n, 1, 60) });
+    else if (k === 'budget') await limitsPost({ budgetUsd: Math.max(0, (l.budgetUsd ?? 0) + n) });
+    await refresh();
+  },
+  toggle: async id => {
+    const p = ctx.prefs;
+    if (id === 'pref-net-lan' || id === 'pref-net-ts') { const c = ctx.net.config; ctx.net = await api('network', { lan: id === 'pref-net-lan' ? !c.lan : c.lan, tailscale: id === 'pref-net-ts' ? !c.tailscale : c.tailscale }); ctx.pairing = null; render(); return; }
+    if (id === 'pref-autosup') { p.autoSupervisor = !p.autoSupervisor; savePrefs(); }
+    else if (id === 'pref-anim') { p.anim = p.anim === false; savePrefs(); }
+    else if (id === 'pref-reduce') { p.reduce = !p.reduce; savePrefs(); }
+    else if (id === 'pref-pausehidden') { p.musicHidden = !p.musicHidden; savePrefs(); }
+    else if (id === 'pref-budget') { const l = ctx.state.limits || {}; if (l.budgetUsd == null && !l.budgetEnabled) throw new Error('Defina um orçamento antes de ativar a pausa.'); await limitsPost({ budgetEnabled: !l.budgetEnabled }); await refresh(); }
+    render();
+  },
+  'tool-sel': id => { ctx.ui.toolSel = id; render(); }, 'tool-help': id => { ctx.ui.toolSel = id; ctx.ui.agentsTab = 'tools'; render(); },
+  'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
+  copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
+  'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
+  'add-skill-root': () => $('skillroot-dialog').showModal(),
+  'del-sel': k => selectDelivery(k),
+  approve: async () => { const [id] = ctx.ui.delSel.split('|'); await api(`tasks/${id}/approve`, { note: $('review-note')?.value || '' }); ctx.ui.reviewNote = ''; notify('Entrega aprovada. Nada foi publicado.'); await refresh(); },
+  'request-changes': async () => { const [id] = ctx.ui.delSel.split('|'), fb = ($('review-note')?.value || '').trim(); if (!fb) throw new Error('Descreva o ajuste.'); const t = await api(`tasks/${id}/request-changes`, { feedback: fb, requestId: crypto.randomUUID() }); ctx.ui.reviewNote = ''; notify('Pedido de ajuste enviado como nova tarefa.'); await refresh(); await openTask(t.id); },
+  'rm-worktree': async id => { if (!confirm('Remover o worktree e a branch desta tarefa? As mudanças que não foram integradas serão perdidas.')) return; await api('tasks/' + id + '/worktree/remove', {}); notify('Worktree removido.'); ctx.detail = await api('tasks/' + id); render(); },
+  changes: async id => { const t = await api('tasks/' + id); $('changes-body').innerHTML = W.changesDialog(ctx, t); $('changes-dialog').showModal(); },
+  'yt-connect': async () => { try { const r = await api('publish/google/connect', {}); window.open(r.url, '_blank', 'noopener'); notify('Autorize no navegador e volte para cá. Esta tela atualiza sozinha.'); const t0 = Date.now(), poll = setInterval(async () => { await loadPublish(); if (ctx.publish?.google?.connected || Date.now() - t0 > 180000) clearInterval(poll); }, 3000); } catch (e) { notify(e.message, true); } },
+  'yt-disconnect': async () => { if (!confirm('Desconectar o YouTube? Você precisará autorizar de novo para publicar.')) return; ctx.publish = await api('publish/google/disconnect', {}); render(); },
+  'post-new': async (id, el) => { ctx.ui.postFor = el.dataset.ep; ctx.ui.postNet = el.dataset.net || 'youtube'; ctx.ui.postDraft = {}; try { const m = await api(`batches/${id}/episodes/${el.dataset.ep}/media`), po = m.files.find(x => x.kind === 'post'); if (po) { const txt = await (await fetch(po.url)).text(); const t = txt.match(/T[íi]tulo do Shorts:\*{0,2}\s*(.+)/i); ctx.ui.postDraft = { title: t ? t[1].trim().slice(0, 100) : '', description: txt.replace(/^#.*\n+/, '').trim().slice(0, 4800), tags: (txt.match(/#[\p{L}\d]+/gu) || []).slice(0, 12).join(', ') }; } } catch {} render(); },
+  'post-metrics': async id => { try { await api(`posts/${id}/metrics`, {}); notify('Números atualizados (e salvos em DESEMPENHO.md no projeto).'); await refresh(); } catch (e) { notify(e.message, true); } },
+  'post-copy': async id => { const t = document.getElementById('cap-' + id); try { await navigator.clipboard.writeText(t.value); notify('Legenda copiada.'); } catch { t.select(); notify('Selecione e copie com Ctrl+C.', true); } },
+  'post-mark': async id => { const url = document.getElementById('url-' + id)?.value.trim() || ''; if (!confirm('Você já postou este vídeo na rede? Isso registra como publicado e conta no limite do dia.')) return; try { await api(`posts/${id}/mark`, { url }); notify('Registrado como postado.'); await refresh(); } catch (e) { notify(e.message, true); } },
+  'channel-new': () => { ctx.ui.channelEdit = 'new'; render(); }, 'channel-edit': id => { ctx.ui.channelEdit = id; render(); }, 'channel-close': () => { ctx.ui.channelEdit = null; render(); },
+  'channel-del': async id => { if (!confirm('Remover este canal? Os vídeos e posts já feitos não são apagados.')) return; await api(`channels/${id}/delete`, {}); await refresh(); },
+  'post-close': () => { ctx.ui.postFor = null; render(); },
+  'post-cancel': async id => { await api(`posts/${id}/cancel`, {}); await refresh(); },
+  'post-confirm': async id => { const sel = document.getElementById('priv-' + id), vis = sel?.value || 'private', nome = { private: 'PRIVADO', unlisted: 'NÃO LISTADO', public: 'PÚBLICO' }[vis]; if (!confirm(`Publicar este vídeo no YouTube agora como ${nome}?${vis === 'public' ? '\n\nQualquer pessoa poderá ver.' : ''}`)) return; try { await api(`posts/${id}/confirm`, { privacy: vis, confirm: true }); notify('Enviando para o YouTube…'); await refresh(); } catch (e) { notify(e.message, true); } },
+  'batch-media': async (id, el) => { try { const m = await api(`batches/${id}/episodes/${el.dataset.ep}/media`); (ctx.ui.media ||= {})[el.dataset.ep] = m; render(); } catch (e) { notify(e.message, true); } },
+  'preflight': async () => { notify('Verificando o ambiente…'); try { ctx.ui.preflight = await api('preflight?projectId=' + encodeURIComponent(ctx.project || '')); render(); } catch (e) { notify(e.message, true); } },
+  'batch-qa': async (id, el) => { notify('Medindo imagem e áudio… (uns 10 a 20 s)'); try { (ctx.ui.qa ||= {})[el.dataset.ep] = await api(`batches/${id}/episodes/${el.dataset.ep}/qa?kind=${el.dataset.kind}`); render(); } catch (e) { notify(e.message, true); } },
+  'batch-media-close': (id, el) => { delete ctx.ui.media?.[el.dataset.ep]; render(); },
+  'batch-preview-ok': async (id, el) => { await api(`batches/${id}/episodes/${el.dataset.ep}/approve-preview`, {}); notify('Prévia aprovada. Gerando o final.'); await refresh(); },
+  'batch-reject': async (id, el) => { if (!confirm('Reprovar este episódio? Prévia, final e cópias vão para a pasta LIXEIRA do projeto (nada é apagado de vez).')) return; await api(`batches/${id}/episodes/${el.dataset.ep}/reject`, {}); notify('Reprovado. Os arquivos foram para a LIXEIRA.'); await refresh(); },
+  'batch-changes': async (id, el) => { const note = prompt('O que ajustar na prévia?'); if (!note) return; await api(`batches/${id}/episodes/${el.dataset.ep}/request-changes`, { note }); notify('Ajuste pedido. Só a prévia será refeita (sem gastar créditos).'); await refresh(); },
+  'batch-retry': async (id, el) => { await api(`batches/${id}/episodes/${el.dataset.ep}/retry`, {}); await refresh(); },
+  'batch-cancel': async id => { if (!confirm('Cancelar este lote? O que já foi gasto não volta.')) return; await api(`batches/${id}/cancel`, {}); await refresh(); },
+  'routine-tab': id => { ctx.ui.routineTab = id; render(); }, 'new-routine': () => { ctx.ui.panel = 'routine'; ctx.ui.panelId = null; render(); },
+  'routine-menu': id => { ctx.ui.routineMenu = ctx.ui.routineMenu === id ? null : id; render(); },
+  'routine-edit': id => { ctx.ui.panel = 'routine'; ctx.ui.panelId = id; ctx.ui.routineMenu = null; render(); },
+  'recipe-new': () => { ctx.ui.recipeDraft = null; ctx.ui.panel = 'recipe'; ctx.ui.panelId = null; render(); },
+  'recipe-edit': id => { ctx.ui.recipeDraft = null; ctx.ui.panel = 'recipe'; ctx.ui.panelId = id; render(); },
+  'recipe-tpl': id => { document.getElementById('recipe-form')?.remove(); ctx.ui.recipeDraft = draftFrom(ctx, id); ctx.ui.panel = 'recipe'; ctx.ui.panelId = null; render(); },
+  'recipe-run-open': id => { ctx.ui.panel = 'recipe-run'; ctx.ui.panelId = id; render(); },
+  'recipe-approve': async id => { await api(`recipe-runs/${id}/approve`, {}); await refresh(); },
+  'recipe-cancel': async id => { await api(`recipe-runs/${id}/cancel`, {}); await refresh(); },
+  'recipe-del': async id => { if (!confirm('Excluir esta receita?')) return; await api(`recipes/${id}/delete`, {}); notify('Receita excluída.'); await refresh(); },
+  'routine-run': async id => { ctx.ui.routineMenu = null; await api(`routines/${id}/run`, {}); notify('Rotina iniciada.'); await refresh(); },
+  'routine-toggle': async id => { const r = ctx.state.routines.find(x => x.id === id); await api(`routines/${id}/${r.status === 'active' ? 'pause' : 'resume'}`, {}); ctx.ui.routineMenu = null; await refresh(); },
+  'routine-del': async id => { ctx.ui.routineMenu = null; await api(`routines/${id}/delete`, {}); notify('Rotina excluída.'); await refresh(); },
+  'routine-test': async () => { const r = await saveRoutine(); await api(`routines/${r.id}/run`, {}); notify('Rotina salva e iniciada.'); ctx.ui.panel = null; await refresh(); },
+  theme: id => { ctx.prefs.theme = id; savePrefs(); render(); }, 'save-prefs': () => { savePrefs(); notify('Preferências salvas neste navegador.'); },
+  'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); render(); },
+  'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
+  'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
+  'spotify-toggle': () => { ctx.ui.spotifyOpen = !ctx.ui.spotifyOpen; renderSpotify(); },
+  'spotify-save': () => { const v = $('spotify-url')?.value.trim() || ''; if (v && !spotifyEmbed(v)) { notify('Cole o link de uma playlist, álbum ou faixa do Spotify (open.spotify.com/…).', true); return; } ctx.prefs.spotifyUrl = v; ctx.ui.spotifyOpen = false; savePrefs(); notify(v ? 'Spotify configurado: use o botão no canto da tela.' : 'Spotify removido.'); render(); },
+  'pair-new': async () => { ctx.pairing = await api('devices/pair-code', {}); render(); },
+  'revoke-device': async id => { await api(`devices/${id}/revoke`, {}); notify('Aparelho revogado.'); ctx.devices = await api('devices'); render(); },
+  'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
+  recheck: () => { ctx.checks = null; loadChecks(true); loadModules(); },
+  'music-toggle': () => { const a = $('audio'); if (a.src) a.paused ? a.play() : a.pause(); else notify('Escolha um arquivo de áudio primeiro.', true); }
+};
+async function saveRoutine() {
+  const f = $('routine-form'), d = Object.fromEntries(new FormData(f)), [tt, tid] = d.target.split(':');
+  const trigger = d.ttype === 'manual' ? { type: 'manual' } : d.ttype === 'file' ? { type: 'file', ext: d.ext || '' } : { type: 'time', freq: d.freq, time: d.time, ...(d.freq === 'weekly' ? { day: Number(d.day) } : {}) };
+  const r = await api('routines', { ...(d.id ? { id: d.id } : {}), name: d.name, projectId: d.projectId, target: { type: tt === 'a' ? 'agent' : tt === 'r' ? 'recipe' : 'team', id: tid }, objective: d.objective, trigger, attempts: Number(d.attempts) });
+  await refresh(); return r;
+}
+document.addEventListener('click', async e => {
+  if (ctx.ui.whoOpen && !e.target.closest('.who')) { ctx.ui.whoOpen = false; render(); }
+  if (ctx.ui.routineMenu && !e.target.closest('[data-act^=routine-]')) { ctx.ui.routineMenu = null; render(); }
+  const b = e.target.closest('[data-act], [data-nav], [data-close]'); if (!b) return;
+  if (b.tagName === 'INPUT') return;
+  try {
+    if (b.dataset.nav) return go(b.dataset.nav);
+    if (b.dataset.close) return $(b.dataset.close).close();
+    await actions[b.dataset.act]?.(b.dataset.id, b);
+  } catch (err) { notify(err.message, true); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else if (ctx.ui.panel) { ctx.ui.panel = null; render(); } else if (ctx.ui.whoOpen) { ctx.ui.whoOpen = false; render(); } }
+  if (e.target.id === 'mission' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.pcard[role=button]')) { e.preventDefault(); e.target.click(); }
+});
+document.addEventListener('change', async e => {
+  const t = e.target;
+  try {
+    if (t.id === 'project-select') { setProject(t.value); render(); }
+    else if (t.id === 'room-filter') { ctx.room = t.value; render(); }
+    else if (t.id === 'sup-select') { store.set('cr.sup.' + ctx.project, t.value); render(); }
+    else if (t.id === 'usage-period') { ctx.ui.usagePeriod = t.value; render(); } else if (t.id === 'usage-project') { ctx.ui.usageProject = t.value; render(); }
+    else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
+    else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
+    else if (t.id === 'pref-volume') { ctx.prefs.volume = Number(t.value) / 100; savePrefs(); render(); }
+    else if (t.id === 'target') ctx.ui.target = t.value;
+    else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
+    else if (t.id === 'music-file') { const f = t.files[0]; if (!f) return; if (audioUrl) URL.revokeObjectURL(audioUrl); audioUrl = URL.createObjectURL(f); const a = $('audio'); a.src = audioUrl; a.play().catch(() => {}); notify('Tocando ' + f.name); }
+    else if (t.dataset?.act === 'skill-agent') {
+      const a = ctx.state.agents.find(x => x.id === t.dataset.agent); const ids = new Set(a.skillIds); if (t.checked) ids.add(t.dataset.id); else ids.delete(t.dataset.id);
+      if (ids.size > 8) { t.checked = false; throw new Error('Máximo de 8 skills por agente.'); }
+      await api('agents', { ...a, skillIds: [...ids] }); await refresh();
+    }
+  } catch (err) { notify(err.message, true); }
+});
+document.addEventListener('input', e => {
+  const t = e.target, m = { 'proj-q': 'projQuery', 'tool-q': 'toolQ', 'skill-q': 'skillQ', 'routine-q': 'routineQ', 'review-note': 'reviewNote' }[t.id];
+  if (m) { ctx.ui[m] = t.value; if (t.id !== 'review-note') render(); else { const c = t.parentElement.querySelector('.muted.small'); if (c) c.textContent = `${t.value.length}/500`; } }
+});
+
+// ---------- Formulários ----------
+document.addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target, fid = f.getAttribute('id');
+  try {
+    if (fid === 'composer') {
+      let target = $('target').value, text = $('mission').value.trim(); const criteria = lines($('criteria')?.value), requestId = crypto.randomUUID(), skillIds = [];
+      // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
+      const mm = text.match(/^@([\w.:-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
+      if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
+      for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
+      if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
+      if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
+      $('send').disabled = true;
+      if (target === 's') { await api('plans', { projectId: ctx.project, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
+      else if (target.startsWith('t:')) { await api('flows', { projectId: ctx.project, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); notify('Fluxo iniciado.'); }
+      else { const t = await api('tasks', { projectId: ctx.project, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true }); $('mission').value = ''; await refresh(); return openTask(t.id); }
+      $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
+    } else if (fid === 'link-form') {
+      const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3);
+    } else if (fid === 'followup-form') {
+      const fd = new FormData(f), t = await api(`tasks/${fd.get('id')}/followup`, { agentId: fd.get('agentId'), message: fd.get('message'), requestId: crypto.randomUUID() });
+      notify(t.resumed ? 'Continuando a mesma sessão.' : 'Nova missão iniciada com o resumo e os arquivos da anterior.'); await refresh(); return openTask(t.id);
+    } else if (fid === 'login-form') { key = $('access-key').value.trim(); ctx.ui.loginError = ''; start(); }
+    else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area }); if (d.team) store.set('cr.team.' + p.id, d.team); ctx.ui.panel = null; setProject(p.id); await refresh(); notify('Projeto criado.'); }
+    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
+    else if (fid === 'flow-form') { const d = Object.fromEntries(new FormData(f)); await api('flows', { projectId: ctx.project, teamId: d.team, requestId: crypto.randomUUID(), objective: d.objective, criteria: lines(d.criteria), maxReviewRounds: ctx.prefs.rounds || 1 }); f.reset(); notify('Fluxo iniciado.'); await refresh(); }
+    else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v); await api('settings/concurrency', { global: n(d.global), provider: { codex: n(d.codex), claude: n(d.claude) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
+    else if (fid === 'context-form') { const d = Object.fromEntries(new FormData(f)); ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context`, { goals: d.goals, decisions: lines(d.decisions), pending: lines(d.pending), references: lines(d.references) }); notify('Contexto salvo.'); render(); }
+    else if (fid === 'confirm-form') { const id = $('confirm-dialog').dataset.id; $('confirm-dialog').close(); await api(`tasks/${id}/retry`, { confirm: true }); notify('Nova tentativa na fila.'); await refresh(); }
+    else if (fid === 'flowtest-form') { $('flowtest-dialog').close(); const team = ctx.teamDraft.id || ctx.state.teams[0]?.id; if (!team) throw new Error('Salve a equipe antes de testar o fluxo.'); await api('flows', { projectId: ctx.project, teamId: team, requestId: crypto.randomUUID(), objective: 'Teste do fluxo: crie um arquivo teste.txt com a palavra "ok" (UTF-8) e informe o nome do arquivo.', criteria: ['O arquivo teste.txt existe e contém "ok"'], maxReviewRounds: 1 }); notify('Fluxo de teste iniciado.'); await refresh(); }
+    else if (fid === 'skillroot-form') { await api('settings/skill-roots', { path: new FormData(f).get('path') }); $('skillroot-dialog').close(); notify('Pasta de skills adicionada.'); await loadSkills(); }
+    else if (fid === 'prices-form') { const d = Object.fromEntries(new FormData(f)); await api('settings/prices', { codex: { in: d.cin, out: d.cout }, claude: { in: d.lin, out: d.lout } }); notify('Preços salvos. A estimativa usa só tarefas sem custo reportado.'); await refresh(); }
+    else if (fid === 'channel-form') { const d = Object.fromEntries(new FormData(f)); const r = await api('channels', { ...d, createPostador: d.createPostador === '1' }); ctx.ui.channelEdit = null; notify(r.agent ? `Canal salvo e agente “${r.agent.name}” criado.` : 'Canal salvo.'); await refresh(); }
+    else if (fid === 'yt-form') { const d = Object.fromEntries(new FormData(f)); ctx.publish = await api('publish/google/config', d); notify('Credenciais salvas. Agora clique em Conectar YouTube.'); render(); }
+    else if (fid === 'post-form') { const d = Object.fromEntries(new FormData(f)); await api('posts', { batchId: f.dataset.batch, epId: f.dataset.ep, network: f.dataset.net || 'youtube', title: d.title, description: d.description, tags: d.tags }); ctx.ui.postFor = null; ctx.ui.postDraft = null; notify('Rascunho criado. Escolha a visibilidade e confirme para publicar.'); await refresh(); }
+    else if (fid === 'batch-form') { const d = Object.fromEntries(new FormData(f)); await api('batches', { name: d.name, projectId: d.projectId, agentId: d.agentId, workDir: d.workDir, fromStage: d.fromStage || undefined, folders: d.folders.split(/\r?\n/).map(s => s.trim()).filter(Boolean) }); notify('Lote criado. Confira os custos e aprove os créditos para começar.'); await refresh(); }
+    else if (fid === 'batch-costs-form') { const d = Object.fromEntries(new FormData(f)); await api('batches/costs', d); notify('Preços salvos.'); await refresh(); }
+    else if (fid.startsWith('batch-approve-')) { const d = Object.fromEntries(new FormData(f)); await api(`batches/${f.dataset.batch}/approve`, { voiceCredits: Number(d.voiceCredits), flowCap: Number(d.flowCap) }); notify('Créditos aprovados. A produção começou.'); await refresh(); }
+    else if (fid === 'recipe-form') { await api('recipes', readRecipeForm(f)); ctx.ui.panel = null; ctx.ui.recipeDraft = null; notify('Receita salva.'); await refresh(); }
+    else if (fid === 'recipe-run-form') { const d = Object.fromEntries(new FormData(f)); await api(`recipes/${d.rid}/run`, { objective: d.objective }); ctx.ui.panel = null; notify('Rodada iniciada.'); await refresh(); }
+    else if (fid === 'routine-form') { await saveRoutine(); ctx.ui.panel = null; notify('Rotina salva.'); render(); }
+  } catch (err) { notify(err.message, true); if (fid === 'login-form') { ctx.ui.loginError = err.message; renderLogin(); } }
+  finally { if ($('send')) $('send').disabled = !(ctx.project && ctx.state.agents.length); }
+});
+
+let pickedSkills = new Set();
+function editAgent(id) {
+  const f = $('agent-form'); f.reset(); const a = ctx.state.agents.find(x => x.id === id);
+  for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
+  f.elements.commands.value = (a?.commands || []).join(', ');
+  f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));
+  pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); $('agent-dialog').showModal();
+  if (!ctx.skills.length) loadSkills().then(renderPicker);
+}
+function renderPicker() {
+  const q = $('agent-skill-q').value.toLowerCase(), list = ctx.skills.filter(s => s.recognized && s.preferred !== false && (pickedSkills.has(s.id) || s.name.toLowerCase().includes(q)));
+  $('agent-skills').innerHTML = list.slice(0, 80).map(s => `<label class="check"><input type="checkbox" value="${esc(s.id)}" ${pickedSkills.has(s.id) ? 'checked' : ''}><span>${esc(s.name)} <small class="muted">${esc(s.source)}${s.missingDependencies.length ? ' · dependência ausente (bloqueia a execução)' : ''}</small></span></label>`).join('') || '<p class="muted small">Nenhuma skill reconhecida neste filtro.</p>';
+}
+$('agent-skill-q').oninput = renderPicker;
+$('agent-skills').onchange = e => { if (e.target.checked) { if (pickedSkills.size >= 8) { e.target.checked = false; notify('Máximo de 8 skills por agente.', true); return; } pickedSkills.add(e.target.value); } else pickedSkills.delete(e.target.value); };
+$('agent-caps').innerHTML = Object.entries(V.CAPS).map(([k, v]) => `<label class="check"><input type="checkbox" name="cap" value="${k}"> ${esc(v)}</label>`).join('');
+for (const [id, d] of [['retry-cancel', 'confirm-dialog'], ['flowtest-cancel', 'flowtest-dialog']]) $(id).onclick = () => $(d).close();
+
+// ---------- Ciclo de vida ----------
+document.addEventListener('visibilitychange', () => {
+  applyPrefs(); const au = $('audio'); if (!au) return;
+  if (document.hidden && !ctx.prefs.musicHidden && !au.paused) { au.pause(); au.dataset.resume = '1'; }
+  else if (!document.hidden && au.dataset.resume) { delete au.dataset.resume; au.play().catch(() => {}); }
+});
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyPrefs);
+
+// ---------- Spotify (player incorporado: sem baixar nada; a playlist é a que você colar) ----------
+function spotifyEmbed(url) {
+  const m = String(url || '').trim().match(/^(?:https:\/\/open\.spotify\.com\/(?:intl-[a-z]+\/)?|spotify:)(playlist|album|track|show|episode|artist)[\/:]([A-Za-z0-9]{10,40})/);
+  return m ? `https://open.spotify.com/embed/${m[1]}/${m[2]}?utm_source=generator&theme=0` : null;
+}
+function renderSpotify() {
+  const host = $('spotify-root'); if (!host) return; const src = ctx.authed && spotifyEmbed(ctx.prefs.spotifyUrl);
+  if (!src) { host.innerHTML = ''; return; }
+  host.innerHTML = `<div class="spot ${ctx.ui.spotifyOpen ? 'open' : ''}"><button class="spot-btn" data-act="spotify-toggle" aria-expanded="${!!ctx.ui.spotifyOpen}" aria-label="Spotify">${icon('music', 18)}<span>Spotify</span></button>${ctx.ui.spotifyOpen ? `<iframe title="Spotify" src="${src}" width="100%" height="152" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>` : ''}</div>`;
+}
+// ---------- Autocompletar do chat: "/" lista as skills instaladas, "@" lista os agentes ----------
+let pop = null;
+const PROVIDER_NAMES = { codex: 'Codex', claude: 'Claude Code', agy: 'Antigravity', hermes: 'Hermes' };
+const esc2 = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function skillChoices(q = '', exact = false) {
+  const seen = new Map();
+  for (const s of ctx.skills || []) { if (!s.recognized) continue; const cur = seen.get(s.name); if (!cur || (s.preferred && !cur.preferred)) seen.set(s.name, s); }
+  q = q.toLowerCase();
+  const all = [...seen.values()];
+  if (exact) return all.filter(s => s.name.toLowerCase() === q);
+  return all.filter(s => !q || s.name.toLowerCase().includes(q)).sort((a, b) => (a.name.toLowerCase().startsWith(q) ? 0 : 1) - (b.name.toLowerCase().startsWith(q) ? 0 : 1) || a.name.localeCompare(b.name)).slice(0, 8);
+}
+function tokenAtCaret() {
+  const ta = $('mission'); if (!ta || document.activeElement !== ta) return null;
+  const pos = ta.selectionStart, m = ta.value.slice(0, pos).match(/(^|\s)([\/@])([\w.:-]*)$/);
+  return m ? { ch: m[2], q: m[3].toLowerCase(), from: pos - m[3].length - 1, to: pos } : null;
+}
+function updatePop() {
+  const t = tokenAtCaret(), old = $('slash-pop'), box = document.querySelector('#composer-root .composer');
+  if (!t || !box) { old?.remove(); pop = null; return; }
+  const items = t.ch === '/'
+    ? skillChoices(t.q).map(s => ({ label: '/' + s.name, hint: s.description.slice(0, 90), insert: '/' + s.name + ' ' }))
+    : ctx.state.agents.filter(a => !t.q || a.name.toLowerCase().includes(t.q)).slice(0, 8).map(a => ({ label: '@' + a.name, hint: `${PROVIDER_NAMES[a.provider] || a.provider} · ${a.role}`, insert: '@' + a.name.replace(/\s+/g, '_') + ' ' }));
+  if (!items.length) { old?.remove(); pop = { items: [], t, sel: 0 }; return; }
+  const sel = Math.min(pop?.sel || 0, items.length - 1); pop = { items, t, sel };
+  const html = `<div id="slash-pop" class="slash-pop" role="listbox" aria-label="${t.ch === '/' ? 'Skills' : 'Agentes'}"><div class="slash-h">${t.ch === '/' ? 'Skills instaladas (valem para qualquer agente)' : 'Agentes'}</div>${items.map((it, i) => `<button type="button" role="option" aria-selected="${i === sel}" class="${i === sel ? 'on' : ''}" data-pick="${i}"><b>${esc2(it.label)}</b><small>${esc2(it.hint)}</small></button>`).join('')}</div>`;
+  if (old) old.outerHTML = html; else box.insertAdjacentHTML('beforeend', html);
+}
+function pickItem(i) {
+  if (!pop?.items[i]) return; const ta = $('mission'), { t, items } = pop;
+  ta.value = ta.value.slice(0, t.from) + items[i].insert + ta.value.slice(t.to); const c = t.from + items[i].insert.length; ta.setSelectionRange(c, c); ta.focus();
+  $('slash-pop')?.remove(); pop = null;
+}
+document.addEventListener('input', e => { if (e.target.id === 'mission') { if (pop) pop.sel = 0; updatePop(); } });
+document.addEventListener('keyup', e => { if (e.target.id === 'mission' && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updatePop(); });
+document.addEventListener('mousedown', e => { const b = e.target.closest?.('#slash-pop [data-pick]'); if (b) { e.preventDefault(); pickItem(Number(b.dataset.pick)); } });
+document.addEventListener('keydown', e => {   // captura: roda antes do Enter que envia a missão
+  if (e.target.id !== 'mission' || !pop?.items.length) return;
+  const n = pop.items.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); pop.sel = (pop.sel + (e.key === 'ArrowDown' ? 1 : n - 1)) % n; updatePop(); }
+  else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); pickItem(pop.sel); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); $('slash-pop')?.remove(); pop = null; }
+}, true);
+
+let started = false;
+async function start() {
+  try {
+    ctx.state = await api('state'); ctx.authed = true;
+    sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
+    if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
+    loadSkills(); loadChecks(); applyPrefs(); render();
+    if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
+  } catch (e) { ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
+}
+applyPrefs();
+if (pairFromHash) pairWith(pairFromHash).catch(e => { ctx.ui.loginError = e.message; $('login').hidden = false; renderLogin(); });
+else if (key) start(); else { $('login').hidden = false; renderLogin(); }
