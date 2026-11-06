@@ -35,6 +35,7 @@ import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 import { createSkillFile } from './myskills.mjs';
 import { FolderJobs } from './folderjobs.mjs';
+import { cleanModel, cleanEffort, effortsFor, EFFORT_LABEL } from './effort.mjs';
 import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, MAX_CUSTOM, findProgram, launcher } from './providers.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,7 +70,8 @@ const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabili
 const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
 const assistantWorld = async () => {
   const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, description: k.description, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
-  return { agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+  const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => ({ id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', updatedAt: t.updatedAt, createdAt: t.createdAt, files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').length }));
+  return { runs, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
@@ -111,7 +113,7 @@ const routines = new Routines(store, (r, slot) => {
 function okKey(value) { const a = Buffer.from(value || ''), b = Buffer.from(key); return a.length === b.length && timingSafeEqual(a, b); }
 // 'master' = chave do PC; 'device' = token de um celular pareado (revogável, sem acesso a rede, aparelhos e registro de projetos).
 function authLevel(req) { const v = req.headers['x-code-room-key']; if (okKey(v)) return 'master'; return devices.verify(v, req.socket.remoteAddress) ? 'device' : null; }
-const masterOnly = auth => { if (auth !== 'master') throw new Error('Esta ação só pode ser feita no computador (chave principal).'); };
+const masterOnly = auth => { if (auth !== 'master') throw Object.assign(new Error('Esta ação só pode ser feita no computador (chave principal).'), { status: 403 }); };
 function text(value, max = 200) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`Texto obrigatório (até ${max} caracteres).`); return value.trim(); }
 function optional(value, max = 10000) { if (value == null) return ''; if (typeof value !== 'string' || value.length > max) throw new Error('Texto inválido ou muito longo.'); return value.trim(); }
 function saveAgent(b) {
@@ -123,7 +125,19 @@ function saveAgent(b) {
           const commands = [...new Set((b.commands ?? prev?.commands ?? []).map(c => String(c).trim()).filter(Boolean))]; if (commands.length > 10 || commands.some(c => !/^[\w.-]{1,40}$/.test(c))) throw new Error('Programas liberados: até 10 nomes simples (ex.: yt-dlp, ffmpeg), sem caminhos nem espaços.');
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
           const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
-          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: optional(b.model, 150), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: cleanModel(b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+}
+// Sugestões de modelo para o formulário (a pessoa pode digitar qualquer outro): aliases do Claude, lista real do Antigravity e o padrão do Codex.
+const modelCache = new Map();
+async function modelSuggestions(provider) {
+  const efforts = effortsFor(provider).map(id => ({ id, label: EFFORT_LABEL[id] || id })), used = [...new Set(store.list('agents').filter(a => a.provider === provider && a.model).map(a => a.model))];
+  const hit = modelCache.get(provider); if (hit && Date.now() - hit.at < 10 * 60000) return { models: hit.models, efforts };
+  let models = [];
+  if (provider === 'claude') models = [{ id: 'sonnet', label: 'Sonnet (equilibrado)' }, { id: 'opus', label: 'Opus (o mais capaz)' }, { id: 'haiku', label: 'Haiku (rápido e barato)' }];
+  else if (provider === 'agy') { const c = connectors().find(x => x.id === 'agy'); if (c?.path) models = await new Promise(r => execFile(c.path, ['models'], { windowsHide: true, timeout: 20000 }, (err, out) => r(err ? [] : String(out).split(String.fromCharCode(10)).map(l => l.split(String.fromCharCode(9))).filter(p => p[0] && /^[A-Za-z0-9][\w.:/-]*$/.test(p[0].trim()) && p[1]).map(p => ({ id: p[0].trim(), label: p[1].trim() })).slice(0, 40)))); }
+  else if (provider === 'codex') { try { const m = readFileSync(join(homedir(), '.codex', 'config.toml'), 'utf8').match(/^model\s*=\s*"([^"]+)"/m); if (m) models = [{ id: m[1], label: `${m[1]} (o seu padrão no Codex)` }]; } catch {} }
+  for (const id of used) if (!models.some(m => m.id === id)) models.push({ id, label: `${id} (já usado)` });
+  if (models.length) modelCache.set(provider, { at: Date.now(), models }); return { models, efforts };
 }
 function providersView() {
   return { max: MAX_CUSTOM, catalog: catalogView(), custom: customSpecs().map(s => { const f = findProgram(s.exe), l = f ? launcher(f) : null; return { ...s, installed: !!l, unsupported: f && !l ? 'atalho .cmd não suportado' : null, usedBy: store.list('agents').filter(a => a.provider === s.id).length }; }) };
@@ -239,6 +253,7 @@ const handle = async (req, res) => {
         const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
         return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
       }
+      if (get && p === '/api/models') { masterOnly(auth); return send(res, 200, await modelSuggestions(url.searchParams.get('provider') || '')); }
       if (get && p === '/api/providers') { masterOnly(auth); return send(res, 200, providersView()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
       if (get && p === '/api/stream') {
@@ -347,6 +362,7 @@ const handle = async (req, res) => {
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread());
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
+          if (a === 'thread/rename') return send(res, 200, await assistant.renameThread(text(b.id, 40), text(b.title, 60)));
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
           if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
@@ -477,7 +493,7 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
     const files = { [url.pathname]: name };
     if (req.method !== 'GET' || !files[url.pathname]) return send(res, 404, { error: 'Não encontrado' });
     const file = files[url.pathname]; res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end(await readFile(join(root, 'public', file)));
-  } catch (e) { send(res, 400, { error: e.code === 'ENOENT' ? 'Pasta ou arquivo não encontrado.' : e.message, failureKind: e.failureKind || null }); }
+  } catch (e) { send(res, e.status === 403 ? 403 : 400, { error: e.code === 'ENOENT' ? 'Pasta ou arquivo não encontrado.' : e.message, failureKind: e.failureKind || null }); }
 };
 const server = http.createServer(handle);
 const extra = new Map(); // ip → servidor

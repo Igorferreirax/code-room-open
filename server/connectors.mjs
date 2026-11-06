@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join, delimiter } from 'node:path';
 import { homedir } from 'node:os';
+import { effortsFor } from './effort.mjs';
+const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
 import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
 
 export function executable(name, candidates = []) {
@@ -38,6 +40,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
   if (agent.provider === 'codex') {
     args = resumeId ? ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode="${mode}"`] : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', mode];
     if (agent.model) args.push('--model', agent.model);
+    { const e = effortOf(agent); if (e) args.push('-c', `model_reasoning_effort="${e}"`); }
     if (resumeId) args.push(resumeId);
     args.push('-');
   } else if (agent.provider === 'agy') {
@@ -46,6 +49,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     args = ['--output-format', 'json', '--mode', agent.mode === 'write' ? 'accept-edits' : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
     if (cwd) args.push('--add-dir', cwd);
     if (agent.model) args.push('--model', agent.model);
+    { const e = effortOf(agent); if (e) args.push('--effort', e); }
     if (resumeId) args.push('--conversation', resumeId);
     args.push(`--print=${prompt}`);
     return { file: provider.path, args, input: '' };
@@ -59,6 +63,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
     for (const prog of agent.commands || []) if (/^[\w.-]{1,40}$/.test(prog)) for (const tool of ['Bash', 'PowerShell']) args.push('--allowedTools', `${tool}(${prog}:*)`);
     if (agent.model) args.push('--model', agent.model);
+    { const e = effortOf(agent); if (e) args.push('--effort', e); }
     if (resumeId) args.push('--resume', resumeId);
   }
   return { file: provider.path, args, input: prompt };

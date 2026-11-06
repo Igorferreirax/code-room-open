@@ -66,7 +66,7 @@ test('HTTP remoto: escuta só nos endereços liberados, token de aparelho tem me
     assert.equal((await req('127.0.0.1', 'GET', '/api/whoami', { headers: D })).json.level, 'device');
     for (const [m, p] of [['GET', '/api/devices'], ['GET', '/api/network'], ['POST', '/api/devices/pair-code'], ['POST', '/api/network'], ['POST', '/api/projects'], ['POST', '/api/settings/skill-roots']]) {
       const r = await req('127.0.0.1', m, p, { headers: D, body: m === 'POST' ? JSON.stringify({ name: 'x', path: dir, lan: true }) : undefined });
-      assert.equal(r.status, 400, `${m} ${p} é só do computador`); assert.match(r.json.error, /computador/);
+      assert.equal(r.status, 403, `${m} ${p} é só do computador`); assert.match(r.json.error, /computador/);
     }
     const list = (await req('127.0.0.1', 'GET', '/api/devices', { headers: { ...H, Host: hostHdr } })).json; assert.equal(list.length, 1); assert.ok(!JSON.stringify(list).includes(token), 'a lista não devolve o token');
     assert.equal((await req('127.0.0.1', 'POST', `/api/devices/${list[0].id}/revoke`, { headers: { ...H, Host: hostHdr }, body: '{}' })).status, 200);

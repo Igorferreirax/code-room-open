@@ -21,7 +21,7 @@ test('cadastro: instrução precisa citar {arquivo}; pasta é relativa ao projet
   const bad = (o, re) => assert.throws(() => validateJob({ ...base, ...o }, store), re);
   bad({ instruction: 'sem o marcador' }, /\{arquivo\}/); bad({ dir: '../fora' }, /Pasta de entrada/); bad({ dir: 'C:/Windows' }, /Pasta de entrada/); bad({ dir: 'a/../../b' }, /Pasta de entrada/); bad({ exts: 'mp4; ../x' }, /Extensões/); bad({ exts: Array(13).fill('a').map((a, i) => a + i).join(',') }, /Extensões/);
   bad({ agentId: 'nao-existe' }, /Agente não encontrado/); bad({ agentId: undefined, teamId: undefined }, /Escolha o agente/); bad({ name: '' }, /Nome/); bad({ projectId: 'x' }, /Projeto/); bad({ instruction: 'x{arquivo}'.repeat(500) }, /3000/);
-  assert.equal(validateJob({ ...base, parallel: 9 }, store).parallel, 3); assert.equal(validateJob({ ...base, dir: ' \\ENTRADA\\sub\\ ' }, store).dir, 'ENTRADA/sub');
+  assert.equal(validateJob({ ...base, parallel: 9 }, store).parallel, 3); assert.equal(validateJob({ ...base, dir: ' ENTRADA\\sub\\ ' }, store).dir, 'ENTRADA/sub'); bad({ dir: '/ENTRADA' }, /sem barra no começo/); bad({ dir: '\\ENTRADA' }, /sem barra no começo/);
 });
 
 test('varredura: só extensões pedidas, até 2 níveis, ignora ocultos e arquivos ainda sendo gravados; pasta ausente e atalho para fora são avisados', async () => {

@@ -21,7 +21,9 @@ const BADGE = {
 };
 function badge(status) { const b = BADGE[status]; return b ? `<span class="ps-badge b-${b[1]}">${icon(b[0], 18)}</span>` : ''; }
 const zzz = status => status === 'idle' ? '<span class="ps-zzz" aria-hidden="true"><i>z</i><i>Z</i><i>Z</i></span>' : '';
-function plaque(c, w, h, cls, text) { return `<span class="ps-plaque ${cls}" style="${pct(c[0] - w / 2, c[1] - h / 2, w, h)}">${esc(text)}</span>`; }
+// A placa tem largura fixa na cena: nomes longos são encurtados com reticências (o nome inteiro continua na dica e na gaveta do agente).
+const fit = (text, w) => { const max = Math.max(6, Math.round(w / 11)); const t = String(text ?? ''); return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t; };
+function plaque(c, w, h, cls, text) { return `<span class="ps-plaque ${cls}" title="${esc(text)}" style="${pct(c[0] - w / 2, c[1] - h / 2, w, h)}">${esc(fit(text, w))}</span>`; }
 
 function station(s, i) {
   const [bx, by, bw, bh] = SLOTS[i].box, [mx, my, mw, mh] = SLOTS[i].mon;

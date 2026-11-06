@@ -54,6 +54,29 @@ try {
   check('corpo gigante (3 MB) é recusado ou tratado, sem derrubar', big.status !== 0 && big.status < 500 || big.status === 413, `status ${big.status}`);
   check('serviço continua de pé depois dos ataques', (await req('GET', '/api/state', { headers: K })).status === 200);
 
+  // Celular pareado (chave de aparelho): vê e opera, mas não mexe no que é só do computador (Assistente, IAs conectadas, pastas, atualização, rede…)
+  const code = JSON.parse((await req('POST', '/api/devices/pair-code', { headers: J, body: '{}' })).body).code;
+  const pair = await req('POST', '/api/pair', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: 'Teste' }) });
+  const token = pair.status === 200 ? JSON.parse(pair.body).token : null; check('pareamento por código funciona e o código é de uso único', !!token && (await req('POST', '/api/pair', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name: 'Outro' }) })).status === 400);
+  if (token) {
+    const D = { 'X-Code-Room-Key': token, 'Content-Type': 'application/json' }, dget = path => req('GET', path, { headers: D }), dpost = (path, b = {}) => req('POST', path, { headers: D, body: JSON.stringify(b) });
+    check('celular pareado enxerga o estado (200)', (await dget('/api/state')).status === 200);
+    for (const path of ['/api/assistant', '/api/providers', '/api/network', '/api/devices']) { const r = await dget(path); check(`celular pareado não lê ${path} (só o computador)`, r.status === 403, `veio ${r.status}`); }
+    const writes = [['/api/assistant/ask', { text: 'oi' }], ['/api/assistant/brief', {}], ['/api/assistant/thread/new', {}], ['/api/providers', { name: 'x', exe: 'node', args: ['{prompt}'] }], ['/api/providers/test', { name: 'x', exe: 'node', args: ['{prompt}'] }], ['/api/providers/delete', { id: 'x-a' }],
+      ['/api/folderjobs', { name: 'x', projectId: 'p', instruction: '{arquivo}', agentId: 'a' }], ['/api/notices/seen', { all: true }], ['/api/projects', { name: 'x', path: 'C:/' }], ['/api/settings/skill-roots', { path: 'C:/' }], ['/api/updates/install', {}], ['/api/updates/download', {}], ['/api/network', { lan: true }], ['/api/devices/pair-code', {}]];
+    for (const [path, b] of writes) { const r = await dpost(path, b); check(`celular pareado não faz POST ${path}`, r.status === 403, `veio ${r.status}`); }
+  }
+  // Pastas de entrada: não saem do projeto e a instrução é limitada
+  const mkProject = JSON.parse((await req('POST', '/api/projects', { headers: J, body: JSON.stringify({ name: 'Auditoria', path: dir, area: 'Geral' }) })).body);
+  const mkAgent = JSON.parse((await req('POST', '/api/agents', { headers: J, body: JSON.stringify({ name: 'Ag', role: 'x', room: 'Geral', provider: 'codex', model: '', instructions: '', mode: 'read', skillIds: [], capabilities: [] }) })).body);
+  const fj = d => req('POST', '/api/folderjobs', { headers: J, body: JSON.stringify({ name: 'L', projectId: mkProject.id, dir: d, exts: 'txt', agentId: mkAgent.id, instruction: 'Leia {arquivo}' }) });
+  for (const bad of ['..', '../fora', 'a/../../b', 'C:/Windows', '/etc', 'a\u0000b']) check(`pasta de entrada recusa "${bad.replace(/\u0000/g, '\\0')}"`, (await fj(bad)).status === 400);
+  check('pasta de entrada válida é aceita e criada dentro do projeto', (await fj('ENTRADA/sub')).status === 201);
+  // IA própria: não aceita programa com caracteres de shell nem argumentos fora do formato
+  const prov = b => req('POST', '/api/providers', { headers: J, body: JSON.stringify(b) });
+  for (const exe of ['node; calc', 'node && calc', 'a|b', '$(calc)', '`calc`', 'node calc']) check(`IA própria recusa o programa "${exe}"`, (await prov({ name: 'Teste', exe, promptVia: 'arg', args: ['{prompt}'] })).status === 400);
+  check('IA própria recusa {prompt} ausente ou repetido', (await prov({ name: 'T1', exe: 'node', promptVia: 'arg', args: ['-p'] })).status === 400 && (await prov({ name: 'T2', exe: 'node', promptVia: 'arg', args: ['{prompt}', '{prompt}'] })).status === 400);
+
   // Só escuta em 127.0.0.1 por padrão
   const { networkInterfaces } = await import('node:os');
   const lan = Object.values(networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address;

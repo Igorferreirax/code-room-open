@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createTask } from './tasks.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { ROLES } from './orchestrator.mjs';
+import { cleanModel, cleanEffort } from './effort.mjs';
 
 // Assistente: a IA que a PESSOA conectou (Claude Code, Codex ou Gemini) vira o suporte dentro do Code Room.
 // 1) Briefing: na primeira conexão a IA lê o manual (docs/ASSISTENTE.md), diz o que entendeu e isso é GRAVADO na máquina da pessoa.
@@ -62,7 +63,8 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       const caps = Array.isArray(raw.capacidades) ? [...new Set(raw.capacidades)] : []; if (caps.some(c => !KNOWN_CAPABILITIES.includes(c))) return bad('criar_agente', `Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
       const room = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
       if (world.agents.some(a => a.name.trim().toLowerCase() === nome.toLowerCase() && a.provider === raw.provedor)) return bad('criar_agente', `Já existe o agente “${nome}” nessa IA.`);
-      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model: '', instructions: '', mode, skillIds: [], commands: [], capabilities: caps }, valid: true };
+      let model = '', effort = ''; try { model = cleanModel(raw.modelo); effort = cleanEffort(raw.provedor, raw.esforco); } catch (e) { return bad('criar_agente', e.message); }
+      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}${model ? ` · modelo ${model}` : ''}${effort ? ` · esforço ${effort}` : ''}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model, effort, instructions: '', mode, skillIds: [], commands: [], capabilities: caps }, valid: true };
     }
     case 'definir_skills': {
       const r = find(raw.agente); if (r.error) return bad('definir_skills', r.error);
@@ -124,6 +126,32 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
 
 // ---------- prompts ----------
 const fold = t => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// ---------- status ao vivo: o que está acontecendo na ferramenta agora, para o Assistente responder "qual o status?" sem inventar ----------
+const agoPt = ms => { if (!Number.isFinite(ms) || ms < 0) return ''; const m = Math.round(ms / 60000); if (m < 1) return 'agora há pouco'; if (m < 60) return `há ${m} min`; const h = Math.round(m / 60); if (h < 24) return `há ${h} h`; const d = Math.round(h / 24); return `há ${d} ${d === 1 ? 'dia' : 'dias'}`; };
+const VERBO = { running: 'está trabalhando em', cancelling: 'está cancelando', queued: 'está na fila com', waiting_dependency: 'espera a vez com', completed: 'concluiu', failed: 'FALHOU em', timeout: 'estourou o tempo em', blocked: 'ficou bloqueado em', cancelled: 'teve cancelado', interrupted: 'foi interrompido em' };
+const mentions = (q, name) => { const n = fold(name); if (!n || !q) return false; if (q.includes(n)) return true; const w = n.split(/[^a-z0-9]+/).filter(x => x.length >= 4); return w.length >= 2 && w.filter(x => q.includes(x)).length >= Math.ceil(w.length * 0.6); };
+export function liveStatus(world, question = '', now = Date.now()) {
+  const runs = (world.runs || []).map(r => ({ ...r, t: Date.parse(r.updatedAt || r.createdAt) || 0, c: Date.parse(r.createdAt) || 0 })).sort((a, b) => b.t - a.t), q = fold(question);
+  const act = runs.filter(r => ['running', 'cancelling'].includes(r.status)), wait = runs.filter(r => ['queued', 'waiting_dependency'].includes(r.status)), done = runs.filter(r => !act.includes(r) && !wait.includes(r));
+  const line = r => `- ${r.agent?.name || '?'} ${VERBO[r.status] || r.status} “${short(r.prompt, 80)}” (projeto ${r.project?.name || '?'}, ${agoPt(now - (['running', 'queued', 'waiting_dependency'].includes(r.status) ? r.c : r.t))})${r.reason && ['failed', 'timeout', 'blocked'].includes(r.status) ? ` — motivo: ${short(r.reason, 120)}` : ''}${r.files ? ` — ${r.files} arquivo(s) entregues` : ''}`;
+  const out = [`Agora: ${act.length} em execução, ${wait.length} na fila, ${runs.length} tarefas no histórico recente.`];
+  if (act.length) out.push('Em execução:', ...act.slice(0, 8).map(line)); if (wait.length) out.push('Na fila:', ...wait.slice(0, 5).map(line));
+  if (done.length) out.push('Últimas terminadas:', ...done.slice(0, 8).map(line));
+  const byProj = new Map(); for (const r of runs) { const k = r.project?.name || '?'; const c = byProj.get(k) || { run: 0, wait: 0, ok: 0, bad: 0 }; if (act.includes(r)) c.run++; else if (wait.includes(r)) c.wait++; else if (r.status === 'completed') c.ok++; else c.bad++; byProj.set(k, c); }
+  if (byProj.size) out.push('Por projeto:', ...[...byProj].slice(0, 8).map(([k, c]) => `- ${k}: ${c.run} rodando, ${c.wait} na fila, ${c.ok} concluídas, ${c.bad} com problema`));
+  const tName = id => (world.teams || []).find(t => t.id === id)?.name, flows = (world.flows || []).slice(-6).reverse();
+  if (flows.length) out.push('Fluxos de equipe recentes:', ...flows.map(f => `- ${tName(f.teamId) ? 'Equipe ' + tName(f.teamId) : 'Fluxo'}: ${f.status}${f.verdict ? ` (${f.verdict})` : ''} — “${short(f.objective, 70)}”`));
+  const fjs = world.folderJobs || []; if (fjs.length) out.push('Pastas de entrada (lotes):', ...fjs.slice(0, 6).map(j => `- ${j.name}: ${j.counts?.done ?? 0} de ${j.counts?.total ?? 0} prontos${j.counts?.failed ? `, ${j.counts.failed} com problema` : ''}${j.counts?.running ? `, ${j.counts.running} processando` : ''}${j.counts?.queued ? `, ${j.counts.queued} na fila` : ''}${j.status === 'paused' ? ' (pausada)' : ''}${j.problem ? ` — ${short(j.problem, 80)}` : ''}`));
+  // Detalhe do que a pessoa citou na pergunta (projeto, equipe ou agente).
+  const focus = [];
+  for (const p of world.projects || []) if (mentions(q, p.name)) focus.push([`projeto ${p.name}`, runs.filter(r => r.project?.id === p.id)]);
+  for (const t of world.teams || []) if (mentions(q, t.name)) { const ids = new Set((t.members || []).map(m => m.agentId)); focus.push([`equipe ${t.name}`, runs.filter(r => ids.has(r.agent?.id))]); }
+  for (const a of world.agents || []) if (mentions(q, a.name)) focus.push([`agente ${a.name}`, runs.filter(r => r.agent?.id === a.id)]);
+  for (const [label, rs] of focus.slice(0, 3)) out.push(`Detalhe — ${label}: ${rs.length ? `${rs.filter(r => act.includes(r)).length} em execução, ${rs.filter(r => wait.includes(r)).length} na fila, ${rs.filter(r => r.status === 'completed').length} concluídas, ${rs.filter(r => FAILED.has(r.status)).length} com problema.` : 'nenhuma tarefa registrada ainda.'}`, ...rs.slice(0, 6).map(line));
+  return out.join('\n').slice(0, 4200);
+}
+const FAILED = new Set(['failed', 'timeout', 'blocked', 'cancelled', 'interrupted']);
+
 export function stateSummary(world, projects = [], question = '') {
   const ag = world.agents.map(a => `- ${a.name} (${short(a.role, 60)}) · ${a.provider} · ${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}`).join('\n') || '(nenhum agente ainda)';
   const tm = world.teams.map(t => `- ${t.name}: ${(t.members || []).map(m => `${m.role}=${world.agents.find(a => a.id === m.agentId)?.name || '?'}`).join(', ')}`).join('\n') || '(nenhuma equipe ainda)';
@@ -134,14 +162,19 @@ export function stateSummary(world, projects = [], question = '') {
   const top = scored.map(x => `- ${x.s.name}: ${short(x.s.description, 110)}`).join('\n'), rest = usable.filter(s => !scored.some(x => x.s === s)).map(s => s.name).slice(0, 60).join(', ');
   const sk = `${usable.length} no total.${top ? `\nMais ligadas ao pedido da pessoa:\n${top}` : '\nNenhuma parece ligada ao pedido atual (se for sobre skills, diga isso e ofereça criar uma com criar_skill ou importar uma pasta).'}\nOutras (só nomes): ${rest || '(nenhuma)'}`;
   const ln = (world.links || []).map(l => `${world.agents.find(a => a.id === l.from)?.name || '?'} → ${world.agents.find(a => a.id === l.to)?.name || '?'}`).slice(0, 20).join('; ') || '(nenhuma)';
-  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nProjetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}`;
+  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nProjetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
 }
-const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Se não souber, diga que não sabe.`;
-export function buildPrompt({ manual, knowledge, summary, history = [], question }) {
+const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Se não souber, diga que não sabe. Para perguntas de status (“qual o status?”, “como está o projeto X / a equipe Y?”), responda SÓ com a seção STATUS AO VIVO do estado atual, em linguagem simples e curta: o que roda, o que espera, o que terminou, o que falhou e por quê; se o item citado não aparecer, diga que não há registro dele.`;
+export function buildPrompt({ manual, knowledge, summary, history = [], question, max = MAX_PROMPT }) {
   const hist = history.slice(-MAX_HISTORY).map(m => `${m.role === 'user' ? 'Pessoa' : 'Assistente'}: ${short(m.text, MAX_MSG_IN_PROMPT)}`);
-  const parts = (h) => `${RULES}\n\n=== MANUAL DO CODE ROOM ===\n${manual}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${knowledge || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${summary}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n=== PERGUNTA DA PESSOA ===\n${question}`;
-  let h = hist; let out = parts(h); while (out.length > MAX_PROMPT && h.length) { h = h.slice(1); out = parts(h); }
-  return out.length > MAX_PROMPT ? out.slice(0, MAX_PROMPT) : out;
+  const parts = (h, man = manual, sum = summary, know = knowledge) => `${RULES}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n=== PERGUNTA DA PESSOA ===\n${question}`;
+  // A pergunta fica por último e nunca é cortada. Se passar do limite: primeiro sai o histórico antigo, depois encurta o estado, o que a IA entendeu e, por fim, o fim do manual.
+  let h = hist, man = manual, sum = summary, know = knowledge, out = parts(h, man, sum, know);
+  while (out.length > max && h.length) { h = h.slice(1); out = parts(h, man, sum, know); }
+  if (out.length > max) { sum = sum.slice(0, Math.max(1500, sum.length - (out.length - max))); out = parts(h, man, sum, know); }
+  if (out.length > max) { know = know.slice(0, Math.max(500, know.length - (out.length - max))); out = parts(h, man, sum, know); }
+  if (out.length > max) { man = man.slice(0, Math.max(3000, man.length - (out.length - max))); out = parts(h, man, sum, know); }
+  return out;
 }
 export const briefingPrompt = manual => `${RULES}\n\nVocê está sendo APRESENTADO ao Code Room. Leia o manual abaixo com atenção.\n\n=== MANUAL DO CODE ROOM ===\n${manual}\n\n=== O QUE FAZER AGORA ===\nResponda em português SOMENTE com:\n1) RESUMO: o que é o Code Room, com as suas palavras (até 8 linhas).\n2) REGRAS: as regras que você vai seguir (até 6 itens), incluindo que você NÃO altera a ferramenta, roda em somente leitura e só propõe ações que a pessoa aprova.\n3) EXEMPLOS: três perguntas que você sabe ajudar a responder.\nTermine com uma última linha exata: BRIEFING: PRONTO`;
 // A apresentação só vale se a IA realmente respondeu o que foi pedido (e entendeu as regras de segurança).
@@ -241,7 +274,7 @@ export class Assistant {
     await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.'); if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
-    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q), history: (s.messages || []).filter(m => m.text), question: q }), task = this.#task(p, prompt, 'ask');
+    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q), history: (s.messages || []).filter(m => m.text), question: q, max: p === 'agy' ? MAX_PROMPT : 80000 }), task = this.#task(p, prompt, 'ask');
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();
@@ -258,6 +291,13 @@ export class Assistant {
     const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' }; if (id === th.id) return this.status();
     const target = (s.others || []).find(o => o.id === id); if (!target) throw new Error('Conversa não encontrada.');
     this.#save({ others: [...(s.others || []).filter(o => o.id !== id), { id: th.id, title: th.title, messages: s.messages || [] }], thread: { id: target.id, title: target.title }, messages: target.messages || [], error: null }); return this.status();
+  }
+  async renameThread(id, title) {
+    const t = short(title, 40); if (!t) throw new Error('Dê um nome para a conversa (até 40 caracteres).');
+    const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' };
+    if (id === th.id) this.#save({ thread: { ...th, title: t } });
+    else { if (!(s.others || []).some(o => o.id === id)) throw new Error('Conversa não encontrada.'); this.#save({ others: s.others.map(o => o.id === id ? { ...o, title: t } : o) }); }
+    return this.status();
   }
   async deleteThread(id) {
     const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' };

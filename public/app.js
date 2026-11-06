@@ -337,7 +337,7 @@ const actions = {
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => { const d = $('confirm-dialog'); d.dataset.id = id; d.showModal(); },
   'accept-plan': async id => { await api(`plans/${id}/accept`, {}); notify('Plano aceito. As tarefas foram criadas.'); await refresh(); },
-  opts: () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
+  opts: async () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; const tg = V.targetOf(ctx); if (ctx.ui.optsOpen && tg.startsWith('a:')) { const ag = ctx.state.agents.find(x => x.id === tg.slice(2)); if (ag && !ctx.models?.[tg]) { try { const info = await api('models?provider=' + encodeURIComponent(ag.provider)); ctx.models = { ...(ctx.models || {}), [tg]: info.models }; ctx.efforts = { ...(ctx.efforts || {}), [tg]: info.efforts }; } catch {} } } render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
   'new-project': () => { ctx.ui.panel = 'new-project'; render(); $('panel').querySelector('input')?.focus(); },
   'pick-project': id => { setProject(id); go('room'); }, 'proj-filter': id => { ctx.ui.projFilter = id; render(); },
   'open-folder': async id => { await api(`projects/${id}/open`, {}); notify('Pasta aberta no Explorer.'); },
@@ -404,6 +404,7 @@ const actions = {
   'asst-toggle': () => setChatOpen(!ctx.ui.asstOpen),
   'chat-open': () => setChatOpen(true),
   'chat-min': () => setChatOpen(false),
+  'asst-thread-rename': id => { ctx.ui.renameId = id; renderAsst(); const i = document.querySelector('.cw-rename'); if (i) { i.focus(); i.select(); } },
   'asst-new-thread': () => asstCall('thread/new'),
   'asst-thread': id => asstCall('thread/select', { id }),
   'asst-thread-del': id => { if (confirm('Apagar esta conversa? O histórico dela some.')) return asstCall('thread/delete', { id }); },
@@ -521,6 +522,7 @@ document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.pcard[role=button]')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('change', async e => {
+  if (e.target.matches?.('#agent-form [name=provider]')) { fillModelOptions(e.target.value); }
   const t = e.target;
   try {
     if (t.id === 'project-select') { setProject(t.value); render(); }
@@ -561,7 +563,7 @@ document.addEventListener('submit', async e => {
       $('send').disabled = true;
       if (target === 's') { await api('plans', { projectId: ctx.project, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
       else if (target.startsWith('t:')) { await api('flows', { projectId: ctx.project, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); notify('Fluxo iniciado.'); }
-      else { const t = await api('tasks', { projectId: ctx.project, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true }); $('mission').value = ''; await refresh(); return openTask(t.id); }
+      else { const t = await api('tasks', { projectId: ctx.project, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
     } else if (fid === 'link-form') {
       const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3);
@@ -593,12 +595,20 @@ document.addEventListener('submit', async e => {
   finally { if ($('send')) $('send').disabled = !(V.targetOf(ctx) === 'assistant' || (ctx.project && ctx.state.agents.length)); }
 });
 
+// Modelos e níveis de esforço que a IA escolhida aceita (lista vem do servidor; a pessoa ainda pode digitar outro modelo).
+async function fillModelOptions(provider, current = {}) {
+  const f = $('agent-form'), sel = f.elements.effort, dl = $('agent-models'); let info = { models: [], efforts: [] };
+  try { info = await api('models?provider=' + encodeURIComponent(provider)); } catch {}
+  dl.innerHTML = (info.models || []).map(m => `<option value="${V.esc(m.id)}">${V.esc(m.label)}</option>`).join('');
+  const keep = current.effort ?? sel.value; sel.innerHTML = '<option value="">Padrão da IA</option>' + (info.efforts || []).map(e => `<option value="${e.id}">${V.esc(e.label)}</option>`).join(''); sel.value = (info.efforts || []).some(e => e.id === keep) ? keep : '';
+  sel.disabled = !(info.efforts || []).length; $('effort-hint').textContent = sel.disabled ? 'Esta IA não tem ajuste de esforço.' : 'Mais esforço pensa mais e gasta mais cota. “Padrão da IA” usa o que ela já está configurada.';
+}
 let pickedSkills = new Set();
 function editAgent(id) {
   const f = $('agent-form'); f.reset();
   const sel = f.elements.provider; [...sel.querySelectorAll('[data-custom]')].forEach(o => o.remove()); for (const c of ctx.state.connectors || []) if (c.custom) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + (c.available ? '' : ' (não encontrada)'); o.dataset.custom = '1'; sel.append(o); } const a = ctx.state.agents.find(x => x.id === id);
-  for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
-  f.elements.commands.value = (a?.commands || []).join(', ');
+  for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions', 'effort']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
+  f.elements.commands.value = (a?.commands || []).join(', '); fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' });
   f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));
   pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); $('agent-dialog').showModal();
   if (!ctx.skills.length) loadSkills().then(renderPicker);
@@ -664,6 +674,10 @@ document.addEventListener('keydown', e => {   // captura: roda antes do Enter qu
   else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); $('slash-pop')?.remove(); pop = null; }
 }, true);
 
+const saveRename = async (input, save) => { const id = ctx.ui.renameId; if (!id) return; ctx.ui.renameId = null; const t = input.value.trim(); if (save && t) await asstCall('thread/rename', { id, title: t }); else renderAsst(); };
+document.addEventListener('keydown', e => { if (!e.target.matches?.('.cw-rename')) return; if (e.key === 'Enter') { e.preventDefault(); saveRename(e.target, true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); saveRename(e.target, false); } }, true);
+document.addEventListener('focusout', e => { if (e.target.matches?.('.cw-rename')) saveRename(e.target, true); });
+document.addEventListener('dblclick', e => { const b = e.target.closest?.('.cw-th.on [data-act=asst-thread]'); if (b) actions['asst-thread-rename'](b.dataset.id); });
 document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); });
 $('update-dialog').addEventListener('cancel', e => { if (ctx.updates?.download?.state === 'installing') e.preventDefault(); });
 $('update-dialog').addEventListener('close', () => { ctx.ui.updOpen = false; });

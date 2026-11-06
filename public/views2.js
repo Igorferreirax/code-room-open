@@ -4,6 +4,7 @@ import { qrSvg } from './qr.js';
 import { heroScene, thumb, themeImg, avatar, agentAv } from './art.js';
 import { updatesSettingsHtml } from './updates-ui.js';
 import { agentTip } from './activity.js';
+export const EFFORT_LABEL = { low: 'baixo', medium: 'médio', high: 'alto', xhigh: 'muito alto', max: 'máximo' };
 import { providersCardHtml } from './providers-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
@@ -54,7 +55,7 @@ export function viewTeams(ctx) {
 // ---------- Agentes e ferramentas ----------
 export function viewAgents(ctx) {
   const tab = ctx.ui.agentsTab || 'mine', st = ctx.state;
-  const mine = st.agents.length ? `<div class="agents-grid">${st.agents.map(a => { const s = ctx.agentStatus(a); return `<article class="agent-card" title="${esc(agentTip(ctx, a))}">${agentAv(a, idx(ctx, a), 56)}<div><strong>${esc(a.name)}</strong> <small class="muted">${esc(a.role)}</small><div class="chips" style="margin-top:6px"><span class="chip">${esc(PROVIDER[a.provider])}</span><span class="chip">${esc(a.model || 'modelo padrão')}</span><span class="chip">${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}</span><span class="chip">${esc(a.room)}</span>${(a.capabilities || []).map(k => `<span class="chip c-code">${esc(CAPS[k] || k)}</span>`).join('')}<span class="chip">${a.skillIds.length} skill(s)</span></div></div><div style="text-align:right"><span class="pill mute"><span class="dot d-${s.status}"></span>${esc(s.label)}</span><br> <button class="btn ghost sm" data-act="edit-agent" data-id="${esc(a.id)}" style="margin-top:8px">Editar</button></div></article>`; }).join('')}</div>` : empty('Crie seu primeiro agente.');
+  const mine = st.agents.length ? `<div class="agents-grid">${st.agents.map(a => { const s = ctx.agentStatus(a); return `<article class="agent-card" title="${esc(agentTip(ctx, a))}">${agentAv(a, idx(ctx, a), 56)}<div><strong>${esc(a.name)}</strong> <small class="muted">${esc(a.role)}</small><div class="chips" style="margin-top:6px"><span class="chip">${esc(PROVIDER[a.provider])}</span><span class="chip">${esc(a.model || 'modelo padrão')}</span>${a.effort ? `<span class="chip" title="Esforço de raciocínio">esforço ${esc(EFFORT_LABEL[a.effort] || a.effort)}</span>` : ''}<span class="chip">${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}</span><span class="chip">${esc(a.room)}</span>${(a.capabilities || []).map(k => `<span class="chip c-code">${esc(CAPS[k] || k)}</span>`).join('')}<span class="chip">${a.skillIds.length} skill(s)</span></div></div><div style="text-align:right"><span class="pill mute"><span class="dot d-${s.status}"></span>${esc(s.label)}</span><br> <button class="btn ghost sm" data-act="edit-agent" data-id="${esc(a.id)}" style="margin-top:8px">Editar</button></div></article>`; }).join('')}</div>` : empty('Crie seu primeiro agente.');
   const q = (ctx.ui.toolQ || '').toLowerCase();
   const tools = ['codex', 'claude', 'agy', 'hermes', 'gemini'].filter(id => COMMANDS[id].name.toLowerCase().includes(q));
   const sel = ctx.ui.toolSel || 'codex', cmd = COMMANDS[sel], info = toolInfo(ctx, sel);

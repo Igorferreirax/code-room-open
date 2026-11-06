@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { cleanModel, cleanEffort } from './effort.mjs';
 import { isAbsolute, normalize } from 'node:path';
 
 // Estados da tarefa lógica. A tentativa de execução (kind "runs") tem os seus próprios estados.
@@ -104,7 +105,7 @@ export function createTask(store, input) {
   const task = {
     id: input.id || randomUUID(), order: counter.n + 1, requestId, kind: input.kind === 'plan' ? 'plan' : 'work',
     project: { id: project.id, name: project.name, path: project.path, area: project.area || 'Geral' },
-    agent: { ...agent }, environment: agent.room || 'Geral',
+    agent: { ...agent, ...(input.model ? { model: cleanModel(input.model) } : {}), ...(input.effort ? { effort: cleanEffort(agent.provider, input.effort) } : {}) }, environment: agent.room || 'Geral',
     objective: str(input.objective ?? input.prompt, 30000, 'Objetivo'),
     criteria: (input.criteria || []).map(c => str(c, 500, 'Critério')).slice(0, 12),
     inputs: cleanInputs(input.inputs), dependsOn, limits: cleanLimits(input.limits, store.get('settings', 'limits')),

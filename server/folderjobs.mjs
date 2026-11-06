@@ -14,7 +14,9 @@ export function validateJob(input, store, old = null) {
   const name = text(input.name, 100, 'Nome'), instruction = text(input.instruction, 3000, 'Instrução');
   if (!instruction.includes('{arquivo}')) throw new Error('A instrução precisa citar {arquivo}, que vira o caminho de cada arquivo (ex.: “Edite o vídeo {arquivo} com a skill X”).');
   const project = store.get('projects', text(input.projectId, 100, 'Projeto')); if (!project || project.internal) throw new Error('Projeto não encontrado.');
-  const dir = text(input.dir ?? 'ENTRADA', 200, 'Pasta de entrada').replace(/[\\]+/g, '/').replace(/^\/+|\/+$/g, '');
+  const rawDir = text(input.dir ?? 'ENTRADA', 200, 'Pasta de entrada');
+  if (/^[\\/]/.test(rawDir)) throw new Error('Pasta de entrada: use um caminho relativo ao projeto (ex.: ENTRADA), sem barra no começo.');
+  const dir = rawDir.replace(/[\\]+/g, '/').replace(/\/+$/g, '');
   if (!dir || isAbsolute(dir) || /(^|\/)\.\.(\/|$)/.test(dir) || /[<>:"|?*\0]/.test(dir)) throw new Error('Pasta de entrada: use um caminho relativo ao projeto (ex.: ENTRADA), sem “..”.');
   const exts = [...new Set(String(input.exts ?? '').toLowerCase().split(/[\s,;]+/).map(s => s.replace(/^[.]/, '')).filter(Boolean))];
   if (exts.length > 12 || exts.some(e => !/^[a-z0-9]{1,8}$/.test(e))) throw new Error('Extensões: até 12, com letras e números, separadas por vírgula (ex.: mp4, mov).');
