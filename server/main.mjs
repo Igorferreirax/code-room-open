@@ -510,6 +510,7 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
       }
       return send(res, 404, { error: 'Rota não encontrada' });
     }
+    if (req.method === 'GET' && url.pathname === '/manifest.webmanifest') { res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', 'manifest.webmanifest'))); }
     if (req.method === 'GET' && /^\/assets\/[a-z0-9-]+\.(png|jpg)$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': url.pathname.endsWith('.jpg') ? 'image/jpeg' : 'image/png', 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', url.pathname.slice(1)))); }
     // Só nomes simples de arquivo (sem barras nem pontos duplos) dentro de public/.
     const name = url.pathname === '/' ? 'index.html' : /^\/[a-z0-9-]+\.(js|css)$/.test(url.pathname) ? url.pathname.slice(1) : null;

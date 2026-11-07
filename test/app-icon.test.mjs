@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const pub = f => new URL(`../public/${f}`, import.meta.url);
+const pngSize = f => { const b = readFileSync(pub(f)); assert.equal(b.subarray(1, 4).toString(), 'PNG', `${f} não é PNG`); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+
+test('janela de app: o manifesto é válido e os ícones existem com o tamanho declarado', () => {
+  const m = JSON.parse(readFileSync(pub('manifest.webmanifest'), 'utf8'));
+  assert.equal(m.name, 'Code Room'); assert.equal(m.display, 'standalone'); assert.equal(m.start_url, '/');
+  assert.match(m.theme_color, /^#[0-9a-f]{6}$/i); assert.match(m.background_color, /^#[0-9a-f]{6}$/i);
+  assert.ok(m.icons.length >= 2);
+  for (const i of m.icons) { const [w, h] = pngSize(i.src.slice(1)); assert.equal(`${w}x${h}`, i.sizes, `${i.src} declara ${i.sizes} mas tem ${w}x${h}`); }
+  assert.ok(m.icons.some(i => i.sizes === '256x256') && m.icons.some(i => i.sizes === '512x512'));
+});
+
+test('janela de app: o index liga o manifesto e o ícone grande; o servidor entrega o manifesto com o tipo certo', () => {
+  const html = readFileSync(pub('index.html'), 'utf8');
+  assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/); assert.match(html, /sizes="256x256" href="\/assets\/icon-256\.png"/); assert.match(html, /name="theme-color"/);
+  const srv = readFileSync(new URL('../server/main.mjs', import.meta.url), 'utf8');
+  assert.match(srv, /url\.pathname === '\/manifest\.webmanifest'[\s\S]{0,160}application\/manifest\+json/);
+});
