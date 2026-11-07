@@ -63,7 +63,7 @@ Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais 
 - O teste de toque do Canvas no `test:ui` é intermitente.
 
 ## Documentação
-[docs/VISAO-PRODUTO.md](docs/VISAO-PRODUTO.md) · [docs/STATUS-2026-11-06.md](docs/STATUS-2026-11-06.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
+[docs/VISAO-PRODUTO.md](docs/VISAO-PRODUTO.md) · [docs/STATUS-2026-11-06.md](docs/STATUS-2026-11-06.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [docs/ASSINATURA.md](docs/ASSINATURA.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
 
 ## Problemas comuns
 - **O Windows avisou ao abrir o Setup.exe.** O instalador ainda não tem assinatura digital. Use o zip portátil ou confira o SHA-256 com o `SHA256SUMS.txt` da release.
