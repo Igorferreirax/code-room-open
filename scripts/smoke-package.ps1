@@ -1,4 +1,4 @@
-param([string]$ArchivePath = (Join-Path $PSScriptRoot '..\dist\Code-Room-0.2.1-portatil-win-x64.zip'))
+param([string]$ArchivePath = (Join-Path $PSScriptRoot ("..\dist\Code-Room-" + (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json).version + "-portatil-win-x64.zip")))
 $ErrorActionPreference = 'Stop'
 
 $archive = (Resolve-Path -LiteralPath $ArchivePath).Path
@@ -38,7 +38,7 @@ try {
     Start-Sleep -Milliseconds 250
   }
   if (-not $state) { throw 'O serviço do pacote não respondeu em 12,5 segundos.' }
-  if ($state.runtime.version -ne '0.2.1') { throw "Versão inesperada no pacote: $($state.runtime.version)." }
+  if ($state.runtime.version -ne (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json).version) { throw "Versão inesperada no pacote: $($state.runtime.version)." }
   $usage = (Invoke-WebRequest -Uri "$base/views2.js" -TimeoutSec 3 -UseBasicParsing).Content
   $onboarding = (Invoke-WebRequest -Uri "$base/onboarding.js" -TimeoutSec 3 -UseBasicParsing).Content
   $css = (Invoke-WebRequest -Uri "$base/style.css" -TimeoutSec 3 -UseBasicParsing).Content

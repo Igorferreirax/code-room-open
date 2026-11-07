@@ -9,6 +9,8 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.2.2] - 2026-11-07
+
 ### Adicionado
 - **Abre como janela de app** (Edge ou Chrome em modo app, sem abas nem barra de endereço). Sem eles, abre no navegador padrão; `CODE_ROOM_JANELA=navegador` força o navegador. Fechar a janela não encerra o serviço (dica no rodapé); para encerrar, use "Fechar o Code Room".
 - **Release pelo GitHub:** o workflow `release.yml` gera o zip e o `Setup.exe` e, quando o SignPath estiver configurado, assina o instalador. Guia em [docs/ASSINATURA.md](docs/ASSINATURA.md).
