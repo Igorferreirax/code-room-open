@@ -4,6 +4,9 @@
 #   Rodando pelo código-fonte, ficam em .data\ dentro do projeto. CODE_ROOM_DATA e CODE_ROOM_PORT têm prioridade.
 # - CODE_ROOM_NO_BROWSER=1 não abre o navegador (usado nos testes).
 # - No primeiro uso do pacote Windows pergunta se quer o ícone na área de trabalho (uma vez só).
+# -Silencioso: só inicia o serviço e o ícone da bandeja (sem abrir janela nem perguntar nada). É o que o "Iniciar com o Windows" usa.
+param([switch]$Silencioso)
+if ($Silencioso) { $env:CODE_ROOM_NO_BROWSER = '1'; $env:CODE_ROOM_NO_PROMPT = '1' }
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $bundledNode = Join-Path $projectRoot 'runtime\node.exe'
@@ -80,6 +83,10 @@ if ($packaged -and -not (Test-Path -LiteralPath $asked) -and $env:CODE_ROOM_NO_P
     if ($yes) { & (Join-Path $PSScriptRoot 'criar-atalhos.ps1') | Out-Null }
     Set-Content -LiteralPath $asked -Value (Get-Date -Format o)
   } catch {}
+}
+# Ícone na bandeja do sistema (um só por Code Room; CODE_ROOM_SEM_BANDEJA=1 desliga, usado nos testes).
+if ($env:CODE_ROOM_SEM_BANDEJA -ne '1' -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'bandeja.ps1'))) {
+  try { Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + (Join-Path $PSScriptRoot 'bandeja.ps1') + '"')) -WindowStyle Hidden } catch {}
 }
 # Abre como janela de app (sem abas nem barra de endereço) com o Edge ou o Chrome, que já existem na maioria dos PCs.
 # Se não achar nenhum, ou com CODE_ROOM_JANELA=navegador, abre no navegador padrão. Fechar a janela NÃO encerra o serviço.

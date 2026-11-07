@@ -74,6 +74,9 @@ Name: "{group}\Fechar o Code Room"; Filename: "{sys}\WindowsPowerShell\v1.0\powe
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\start.ps1"""; WorkingDir: "{app}"; Description: "Abrir o Code Room agora"; Flags: postinstall nowait skipifsilent
 
+[UninstallDelete]
+Type: files; Name: "{userstartup}\Code Room.lnk"
+
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\stop.ps1"""; Flags: runhidden; RunOnceId: "StopCodeRoom"
 

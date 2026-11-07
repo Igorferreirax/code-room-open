@@ -36,6 +36,7 @@ function Run-Scenario($label, $rel) {
   $env:CODE_ROOM_PORT = "$PORT"; $env:CODE_ROOM_DATA = $data; $env:CODE_ROOM_NO_BROWSER = '1'; $env:CODE_ROOM_NO_PROMPT = '1'; $env:CODE_ROOM_RELEASES_URL = "http://127.0.0.1:$RPORT/api/latest"
   $oldPath = $env:PATH; $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'node.exe')) }) -join ';'
   try {
+    $env:CODE_ROOM_SEM_BANDEJA = '1'
     Start-Process powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $app 'scripts\start.ps1') + '"') -WindowStyle Hidden
     if (-not (Wait-Until { Open-Port $PORT } 30)) { throw 'o app instalado nao abriu' }
     $key = (Get-Content (Join-Path $data 'access.key') -Raw).Trim(); $H = @{'X-Code-Room-Key' = $key; 'Content-Type' = 'application/json'}
