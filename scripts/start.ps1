@@ -81,4 +81,19 @@ if ($packaged -and -not (Test-Path -LiteralPath $asked) -and $env:CODE_ROOM_NO_P
     Set-Content -LiteralPath $asked -Value (Get-Date -Format o)
   } catch {}
 }
-if ($env:CODE_ROOM_NO_BROWSER -ne '1') { Start-Process -FilePath ("$base/#" + $key) }
+# Abre como janela de app (sem abas nem barra de endereço) com o Edge ou o Chrome, que já existem na maioria dos PCs.
+# Se não achar nenhum, ou com CODE_ROOM_JANELA=navegador, abre no navegador padrão. Fechar a janela NÃO encerra o serviço.
+function Find-Navegador {
+  $achados = @(
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe")
+  foreach ($c in $achados) { try { if (Test-Path -LiteralPath $c) { return $c } } catch {} }
+  $null
+}
+if ($env:CODE_ROOM_NO_BROWSER -ne '1') {
+  $url = "$base/#" + $key
+  $nav = if ($env:CODE_ROOM_JANELA -eq 'navegador') { $null } else { Find-Navegador }
+  if ($nav) { Start-Process -FilePath $nav -ArgumentList @("--app=$url", '--window-size=1366,880') }
+  else { Start-Process -FilePath $url }
+}

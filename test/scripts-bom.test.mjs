@@ -16,3 +16,11 @@ test('start.ps1: escolhe porta livre quando a 4780 está ocupada e avisa se não
   assert.match(s, /trap \{ Show-Erro/, 'mostra o erro em uma caixa (a janela fica oculta)');
   assert.match(s, /port\.txt/, 'lembra a porta escolhida');
 });
+
+test('start.ps1: abre como janela de app e tem saída para o navegador padrão', () => {
+  const s = readFileSync(new URL('../scripts/start.ps1', import.meta.url), 'utf8');
+  assert.match(s, /--app=\$url/, 'usa o modo app do Edge/Chrome');
+  assert.match(s, /msedge\.exe/); assert.match(s, /chrome\.exe/);
+  assert.match(s, /CODE_ROOM_JANELA/, 'dá para forçar o navegador padrão');
+  assert.match(s, /else \{ Start-Process -FilePath \$url \}/, 'sem Edge/Chrome, abre no navegador padrão');
+});
