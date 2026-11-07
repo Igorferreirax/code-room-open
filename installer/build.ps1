@@ -35,7 +35,7 @@ Write-Host ("zip: {0} ({1:N1} MB, Node {2})" -f $zip, ((Get-Item $zip).Length / 
 
 # 4) Instalador (Inno Setup 6), se existir
 $iscc = $null
-$candidates = @("$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
+$candidates = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
 foreach ($candidate in $candidates) {
   try { if (Test-Path -LiteralPath $candidate) { $iscc = $candidate; break } }
   catch { continue } # caminhos protegidos podem negar acesso; ainda verificamos as outras instalações conhecidas
@@ -48,7 +48,5 @@ if ($iscc) {
   Write-Host ("instalador: {0} ({1:N1} MB)" -f $setup, ((Get-Item $setup).Length / 1MB))
 } else { Write-Host 'Inno Setup 6 não encontrado: gerei só o zip portátil.' }
 
-# 5) SHA-256 de cada arquivo entregue
-$lines = foreach ($f in @($zip, $setup) | Where-Object { $_ }) { '{0}  {1}' -f (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLower(), (Split-Path $f -Leaf) }
-$lines | Out-File -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
-$lines | ForEach-Object { Write-Host $_ }
+# 5) SHA-256 de cada arquivo entregue (no GitHub, roda de novo depois da assinatura: installer\sums.ps1)
+& (Join-Path $PSScriptRoot 'sums.ps1') -OutDir $out
