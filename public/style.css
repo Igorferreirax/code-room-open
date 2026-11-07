@@ -437,3 +437,6 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .ps-plaque .ps-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;box-sizing:border-box}
 .card-h{flex-wrap:wrap;gap:8px}.btn.sm{white-space:nowrap}
 .cw-rename{width:130px;font-size:.76rem;padding:.2em .6em;border-radius:999px;background:var(--bg);border:1px solid var(--accent);color:var(--text)}
+
+/* Marca: só o nome "Code Room" (sem ícone), igual no app, na landing e no instalador */
+.brand .brand-name{display:inline!important;font-family:var(--display);font-size:1.35rem;font-weight:500;letter-spacing:.02em;white-space:nowrap}.brand .brand-name b{color:var(--accent-h);font-weight:500}

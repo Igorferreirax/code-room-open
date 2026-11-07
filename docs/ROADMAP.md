@@ -30,7 +30,7 @@ Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.m
 - ✅ **Assistente**: um chat só (janela estilo mensageiro). A IA da pessoa lê o manual, e o que entendeu fica gravado na máquina. Propõe projeto, agentes, equipe, skills (inclusive criar uma), ligações e tarefa; cada passo só roda com aprovação.
 
 - ✅ **Instalador com o visual do Code Room**: assistente do Inno Setup em modo escuro, com a arte pixel das referências (boas-vindas e conclusão), selo do "R", textos em português e arte na tela de progresso. Compilado e conferido na tela (boas-vindas, licença, escolhas e resumo); as telas de progresso e conclusão não foram capturadas porque exigem instalar de verdade. Fica de fora, de propósito: "Todos os usuários" e "Abrir ao entrar no Windows" (ver INSTALADOR-UX.md).
-- ⬜ **Revisar o logotipo** (o "R" com a porta ainda não agradou ao Igor): refazer e aplicar em app, landing e instalador de uma vez.
+- ✅ **Marca padronizada**: só o nome "Code Room" (texto) no app, na landing e no instalador, com ícone simples "CR" (favicon, atalho e selo do instalador; `installer/make-brand-icons.py`). O gato segue só como rosto do Assistente. ⬜ Um logotipo definitivo fica para depois (o Igor tem uma versão com "R" e porta em branco; falta o arquivo).
 
 ## Próximos passos
 ### Fase 2: ver o trabalho acontecendo

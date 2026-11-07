@@ -19,11 +19,7 @@ art = welcome.crop((200, 146, 583, 881))
 for w, h in ((164, 314), (246, 459), (328, 628)):
     im = art.resize((w, int(art.height * w / art.width)), Image.LANCZOS); top = max(0, (im.height - h) // 2)
     im.crop((0, top, w, top + h)).save(os.path.join(OUT, f'lateral-{w}.bmp'))
-# Selo pequeno (cantos das páginas internas): o "R" com a porta, sobre o fundo escuro.
-logo = welcome.crop((646, 200, 740, 276))
-for s in (55, 64, 110):
-    box = Image.new('RGB', (s, s), BG); k = (s * 0.9) / max(logo.width, logo.height); l = logo.resize((max(1, int(logo.width * k)), max(1, int(logo.height * k))), Image.LANCZOS)
-    box.paste(l, ((s - l.width) // 2, (s - l.height) // 2)); box.save(os.path.join(OUT, f'selo-{s}.bmp'))
+# O selo pequeno (CR) é gerado por installer/make-brand-icons.py.
 # Arte da tela de progresso (a pessoa abrindo a caixa), mostrada ao lado da barra.
 prog = progress.crop((132, 262, 702, 612)); prog.resize((340, int(prog.height * 340 / prog.width)), Image.LANCZOS).save(os.path.join(OUT, 'progresso.bmp'))
 print('imagens gravadas em', OUT, [os.path.basename(p) for p in sorted(glob.glob(os.path.join(OUT, '*.bmp')))])

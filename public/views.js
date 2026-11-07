@@ -44,7 +44,7 @@ export function railHtml(cur) {
 }
 export function topbarHtml(ctx) {
   const online = ctx.state.agents.filter(a => ctx.agentStatus(a).status !== 'disconnected').length;
-  return `<div class="brand">${logo(28)}<span class="wm">${wordmark(18)}</span></div>
+  return `<div class="brand"><span class="brand-name">Code <b>Room</b></span></div>
   <label class="project-pill"><span class="sr-only">Projeto</span><select id="project-select">${ctx.state.projects.length ? ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${p.id === ctx.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('') : '<option value="">Nenhum projeto</option>'}</select></label>
   <div class="top-right"><button type="button" class="btn ghost sm asst-btn" data-act="asst-toggle" aria-pressed="${!!ctx.ui.asstOpen}">Assistente</button><span class="online"><span class="dot d-${ctx.connection === 'live' ? 'ok' : ctx.connection === 'lost' ? 'warn' : 'idle'}"></span><span>${online} ${online === 1 ? 'agente conectado' : 'agentes conectados'}</span></span>
   <span class="pill ${ctx.connection === 'live' ? 'ok' : 'warn'}" role="status">${{ live: 'Conectado', connecting: 'Conectando…', lost: 'Reconectando…', off: 'Desconectado' }[ctx.connection]}</span>
@@ -53,7 +53,7 @@ export function topbarHtml(ctx) {
 
 // ---------- Entrada ----------
 export function viewLogin(ctx) {
-  return `<div class="login"><div class="tb"><div class="brand">${logo(28)}<span class="wm">${wordmark(18)}</span></div></div>
+  return `<div class="login"><div class="tb"><div class="brand"><span class="brand-name">Code <b>Room</b></span></div></div>
   <div class="body"><div class="hero-side">${heroScene()}</div>
   <form class="box" id="login-form" autocomplete="off"><h1>Seu espaço de trabalho,<br><b>conectado.</b></h1><p class="sub">Projetos, agentes e ideias em um só lugar.</p>
     <div class="tabs" role="tablist"><span class="tab on" role="tab" aria-selected="true">${icon('terminal', 18)} Acesso local</span></div>
