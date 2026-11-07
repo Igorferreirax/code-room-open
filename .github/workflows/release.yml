@@ -1,6 +1,6 @@
 name: Release
 
-# Gera o zip portátil e o Setup.exe no GitHub (build limpo e público).
+# Gera o zip portátil e o Setup.exe no GitHub (build limpo e público). Os testes rodam no CI (ci.yml) a cada envio.
 # - Ao enviar uma tag vX.Y.Z: gera, assina (se o SignPath estiver configurado) e publica na Release.
 # - Manualmente (Actions › Release › Run workflow): gera e guarda os arquivos como artefato, sem publicar.
 # Guia de ativação da assinatura: docs/ASSINATURA.md
@@ -27,8 +27,6 @@ jobs:
           node-version: '24'
       - name: Inno Setup
         run: choco install innosetup --no-progress -y
-      - name: Testes do servidor
-        run: node --test test/*.test.mjs
       - name: Gerar pacotes
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File installer/build.ps1
