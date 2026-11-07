@@ -14,7 +14,7 @@
 Se o Code Room te ajudou, **[deixe uma estrela ⭐](https://github.com/Igorferreirax/code-room-open)**. Ajuda outras pessoas a achar o projeto.
 
 ## Conteúdo
-- [O que ele faz](#o-que-ele-faz) · [Requisitos](#requisitos) · [Começar](#começar) · [Testes](#testes)
+- [O que ele faz](#o-que-ele-faz) · [Baixar e abrir](#baixar-e-abrir-windows) · [Requisitos](#requisitos) · [Começar](#começar-pelo-código-fonte) · [Testes](#testes)
 - [Problemas comuns](#problemas-comuns) · [Limites conhecidos](#limites-conhecidos) · [Documentação](#documentação)
 - [Privacidade e segurança](#privacidade-e-segurança) · [Aviso](#aviso) · [Licença e créditos](#licença-e-créditos)
 
@@ -38,7 +38,14 @@ Se o Code Room te ajudou, **[deixe uma estrela ⭐](https://github.com/Igorferre
 - Pelo menos um destes CLIs, logado: Codex (`codex login`), Claude Code (`claude auth login`) ou Antigravity/Gemini.
 - Opcional: Python 3, ffmpeg e HyperFrames, para o modo de lote de vídeo.
 
-## Começar
+## Baixar e abrir (Windows)
+1. Baixe o **zip portátil** na [página de Releases](https://github.com/Igorferreirax/code-room-open/releases/latest) e extraia em qualquer pasta.
+2. Dê dois cliques em `Iniciar-Code-Room.cmd`. O Code Room abre em uma janela própria, e o Node já vem dentro: não precisa instalar nada.
+3. No primeiro uso, a triagem confere quais IAs (Codex, Claude Code, Gemini) você já tem e mostra o que falta.
+
+O `Setup.exe` também está na Release, mas **ainda não tem assinatura digital**: o Windows 11 com o Controle Inteligente de Aplicativos o bloqueia. Prefira o zip. Detalhes em [INSTALAR.md](INSTALAR.md).
+
+## Começar (pelo código-fonte)
 ```bash
 git clone https://github.com/Igorferreirax/code-room-open.git
 cd code-room-open

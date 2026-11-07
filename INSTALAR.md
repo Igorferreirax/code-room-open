@@ -5,7 +5,7 @@ Escolha uma das três formas.
 > **Estado:** os pacotes das opções A e B ainda não foram publicados nos Releases. Até lá, use a opção C ou rode pelo código (`npm start`, veja o [README](README.md)).
 
 ## A. Zip portátil (recomendado, funciona em qualquer Windows 10 ou 11)
-1. Baixe o `.zip` na página de [Releases](../../releases) do repositório e descompacte em qualquer pasta (por exemplo, `C:\CodeRoom`).
+1. Baixe o `.zip` na página de [Releases](https://github.com/Igorferreirax/code-room-open/releases/latest) do repositório e descompacte em qualquer pasta (por exemplo, `C:\CodeRoom`).
 2. Dê dois cliques em `Iniciar-Code-Room.cmd`. O navegador abre já autenticado.
 3. Na primeira vez, o Code Room **pergunta se você quer o ícone na área de trabalho** e no menu Iniciar (responda uma vez só). Se disser não e mudar de ideia, dê dois cliques em `Criar-Atalhos.cmd`. Para fechar o serviço, use o atalho **Fechar o Code Room** no menu Iniciar.
 4. Na primeira vez, abra **Rotinas › Verificar o ambiente**: ele diz o que falta (ffmpeg, CLIs).

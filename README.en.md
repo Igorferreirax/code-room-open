@@ -25,7 +25,14 @@ The interface is in Brazilian Portuguese for now.
 - At least one of these CLIs, logged in: Codex (`codex login`), Claude Code (`claude auth login`) or Antigravity/Gemini.
 - Optional: Python 3, ffmpeg and HyperFrames, for the video batch mode.
 
-## Getting started
+## Download and run (Windows)
+1. Download the **portable zip** from the [Releases page](https://github.com/Igorferreirax/code-room-open/releases/latest) and extract it anywhere.
+2. Double-click `Iniciar-Code-Room.cmd`. Code Room opens in its own window and ships with Node: nothing to install.
+3. On first run, a check shows which AIs (Codex, Claude Code, Gemini) you already have and what is missing.
+
+`Setup.exe` is also on the Release, but it is **not code-signed yet**: Windows 11 with Smart App Control blocks it. Prefer the zip.
+
+## Get started (from source)
 ```bash
 git clone https://github.com/<your-user>/code-room.git
 cd code-room
