@@ -539,3 +539,55 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .agent-menu .am-links{display:flex;gap:12px}.agent-menu .am-links button.linkbtn{background:none;border:0;padding:2px 0;color:var(--accent-h,#6aa5ff);font-weight:600;text-decoration:underline}
 .agent-menu .am-form{display:flex;gap:6px;margin-top:4px}.agent-menu .am-form textarea{flex:1;min-width:0;resize:none}
 .agent-menu .am-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.agent-menu .am-actions button{padding:6px 10px;font-size:.84rem}
+
+/* Player da Rádio Lo-Fi: flutuante, com a cara da ferramenta (substitui o link de texto do rodapé) */
+.radio-pill{position:fixed;left:84px;bottom:16px;z-index:26;display:flex;align-items:center;gap:10px;padding:6px 14px 6px 6px;border-radius:999px;background:linear-gradient(180deg,var(--panel2,#12213d),var(--bg2,#0b1527));border:1px solid var(--line,#1d3055);box-shadow:0 10px 30px rgba(0,0,0,.42);color:var(--text,#e8eefc);max-width:calc(100vw - 110px)}
+.radio-pill.on{border-color:rgba(74,143,255,.55);box-shadow:0 0 0 1px rgba(43,123,255,.25),0 10px 34px rgba(8,16,40,.7),0 0 26px rgba(43,123,255,.18)}
+.radio-pill .rp-play{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;border:0;cursor:pointer;color:#fff;background:linear-gradient(180deg,#4a8fff,#2b7bff);box-shadow:0 4px 14px rgba(43,123,255,.45);flex:0 0 auto}
+.radio-pill .rp-play:hover{filter:brightness(1.12)}.radio-pill .rp-play:focus-visible,.radio-pill .rp-next:focus-visible{outline:2px solid #bcd6ff;outline-offset:2px}
+.radio-pill .i-pause{display:none}.radio-pill .rp-play[aria-pressed=true] .i-play{display:none}.radio-pill .rp-play[aria-pressed=true] .i-pause{display:block}
+.radio-pill .rp-eq{display:none;align-items:flex-end;gap:3px;height:18px}.radio-pill.on .rp-eq{display:flex}
+.radio-pill .rp-eq i{display:block;width:3px;height:100%;border-radius:2px;background:linear-gradient(180deg,#8fb8ff,#2b7bff);transform-origin:bottom;transform:scaleY(.35);animation:rp-eq 1.1s ease-in-out infinite}
+.radio-pill .rp-eq i:nth-child(2){animation-delay:-.35s;animation-duration:.9s}.radio-pill .rp-eq i:nth-child(3){animation-delay:-.7s;animation-duration:1.3s}.radio-pill .rp-eq i:nth-child(4){animation-delay:-.2s;animation-duration:1s}
+@keyframes rp-eq{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+:root[data-anim=off] .radio-pill .rp-eq i,[data-motion=off] .radio-pill .rp-eq i{animation:none;transform:scaleY(.6)}
+@media (prefers-reduced-motion:reduce){.radio-pill .rp-eq i{animation:none;transform:scaleY(.6)}}
+.radio-pill .rp-info{display:grid;line-height:1.15;min-width:0}.radio-pill .rp-info b{font-size:.84rem;letter-spacing:.2px}
+.radio-pill .radio-track{font-size:.74rem;color:var(--muted,#8fa3c7);max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.radio-pill .rp-next{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;border:1px solid var(--line,#1d3055);background:transparent;color:var(--text,#e8eefc);cursor:pointer;flex:0 0 auto}.radio-pill .rp-next:hover{background:var(--accent-soft,rgba(43,123,255,.16))}
+.radio-pill .rp-vol{width:78px;accent-color:var(--accent,#2b7bff);flex:0 0 auto}
+@media (max-width:760px){.radio-pill{left:12px;bottom:calc(74px + env(safe-area-inset-bottom));padding-right:8px}.radio-pill:not(.on) .rp-info{display:none}.radio-pill .radio-track{max-width:110px}.radio-pill .rp-vol{width:60px}}
+
+/* Ícone do chat minimalista: só o mascote, sem círculo. O humor muda a cor do próprio assistente (olhos e antena). */
+.mascot{color:#59e0ff}.mascot .mc-ant{fill:var(--ant,#2dd4a0)}
+.mc-alerta{color:#f5b73b;--ant:#f5b73b}.mc-preocupado{color:#ef5b5b;--ant:#ef5b5b}.mc-surpreso{color:#2dd4a0;--ant:#2dd4a0}.mc-dormindo{color:#6b7fa6;--ant:#4a5b80}
+.mc-eyes{filter:drop-shadow(0 0 2px currentColor)}.mc-dots circle{fill:currentColor}.mc-z{fill:currentColor}
+.chat-bubble{background:none;border:0;box-shadow:none;border-radius:0;width:64px;height:64px;padding:0;transition:transform .15s ease}
+.chat-bubble:hover{transform:translateY(-2px) scale(1.05)}.chat-bubble:focus-visible{outline:2px solid var(--accent-h,#6aa5ff);outline-offset:3px;border-radius:50%}
+.cb-face,.cb-face[data-mood]{box-shadow:none;background:none;padding:0;border-radius:0;overflow:visible}
+.cb-face svg,.cb-face .mascot{filter:drop-shadow(0 4px 8px rgba(0,0,0,.55)) drop-shadow(0 0 8px color-mix(in srgb,currentColor 55%,transparent))}
+.cb-busy{display:none}
+.main .foot{padding-right:96px}
+@media (max-width:760px){.chat-bubble{width:56px;height:56px}.main .foot{padding-right:14px}}
+
+/* Player da rádio recolhível e discreto: começa como um botãozinho; abre ao clicar e se recolhe sozinho */
+.radio-pill{padding:0;gap:0;background:none;border:0;box-shadow:none;border-radius:0}
+.radio-pill .rp-panel{display:flex;align-items:center;gap:10px;padding:6px 8px 6px 6px;border-radius:999px;background:linear-gradient(180deg,var(--panel2,#12213d),var(--bg2,#0b1527));border:1px solid var(--line,#1d3055);box-shadow:0 10px 30px rgba(0,0,0,.42)}
+.radio-pill.on .rp-panel{border-color:rgba(74,143,255,.55);box-shadow:0 0 0 1px rgba(43,123,255,.25),0 10px 34px rgba(8,16,40,.7),0 0 26px rgba(43,123,255,.18)}
+.radio-pill .rp-fab{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;cursor:pointer;color:var(--muted,#8fa3c7);background:rgba(11,21,39,.72);border:1px solid var(--line,#1d3055);box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:.78;backdrop-filter:blur(4px);transition:opacity .15s,color .15s,transform .15s}
+.radio-pill .rp-fab:hover,.radio-pill .rp-fab:focus-visible{opacity:1;color:var(--text,#e8eefc);transform:scale(1.06)}.radio-pill .rp-fab:focus-visible{outline:2px solid #bcd6ff;outline-offset:2px}
+.radio-pill.on .rp-fab{opacity:1;color:#8fb8ff;border-color:rgba(74,143,255,.55)}
+.radio-pill .rp-fab .rp-eq{display:none;height:16px}.radio-pill.on .rp-fab .i-note{display:none}.radio-pill.on .rp-fab .rp-eq{display:flex}
+.radio-pill.min .rp-panel{display:none}.radio-pill:not(.min) .rp-fab{display:none}
+.radio-pill .rp-panel .rp-eq{display:none}
+.radio-pill .rp-min{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:0;background:transparent;color:var(--muted,#8fa3c7);cursor:pointer;flex:0 0 auto}.radio-pill .rp-min:hover{color:var(--text,#e8eefc);background:var(--accent-soft,rgba(43,123,255,.16))}
+@media (max-width:760px){.radio-pill .rp-fab{width:36px;height:36px}.radio-pill .rp-panel{padding-right:6px}}
+
+/* Atividade recente compacta: uma linha por atividade e altura máxima com rolagem própria (não estica mais a página) */
+.activity-card .activity-list{max-height:300px;overflow-y:auto;overscroll-behavior:contain;gap:0;padding-right:4px;margin-top:6px}
+.activity-card .activity-list li{flex-wrap:nowrap;align-items:center;gap:8px;min-width:0;padding:6px 0;border-top:1px solid var(--line)}.activity-card .activity-list li:first-child{border-top:0}
+.activity-card .activity-list .link{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-card .activity-list small{flex:0 0 auto;white-space:nowrap}
+.activity-card .activity-list:focus-visible{outline:2px solid var(--accent-h,#6aa5ff);outline-offset:2px;border-radius:8px}
+/* o botão da rádio não encosta mais no texto da versão */
+.main .foot{padding-left:70px}@media (max-width:760px){.main .foot{padding-left:14px}}

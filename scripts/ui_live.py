@@ -126,6 +126,17 @@ try:
         page.click('.mini [data-act=mini-close]'); page.wait_for_timeout(300)
         page.locator('.ps-station').first.click(); page.wait_for_selector('#agent-menu', timeout=5000); page.keyboard.press('Escape'); page.wait_for_timeout(300)
         check('balão: Esc fecha o balão', page.locator('#agent-menu').count() == 0)
+        # ---- Atividade recente compacta: muitas atividades não esticam a página ----
+        for i in range(22): api('tasks', {'projectId': P['id'], 'agentId': ag['id'], 'requestId': f'atv{i}', 'objective': f'Tarefa longa de teste numero {i} ' + 'texto comprido ' * 12 + '[[fake sleep=50]]'})
+        for _ in range(120):
+            if sum(1 for r in api('state')['runs'] if r['status'] in ('completed', 'failed', 'cancelled')) >= 20: break
+            time.sleep(0.5)
+        page.click('[data-nav=tasks]'); page.wait_for_timeout(300); page.click('[data-nav=room]'); page.wait_for_selector('.activity-card .activity-list li', timeout=8000); page.wait_for_timeout(600)
+        box = page.locator('.activity-card').bounding_box(); lst = page.locator('.activity-card .activity-list')
+        check('atividade: o cartão não estica (altura máxima)', box['height'] < 470, box)
+        check('atividade: cada atividade cabe em uma linha só', all(h < 50 for h in page.eval_on_selector_all('.activity-card .activity-list li', 'els => els.map(e => e.getBoundingClientRect().height)')))
+        check('atividade: tem mais itens do que cabem e a lista rola por dentro', page.locator('.activity-card .activity-list li').count() >= 15 and lst.evaluate('e => e.scrollHeight > e.clientHeight + 5'))
+        check('atividade: a página não ficou gigante', page.evaluate('document.documentElement.scrollHeight') < 1900, page.evaluate('document.documentElement.scrollHeight'))
         # fechar o chat para de acompanhar
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(400)
         check('ao vivo: sem erro de console', not errors, errors[:3])

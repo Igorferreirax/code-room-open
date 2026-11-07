@@ -28,6 +28,7 @@ import { removeWorktree } from './worktree.mjs';
 import { retentionScan, retentionClean } from './retention.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { Power } from './power.mjs';
+import { AutoClean } from './autoclean.mjs';
 import { startupState, setStartup } from './startup.mjs';
 import { saveHermesFile, clearHermesFile, loadHermesFile, testHermes, validateHermes, findSsh } from './hermes.mjs';
 import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
@@ -74,6 +75,8 @@ async function moduleList() { if (Date.now() - modulesAt > 5 * 60000) { modules 
 const installed = agent => !!connectors().find(c => c.id === agent.provider)?.path;
 const power = new Power({ store, countRunning: () => store.list('tasks').filter(t => ['running', 'starting'].includes(t.status)).length });
 power.start();
+const autoClean = new AutoClean({ store, dataDir: data, appDir: root });
+autoClean.start();
 const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '' });
 setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
@@ -257,6 +260,7 @@ const handle = async (req, res) => {
       if (get && p === '/api/updates') return send(res, 200, updates.status());
       if (get && p === '/api/retention') { masterOnly(auth); return send(res, 200, await retentionScan({ store, dataDir: data, appDir: root, days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 })); }
       if (get && p === '/api/startup') { masterOnly(auth); return send(res, 200, startupState()); }
+      if (get && p === '/api/cleanup') { masterOnly(auth); return send(res, 200, autoClean.status()); }
       if (get && p === '/api/power') { masterOnly(auth); return send(res, 200, power.status()); }
       if (get && p === '/api/hermes') { masterOnly(auth); return send(res, 200, hermesView()); }
       if (get && p === '/api/mcp') { masterOnly(auth); return send(res, 200, mcpInfo(mcpCtx())); }
@@ -333,6 +337,7 @@ const handle = async (req, res) => {
         if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
         if (p === '/api/startup') { masterOnly(auth); return send(res, 200, await setStartup(b.on === true, { root })); }
+        if (p === '/api/cleanup') { masterOnly(auth); return send(res, 200, autoClean.setEnabled(b.auto === true)); }
         if (p === '/api/power') { masterOnly(auth); return send(res, 200, power.setKeepAwake(b.keepAwake === true)); }
         if (p === '/api/hermes') { masterOnly(auth); saveHermesFile(data, b); return send(res, 200, hermesView()); }
         if (p === '/api/hermes/test') { masterOnly(auth); const cfg = Object.keys(b).length ? validateHermes(b) : loadHermesFile(data); if (!cfg) throw new Error('Preencha e salve a configuração do servidor antes de testar.'); return send(res, 200, await testHermes(cfg)); }
@@ -559,5 +564,5 @@ server.listen(port, '127.0.0.1', async () => {
   const t = setInterval(() => syncListeners().catch(() => {}), 20000); t.unref?.(); // o Tailscale pode conectar depois do serviço
 });
 server.on('error', e => { console.error(e.message); process.exitCode = 1; store.close(); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { power.stop(); process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { power.stop(); autoClean.stop(); process.exit(0); });
 process.on('exit', () => power.stop());

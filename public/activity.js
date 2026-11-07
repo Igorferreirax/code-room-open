@@ -34,7 +34,7 @@ export function agentTip(ctx, agent, now = Date.now()) {
 
 const DOT = { running: 'run', cancelling: 'run', queued: 'warn', waiting_dependency: 'warn', waiting_approval: 'warn', completed: 'ok', failed: 'bad', timeout: 'bad', blocked: 'bad', cancelled: 'idle', interrupted: 'idle' };
 export function activityCardHtml(ctx, opts = {}) {
-  const ev = activityEvents(ctx, { limit: 8, ...opts });
+  const ev = activityEvents(ctx, { limit: 20, ...opts });   // mais histórico, mas dentro de uma lista com altura máxima e rolagem própria
   const rows = ev.map(e => `<li><span class="dot d-${DOT[e.status] || 'idle'}"></span><button type="button" class="link" data-act="task" data-id="${esc(e.id)}"><b>${esc(e.agent)}</b> ${esc(VERB[e.status] || e.status)} <span class="muted">“${esc(e.text)}”</span></button><small class="muted"> ${esc(e.ago)}${e.files ? ` · ${e.files} arquivo(s)` : ''}</small></li>`).join('');
-  return `<section class="card activity-card"><div class="card-h"><h2>Atividade recente</h2><button type="button" class="linkbtn" data-nav="tasks">Ver tudo</button></div>${rows ? `<ul class="dots-list activity-list">${rows}</ul>` : '<p class="muted small">Nada aconteceu neste projeto ainda. Quando os agentes trabalharem, cada passo aparece aqui.</p>'}</section>`;
+  return `<section class="card activity-card"><div class="card-h"><h2>Atividade recente</h2><button type="button" class="linkbtn" data-nav="tasks">Ver tudo</button></div>${rows ? `<ul class="dots-list activity-list" tabindex="0" aria-label="Atividades recentes (role para ver mais)">${rows}</ul>` : '<p class="muted small">Nada aconteceu neste projeto ainda. Quando os agentes trabalharem, cada passo aparece aqui.</p>'}</section>`;
 }

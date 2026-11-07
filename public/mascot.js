@@ -4,7 +4,7 @@ export const MOODS = {
   feliz: { label: 'tudo certo', ring: 'var(--accent)' }, pensando: { label: 'pensando…', ring: 'var(--accent-h)' }, dormindo: { label: 'dormindo', ring: 'var(--line)' },
   preocupado: { label: 'algo falhou', ring: '#ef5b5b' }, alerta: { label: 'notei algo', ring: '#f5b73b' }, surpreso: { label: 'tenho novidade', ring: '#2dd4a0' },
 };
-const EYE = '#59e0ff';
+const EYE = 'currentColor';   // a cor vem do humor (CSS: .mc-alerta, .mc-preocupado...), não fica fixa no desenho
 const eyes = {
   feliz: `<path class="mc-eye" d="M17 34 Q23 25 29 34" /><path class="mc-eye" d="M35 34 Q41 25 47 34" /><path class="mc-mouth" d="M28 41 Q32 44 36 41" />`,
   pensando: `<circle class="mc-eye" cx="23" cy="31" r="4.6" fill="${EYE}" stroke="none" /><circle class="mc-eye" cx="41" cy="31" r="4.6" fill="${EYE}" stroke="none" /><g class="mc-dots"><circle cx="27" cy="41" r="1.7" /><circle cx="32" cy="41" r="1.7" /><circle cx="37" cy="41" r="1.7" /></g>`,
@@ -17,7 +17,7 @@ export function mascot(mood = 'feliz', size = 40) {
   const m = eyes[mood] ? mood : 'feliz';
   return `<svg class="mascot mc-${m}" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="Assistente: ${MOODS[m].label}"><g class="mc-body">
     <rect x="3" y="26" width="6" height="14" rx="3" fill="#26314d" /><rect x="55" y="26" width="6" height="14" rx="3" fill="#26314d" /><rect x="3.8" y="30" width="1.6" height="6" rx=".8" fill="${EYE}" /><rect x="58.6" y="30" width="1.6" height="6" rx=".8" fill="${EYE}" />
-    <rect x="7" y="10" width="50" height="44" rx="19" fill="#f1f4fc" /><rect x="12" y="15" width="40" height="34" rx="14" fill="#0b1a33" /><rect x="27" y="7" width="10" height="4" rx="2" fill="#2dd4a0" />
+    <rect x="7" y="10" width="50" height="44" rx="19" fill="#f1f4fc" /><rect x="12" y="15" width="40" height="34" rx="14" fill="#0b1a33" /><rect class="mc-ant" x="27" y="7" width="10" height="4" rx="2" fill="#2dd4a0" />
     <g class="mc-eyes" fill="none" stroke="${EYE}" stroke-width="4" stroke-linecap="round">${eyes[m]}</g></g></svg>`;
 }
 

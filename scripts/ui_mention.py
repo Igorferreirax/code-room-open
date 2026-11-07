@@ -100,6 +100,13 @@ try:
             if 'Nada para limpar' in page.inner_text('#view') or 'seriam apagadas' in page.inner_text('#view'): break
             page.wait_for_timeout(300)
         check('retenção: a prévia diz o que seria apagado (ou que não há nada)', 'Nada para limpar' in page.inner_text('#view') or 'seriam apagadas' in page.inner_text('#view'))
+        # ---- Limpeza automática (opcional, desligada por padrão) ----
+        clear_chat(page)
+        check('limpeza automática: aparece em Execução, desligada por padrão', page.locator('#retention-card #pref-autoclean').count() == 1 and api('cleanup')['auto'] is False)
+        page.click('#pref-autoclean'); page.wait_for_selector('#pref-autoclean[aria-checked=true]', timeout=8000)
+        check('limpeza automática: ligar grava no servidor', api('cleanup')['auto'] is True)
+        page.click('#pref-autoclean'); page.wait_for_selector('#pref-autoclean[aria-checked=false]', timeout=8000)
+        check('limpeza automática: desligar volta ao padrão', api('cleanup')['auto'] is False)
         # ---- Energia: manter acordado (desligado por padrão) ----
         clear_chat(page)
         check('energia: o cartão aparece em Execução com a opção desligada', page.locator('#power-card #pref-keepawake').count() == 1 and api('power')['keepAwake'] is False)

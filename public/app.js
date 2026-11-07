@@ -37,7 +37,7 @@ const ctx = {
 };
 const IDLE_MS = 10 * 60 * 1000, DONE_MS = 20 * 1000, FAIL_MS = 30 * 60 * 1000;
 const dismissed = new Set(store.get('cr.dismissed', []));
-let selectedAgent = null, officeHost = null, lastFocus = null, audioUrl = null;
+let selectedAgent = null, officeHost = null, lastFocus = null;
 
 // ---------- API ----------
 async function api(path, body) {
@@ -103,7 +103,6 @@ function applyPrefs() {
   const sys = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const off = p.reduce || p.anim === false || (p.anim === undefined && sys);
   r.dataset.motion = off ? 'off' : 'on'; r.classList.toggle('tab-hidden', document.hidden);
-  const a = $('audio'); if (a) a.volume = p.volume ?? 0.7;
 }
 const savePrefs = () => { store.set('cr.prefs', ctx.prefs); applyPrefs(); };
 
@@ -232,9 +231,21 @@ const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach
 
 // ---------- Rádio da Sala ----------
 let radio = null;
+// Player recolhível: começa só como um botão redondo; clicar abre o player completo, e ele se recolhe sozinho depois de um tempo sem uso.
+let radioIdle = null;
+function setRadioOpen(open, { remember = true } = {}) {
+  const w = $('radio-ctl'), fab = $('radio-fab'); if (!w) return;
+  w.classList.toggle('min', !open); fab.setAttribute('aria-expanded', String(open)); clearTimeout(radioIdle);
+  if (open) radioIdle = setTimeout(() => { if (!w.matches(':hover') && !w.contains(document.activeElement)) setRadioOpen(false); else setRadioOpen(true); }, 7000);
+}
+$('radio-fab')?.addEventListener('click', () => { setRadioOpen(true); setTimeout(() => $('radio-btn')?.focus(), 30); });
+$('radio-min')?.addEventListener('click', () => { setRadioOpen(false); $('radio-fab')?.focus(); });
+$('radio-ctl')?.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('radio-ctl').classList.contains('min')) { setRadioOpen(false); $('radio-fab')?.focus(); } });
+for (const ev of ['pointerenter', 'pointerdown', 'input', 'focusin']) $('radio-ctl')?.addEventListener(ev, () => { if (!$('radio-ctl').classList.contains('min')) setRadioOpen(true); });
 function updateRadioUi() {
-  const on = !!radio?.playing, b = $('radio-btn'), v = $('radio-vol'); if (!b) return;
-  b.textContent = on ? '⏸ Rádio Lo-Fi (tocando)' : '♪ Rádio Lo-Fi'; b.setAttribute('aria-pressed', String(on)); v.hidden = !on; $('radio-next').hidden = !on; if (!on) $('radio-track').textContent = ''; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
+  const on = !!radio?.playing, w = $('radio-ctl'), b = $('radio-btn'), v = $('radio-vol'); if (!b) return;
+  w.classList.toggle('on', on); $('radio-fab')?.setAttribute('aria-label', on ? 'Rádio lo-fi tocando: abrir o player' : 'Abrir a rádio lo-fi'); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Pausar a rádio lo-fi' : 'Ligar a rádio lo-fi');
+  v.hidden = !on; $('radio-next').hidden = !on; if (!on) $('radio-track').textContent = 'Toque para ligar'; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
 }
 $('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { ...store.get('cr.radio', {}), volume: x }); });
 document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
@@ -361,7 +372,7 @@ async function loadModules() { try { ctx.modules = await api('modules'); render(
 async function loadPublish() { try { ctx.publish = await api('publish/status'); if (['connections', 'routines'].includes(ctx.view)) render(); } catch {} }
 async function loadLimits() { try { ctx.limits = await api('usage/limits'); if (ctx.view === 'usage') render(); } catch {} }
 async function loadRemote() {
-  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); try { ctx.mcp = await api('mcp'); } catch {} try { ctx.power = await api('power'); } catch {} try { ctx.startup = await api('startup'); } catch {} } } catch (e) { notify(e.message, true); }
+  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); try { ctx.mcp = await api('mcp'); } catch {} try { ctx.power = await api('power'); } catch {} try { ctx.startup = await api('startup'); } catch {} try { ctx.cleanup = await api('cleanup'); } catch {} } } catch (e) { notify(e.message, true); }
   render();
 }
 const deviceName = () => { const ua = navigator.userAgent; return /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Celular Android' : /Windows/.test(ua) ? 'Computador Windows' : /Mac/.test(ua) ? 'Mac' : 'Aparelho'; };
@@ -473,6 +484,7 @@ const actions = {
       try { ctx.startup = await api('startup', { on: !ctx.startup?.on }); notify(ctx.startup.on ? 'O Code Room vai abrir com o Windows.' : 'O Code Room não abre mais com o Windows.'); } catch (e) { notify(e.message, true); } finally { ctx.ui.startupBusy = false; }
       render(); return;
     }
+    if (id === 'pref-autoclean') { try { ctx.cleanup = await api('cleanup', { auto: !ctx.cleanup?.auto }); notify(ctx.cleanup.auto ? 'Limpeza automática ligada: uma vez por dia, só o que é seguro apagar.' : 'Limpeza automática desligada.'); } catch (e) { notify(e.message, true); } render(); return; }
     if (id === 'pref-keepawake') { try { ctx.power = await api('power', { keepAwake: !ctx.power?.keepAwake }); } catch (e) { notify(e.message, true); } render(); return; }
     if (id === 'pref-autosup') { p.autoSupervisor = !p.autoSupervisor; savePrefs(); }
     else if (id === 'pref-anim') { p.anim = p.anim === false; savePrefs(); }
@@ -619,7 +631,6 @@ const actions = {
   'revoke-device': async id => { await api(`devices/${id}/revoke`, {}); notify('Aparelho revogado.'); ctx.devices = await api('devices'); render(); },
   'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   recheck: () => { ctx.checks = null; loadChecks(true); loadModules(); },
-  'music-toggle': () => { const a = $('audio'); if (a.src) a.paused ? a.play() : a.pause(); else notify('Escolha um arquivo de áudio primeiro.', true); }
 };
 async function saveRoutine() {
   const f = $('routine-form'), d = Object.fromEntries(new FormData(f)), [tt, tid] = d.target.split(':');
@@ -658,10 +669,8 @@ document.addEventListener('change', async e => {
     else if (t.id === 'usage-period') { ctx.ui.usagePeriod = t.value; render(); } else if (t.id === 'usage-project') { ctx.ui.usageProject = t.value; render(); }
     else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
-    else if (t.id === 'pref-volume') { ctx.prefs.volume = Number(t.value) / 100; savePrefs(); render(); }
     else if (t.id === 'target') { ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
-    else if (t.id === 'music-file') { const f = t.files[0]; if (!f) return; if (audioUrl) URL.revokeObjectURL(audioUrl); audioUrl = URL.createObjectURL(f); const a = $('audio'); a.src = audioUrl; a.play().catch(() => {}); notify('Tocando ' + f.name); }
     else if (t.dataset?.act === 'skill-agent') {
       const a = ctx.state.agents.find(x => x.id === t.dataset.agent); const ids = new Set(a.skillIds); if (t.checked) ids.add(t.dataset.id); else ids.delete(t.dataset.id);
       if (ids.size > 8) { t.checked = false; throw new Error('Máximo de 8 skills por agente.'); }
@@ -774,9 +783,7 @@ for (const [id, d] of [['retry-cancel', 'confirm-dialog'], ['flowtest-cancel', '
 
 // ---------- Ciclo de vida ----------
 document.addEventListener('visibilitychange', () => {
-  applyPrefs(); const au = $('audio'); if (!au) return;
-  if (document.hidden && !ctx.prefs.musicHidden && !au.paused) { au.pause(); au.dataset.resume = '1'; }
-  else if (!document.hidden && au.dataset.resume) { delete au.dataset.resume; au.play().catch(() => {}); }
+  applyPrefs();
 });
 matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyPrefs);
 
