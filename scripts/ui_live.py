@@ -70,8 +70,38 @@ try:
         check('ao vivo: uma tarefa nova aparece sozinha, sem recarregar', 'Ao vivo' in page.inner_text('#live-box'))
         page.click('#live-box [data-act=cancel]'); page.wait_for_timeout(3500)
         check('ao vivo: Parar cancela a tarefa', 'cancelada' in page.inner_text('#live-box') or 'Cancelad' in page.inner_text('#live-box') or 'Última tarefa' in page.inner_text('#live-box'))
+        # ---- várias janelas de chat ao mesmo tempo ----
+        beto = api('agents', {'name': 'Beto Ao Vivo', 'role': 'segunda janela', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})
+        page.reload(); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
+        if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(300)
+        page.click('[data-nav=room]'); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)
+        for nome in ('Lia Ao Vivo', 'Beto Ao Vivo'):
+            page.locator('[data-act=agent]', has_text=nome).first.click(); page.wait_for_timeout(300)
+            if page.locator('#agent-menu [data-act=agent]').count(): page.click('#agent-menu [data-act=agent]'); page.wait_for_timeout(300)
+            page.wait_for_selector('#drawer [data-act=mini-open]', timeout=5000); page.click('#drawer [data-act=mini-open]'); page.wait_for_timeout(600)
+        check('janelas: duas janelas abertas lado a lado', page.locator('.mini').count() == 2, page.locator('.mini').count())
+        lia_t, beto_t = f"#mini-t-{ag['id']}", f"#mini-t-{beto['id']}"
+        page.fill(lia_t, 'rascunho que não pode sumir')
+        page.fill(beto_t, 'Trabalho do Beto [[fake echo=1 sleep=7000 answer=Beto_terminou]]'); page.press(beto_t, 'Enter')
+        for _ in range(40):
+            if 'Ao vivo' in page.inner_text(f".mini[data-mini='{beto['id']}']"): break
+            page.wait_for_timeout(300)
+        check('janelas: Enter envia a missão e a janela do Beto mostra a tarefa ao vivo', 'Ao vivo' in page.inner_text(f".mini[data-mini='{beto['id']}']"))
+        check('janelas: cada agente tem a sua sessão (a da Lia não mostra a do Beto)', 'Beto' not in page.inner_text(f".mini[data-mini='{ag['id']}'] [data-mini-body]"))
+        page.wait_for_timeout(1500)
+        check('janelas: o rascunho da outra janela sobrevive às atualizações em tempo real', page.input_value(lia_t) == 'rascunho que não pode sumir', page.input_value(lia_t))
+        check('janelas: a caixa de missão volta vazia depois de enviar', page.input_value(beto_t) == '')
+        page.reload(); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(1000)
+        check('janelas: continuam abertas depois de recarregar a página', page.locator('.mini').count() == 2)
+        page.click(f"[data-act=mini-close][data-id='{ag['id']}']"); page.wait_for_timeout(300)
+        check('janelas: fechar uma deixa só a outra', page.locator('.mini').count() == 1 and page.locator(f".mini[data-mini='{beto['id']}']").count() == 1)
+        page.set_viewport_size({'width': 390, 'height': 844}); page.wait_for_timeout(300)
+        check('janelas: no celular as janelas extras não aparecem (usa o chat principal)', not page.locator('.mini').first.is_visible())
+        page.set_viewport_size({'width': 1440, 'height': 900}); page.wait_for_timeout(300)
+        page.click(f"[data-act=mini-close][data-id='{beto['id']}']"); page.wait_for_timeout(300)
+        check('janelas: todas fechadas', page.locator('.mini').count() == 0)
         # fechar o chat para de acompanhar
-        page.click('[data-act=chat-min]'); page.wait_for_timeout(400)
+        if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(400)
         check('ao vivo: sem erro de console', not errors, errors[:3])
         browser.close()
 finally:

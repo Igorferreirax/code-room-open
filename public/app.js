@@ -9,6 +9,7 @@ import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { liveTaskOf } from './live-ui.js';
+import { cleanMini, addMini, miniShellHtml, miniBodyHtml } from './minichat.js';
 import { sayOf } from './mascot.js';
 import { extractProject, projectToken } from './mentions.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
@@ -123,11 +124,34 @@ async function refresh() {
 // Sessão ao vivo: com o chat aberto em um agente, acompanha a tarefa dele (a que roda agora, ou a última).
 async function refreshLive() {
   const tg = ctx.ui.asstOpen ? String(V.targetOf(ctx) || '') : '';
-  if (!tg.startsWith('a:')) { ctx.live = null; return; }
-  const t = liveTaskOf(ctx.state?.runs, tg.slice(2));
-  if (!t) { ctx.live = null; return; }
-  ctx.live = await api('tasks/' + t.id).catch(() => ctx.live?.id === t.id ? ctx.live : null);
+  if (!tg.startsWith('a:')) ctx.live = null;
+  else { const t = liveTaskOf(ctx.state?.runs, tg.slice(2)); ctx.live = t ? await api('tasks/' + t.id).catch(() => ctx.live?.id === t.id ? ctx.live : null) : null; }
+  // janelas de chat extras (uma tarefa ao vivo por agente aberto)
+  ctx.ui.mini = cleanMini(ctx.ui.mini ?? store.get('cr.mini', []), ctx.state?.agents); ctx.liveMini = ctx.liveMini || {};
+  await Promise.all(ctx.ui.mini.map(async id => { const t = liveTaskOf(ctx.state?.runs, id); if (!t) { delete ctx.liveMini[id]; return; } ctx.liveMini[id] = await api('tasks/' + t.id).catch(() => ctx.liveMini[id] || null); }));
+  for (const id of Object.keys(ctx.liveMini)) if (!ctx.ui.mini.includes(id)) delete ctx.liveMini[id];
 }
+// Desenha as janelas extras: cria a casca uma vez e só troca o corpo e o estado (não mexe no que está sendo digitado).
+function renderMinis() {
+  const root = $('mini-chats'); if (!root) return;
+  const agents = ctx.authed && ctx.state ? ctx.state.agents : [], ids = ctx.authed ? cleanMini(ctx.ui.mini ?? store.get('cr.mini', []), agents) : [];
+  ctx.ui.mini = ids; root.classList.toggle('shift', !!ctx.ui.asstOpen);
+  for (const sec of [...root.children]) if (!ids.includes(sec.dataset.mini)) sec.remove();
+  for (const id of ids) {
+    const ag = agents.find(x => x.id === id); let sec = [...root.children].find(s => s.dataset.mini === id);
+    if (!sec) { sec = document.createElement('section'); sec.className = 'mini'; sec.dataset.mini = id; sec.setAttribute('role', 'region'); sec.setAttribute('aria-label', 'Chat com ' + ag.name); sec.innerHTML = miniShellHtml(ctx, ag); root.prepend(sec); }
+    const st = sec.querySelector('[data-mini-status]'), label = ctx.agentStatus(ag).label; if (st.textContent !== label) st.textContent = label;
+    const body = sec.querySelector('[data-mini-body]'), html = miniBodyHtml(ctx.liveMini?.[id] || null);
+    if (sec._html !== html) { const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 60 || sec._html == null; body.innerHTML = html; sec._html = html; const lg = body.querySelector('.live-log'); if (lg) lg.scrollTop = lg.scrollHeight; if (atEnd) body.scrollTop = body.scrollHeight; }
+  }
+}
+function openMini(id) {
+  if (!ctx.state.agents.some(x => x.id === id)) return; closeAgentMenu(); closeDrawer();
+  if (innerWidth <= 760) { ctx.ui.target = 'a:' + id; setChatOpen(true); return; }   // no celular só cabe uma janela: usa o chat principal
+  ctx.ui.mini = addMini(ctx.ui.mini ?? store.get('cr.mini', []), id); store.set('cr.mini', ctx.ui.mini);
+  refreshLive().then(renderMinis); renderMinis(); setTimeout(() => document.getElementById('mini-t-' + id)?.focus(), 60);
+}
+function closeMini(id) { ctx.ui.mini = (ctx.ui.mini || []).filter(x => x !== id); store.set('cr.mini', ctx.ui.mini); delete ctx.liveMini?.[id]; renderMinis(); }
 function setConnection(s) { ctx.connection = s; if (ctx.authed) render(); }
 let lastSeq = 0;
 async function stream() {
@@ -196,7 +220,7 @@ function render() {
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
   $('update-bar').innerHTML = U.updateBarHtml(ctx) + noticesBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
-  applyPrefs(); renderAsst();
+  applyPrefs(); renderAsst(); renderMinis();
 }
 function drawOffice() {
   const model = a => { const s = ctx.agentStatus(a); return { agent: a, status: s.status === 'queued' ? 'waiting' : s.status, label: `${a.name}, ${a.role}. ${s.label}${s.task ? '. Tarefa: ' + s.task.prompt.slice(0, 60) : ''}` }; };
@@ -244,7 +268,7 @@ function checkDesktopNotify() {
 let asstTimer = null;
 if (ctx.ui.asstOpen === undefined) ctx.ui.asstOpen = store.get('cr.chat', {}).open ?? false;
 function setChatOpen(v) {
-  ctx.ui.asstOpen = !!v; store.set('cr.chat', { open: !!v }); renderAsst();
+  ctx.ui.asstOpen = !!v; store.set('cr.chat', { open: !!v }); renderAsst(); renderMinis();
   if (v) { loadAsst(); setTimeout(() => $('mission')?.focus({ preventScroll: true }), 80); }
 }
 function renderAsst() {
@@ -358,7 +382,7 @@ function openAgentMenu(id) {
   const a = ctx.state.agents.find(x => x.id === id); if (!a) return; closeAgentMenu();
   const el = [...document.querySelectorAll('[data-agent]')].find(n => n.dataset.agent === id && n.offsetParent !== null) || null, r = el?.getBoundingClientRect() || { left: innerWidth / 2 - 90, right: innerWidth / 2 + 90, bottom: 120, top: 80 };
   const m = document.createElement('div'); m.id = 'agent-menu'; m.className = 'agent-menu'; m.setAttribute('role', 'menu');
-  m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><button type="button" role="menuitem" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar no chat</button><button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button>`;
+  m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><button type="button" role="menuitem" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar no chat</button><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Abrir em janela própria</button><button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button>`;
   document.body.appendChild(m);
   const w = m.offsetWidth, h = m.offsetHeight; let x = Math.round((r.left + r.right) / 2 - w / 2), y = Math.round(r.bottom + 8);
   if (y + h > innerHeight - 8) y = Math.max(8, Math.round(r.top - h - 8)); x = Math.min(innerWidth - w - 8, Math.max(8, x));
@@ -398,6 +422,8 @@ const actions = {
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
   'retention-preview': async () => { ctx.retention = 'busy'; render(); try { ctx.retention = await api('retention?days=7'); } catch (e) { ctx.retention = null; notify(e.message, true); } render(); },
   'retention-purge': async () => { if (!confirm('Apagar de vez os itens da lista? Isso não pode ser desfeito. Suas entregas, projetos e conversas não são afetados.')) return; try { const r = await api('retention/purge', { days: 7 }); ctx.retention = null; const mb = r.freedBytes ? ` ${(r.freedBytes / 1048576).toFixed(1).replace('.', ',')} MB liberados.` : ''; notify('Limpeza concluída.' + mb); } catch (e) { notify(e.message, true); } render(); },
+  'mini-open': id => openMini(id),
+  'mini-close': id => closeMini(id),
   'mention-agent': id => mentionAgent(id),
   'ask-agent': id => { ctx.ui.target = 'a:' + id; ctx.ui.asstOpen = true; store.set('cr.chat', { open: true }); closeDrawer(); go('room').then(() => { renderAsst(); $('mission')?.focus(); }); },
   'add-member': () => { ctx.teamDraft.members.push({ role: ctx.teamDraft.members.length ? 'revisor' : 'desenvolvedor', agentId: ctx.state.agents[0]?.id }); render(); },
@@ -620,10 +646,20 @@ document.addEventListener('input', e => {
   if (m) { ctx.ui[m] = t.value; if (t.id !== 'review-note') render(); else { const c = t.parentElement.querySelector('.muted.small'); if (c) c.textContent = `${t.value.length}/500`; } }
 });
 
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.matches?.('.mini-form textarea')) { e.preventDefault(); e.target.form.requestSubmit(); } });
+
 // ---------- Formulários ----------
 document.addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, fid = f.getAttribute('id');
   try {
+    if (f.classList.contains('mini-form')) {   // janela de chat extra: missão direta ao agente daquela janela
+      const ta = f.querySelector('textarea'), text = ta.value.trim(); if (!text) return;
+      if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.');
+      ta.disabled = true;
+      try { await api('tasks', { projectId: ctx.project, agentId: f.dataset.id, requestId: crypto.randomUUID(), objective: text }); ta.value = ''; await refresh(); }
+      finally { ta.disabled = false; ta.focus(); }
+      return;
+    }
     if (fid === 'composer') {
       let target = $('target').value, text = $('mission').value.trim(); const criteria = lines($('criteria')?.value), requestId = crypto.randomUUID(), skillIds = [];
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)

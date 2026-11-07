@@ -517,3 +517,13 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .live-log li{padding:3px 0;display:flex;gap:6px;align-items:baseline;overflow-wrap:anywhere}.live-log .lv-text{min-width:0}
 .live-log .lv-error .lv-text{color:var(--bad)}.live-log .lv-diag .lv-text,.live-log .lv-status .lv-text{color:var(--muted)}
 .live-answer{margin:6px 0}.live-answer pre{max-height:210px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Janelas de chat extras (até 3 agentes lado a lado) */
+.mini-chats{position:fixed;bottom:16px;right:96px;display:flex;flex-direction:row-reverse;gap:10px;align-items:flex-end;z-index:26;max-width:calc(100vw - 120px);pointer-events:none}
+.mini-chats.shift{right:438px;max-width:calc(100vw - 460px)}
+.mini{pointer-events:auto;width:320px;height:min(440px,calc(100vh - 84px));display:flex;flex-direction:column;background:var(--bg2);border:1px solid var(--line);border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.4);overflow:hidden}
+.mini-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}.mini-who{flex:1;min-width:0;display:grid}.mini-who b,.mini-who small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini-body{flex:1;overflow:auto;padding:6px 10px}.mini-body .cw-live{margin:6px 0}
+.mini-form{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}.mini-form textarea{flex:1;resize:none;min-width:0}
+@media (max-width:1280px){.mini-chats.shift{display:none}}
+@media (max-width:760px){.mini-chats{display:none}}
