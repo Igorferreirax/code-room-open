@@ -82,3 +82,8 @@ test('comandos locais: /status, /pendencias e /ajuda respondem na hora; outras m
   assert.match(localCommand('/status', w), /Status agora[\s\S]*Montador está trabalhando em “Editar vídeos”/); assert.match(localCommand('/pendencias', w, []), /Nada pendente agora/); assert.match(localCommand('/PENDÊNCIAS', w, [{ title: 'T', text: 'x' }]), /\*\*T\.\*\* x/);
   assert.match(localCommand(' /ajuda ', w), /\/status[\s\S]*\/pendencias/); for (const t of ['status', '/status do projeto', 'oi /status', '/outra']) assert.equal(localCommand(t, w), null, t);
 });
+
+test('projeto em foco: o resumo diz qual projeto está aberto quando a pessoa fala "este projeto"; sem projeto, nada é dito', () => {
+  const w = { agents, teams: [], projects: [{ id: 'p1', name: 'Canal' }], connected: new Set(['codex']), skills: [], runs: [] };
+  assert.match(stateSummary(w, w.projects, 'traga ideias', 'Canal YouTube'), /Projeto em foco[^\n]*: Canal YouTube/); assert.ok(!stateSummary(w, w.projects, 'x', '').includes('Projeto em foco'));
+});

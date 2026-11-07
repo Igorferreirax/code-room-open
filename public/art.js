@@ -1,5 +1,4 @@
 import { pixels, PERSON, CAT, PLANT, MUG, LOOKS } from './sprites.js';
-import { catLogo } from './brand.js';
 
 // Ilustrações em pixel art geradas por código: faixas de cabeçalho, cena da entrada, miniaturas e rostos.
 // São camadas de SVG sem interação; nada aqui indica trabalho real em andamento (isso é papel do cenário da Sala).
@@ -57,7 +56,6 @@ const PORTRAITS = ['avatar-dev', 'avatar-revisor', 'avatar-editor', 'avatar-supe
 export function avatar(index = 0, size = 32) {
   return `<img class="avatar" src="/assets/${PORTRAITS[index % PORTRAITS.length]}.png" width="${size}" height="${size}" alt="" aria-hidden="true">`;
 }
-export const logo = (size = 26) => catLogo(size);   // marca: o gato no monitor (public/brand.js)
 
 // Avatar do agente: usa a miniatura do boneco 3D quando existir; senão, o retrato padrão do papel.
 export function agentAv(a, index = 0, size = 32) {

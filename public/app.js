@@ -9,6 +9,7 @@ import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { sayOf } from './mascot.js';
+import { extractProject, projectToken } from './mentions.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
 addEventListener('pointermove', e => { if (ctx.prefs?.anim === false) return; const r = document.documentElement.style; r.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(2)); r.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(2)); }, { passive: true });
 import { folderJobDialogHtml, noticesBarHtml, emptyJobForm, formFromJob, payloadFromJobForm } from './folderjobs-ui.js';
@@ -251,7 +252,7 @@ async function askAssistant(text) {
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
   if (!ctx.asst?.briefed) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
-  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text }); return true;
+  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text, projectId: ctx.project || undefined }); return true;
 }
 async function applyAsst(id) {
   const [m, i] = id.split(':'); const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
@@ -560,16 +561,17 @@ document.addEventListener('submit', async e => {
     if (fid === 'composer') {
       let target = $('target').value, text = $('mission').value.trim(); const criteria = lines($('criteria')?.value), requestId = crypto.randomUUID(), skillIds = [];
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
-      const mm = text.match(/^@([\w.:-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
+      const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
       if (target === 'assistant') { if (await askAssistant(text)) $('mission').value = ''; return; }
+      let projId = ctx.project; const px = extractProject(text, ctx.state.projects); if (px.project) { projId = px.project.id; text = px.text; } else if (px.ambiguous) throw new Error('Mais de um projeto combina com o # que você escreveu. Escreva o nome inteiro.');
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
-      if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
+      if (!projId) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
       $('send').disabled = true;
-      if (target === 's') { await api('plans', { projectId: ctx.project, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
-      else if (target.startsWith('t:')) { await api('flows', { projectId: ctx.project, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); notify('Fluxo iniciado.'); }
-      else { const t = await api('tasks', { projectId: ctx.project, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; await refresh(); return openTask(t.id); }
+      if (target === 's') { await api('plans', { projectId: projId, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
+      else if (target.startsWith('t:')) { await api('flows', { projectId: projId, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); notify('Fluxo iniciado.'); }
+      else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
     } else if (fid === 'link-form') {
       const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3);
@@ -650,7 +652,7 @@ function skillChoices(q = '', exact = false) {
 }
 function tokenAtCaret() {
   const ta = $('mission'); if (!ta || document.activeElement !== ta) return null;
-  const pos = ta.selectionStart, m = ta.value.slice(0, pos).match(/(^|\s)([\/@])([\w.:-]*)$/);
+  const pos = ta.selectionStart, m = ta.value.slice(0, pos).match(/(^|\s)([\/@#])([\w.:À-ÿ-]*)$/);
   return m ? { ch: m[2], q: m[3].toLowerCase(), from: pos - m[3].length - 1, to: pos } : null;
 }
 function updatePop() {
@@ -658,10 +660,11 @@ function updatePop() {
   if (!t || !box) { old?.remove(); pop = null; return; }
   const items = t.ch === '/'
     ? skillChoices(t.q).map(s => ({ label: '/' + s.name, hint: s.description.slice(0, 90), insert: '/' + s.name + ' ' }))
+    : t.ch === '#' ? ctx.state.projects.filter(p => !t.q || p.name.toLowerCase().includes(t.q.replace(/_/g, ' '))).slice(0, 8).map(p => ({ label: '#' + p.name, hint: p.area || 'Projeto', insert: projectToken(p.name) + ' ' }))
     : ctx.state.agents.filter(a => !t.q || a.name.toLowerCase().includes(t.q)).slice(0, 8).map(a => ({ label: '@' + a.name, hint: `${PROVIDER_NAMES[a.provider] || a.provider} · ${a.role}`, insert: '@' + a.name.replace(/\s+/g, '_') + ' ' }));
   if (!items.length) { old?.remove(); pop = { items: [], t, sel: 0 }; return; }
   const sel = Math.min(pop?.sel || 0, items.length - 1); pop = { items, t, sel };
-  const html = `<div id="slash-pop" class="slash-pop" role="listbox" aria-label="${t.ch === '/' ? 'Skills' : 'Agentes'}"><div class="slash-h">${t.ch === '/' ? 'Skills instaladas (valem para qualquer agente)' : 'Agentes'}</div>${items.map((it, i) => `<button type="button" role="option" aria-selected="${i === sel}" class="${i === sel ? 'on' : ''}" data-pick="${i}"><b>${esc2(it.label)}</b><small>${esc2(it.hint)}</small></button>`).join('')}</div>`;
+  const html = `<div id="slash-pop" class="slash-pop" role="listbox" aria-label="${({ '/': 'Skills', '#': 'Projetos' })[t.ch] || 'Agentes'}"><div class="slash-h">${({ '/': 'Skills instaladas (valem para qualquer agente)', '#': 'Projetos (a missão vai para o projeto escolhido)' })[t.ch] || 'Agentes'}</div>${items.map((it, i) => `<button type="button" role="option" aria-selected="${i === sel}" class="${i === sel ? 'on' : ''}" data-pick="${i}"><b>${esc2(it.label)}</b><small>${esc2(it.hint)}</small></button>`).join('')}</div>`;
   if (old) old.outerHTML = html; else box.insertAdjacentHTML('beforeend', html);
 }
 function pickItem(i) {

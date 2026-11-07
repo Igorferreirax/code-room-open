@@ -1,8 +1,7 @@
 // Telas do Code Room (parte 1). Cada função recebe o contexto e devolve HTML.
 // Guia visual: sem dados de demonstração, sem porcentagem inventada, ausência de dado ≠ zero.
-import { wordmark } from './brand.js';
 import { icon } from './icons.js';
-import { banner, heroScene, thumb, avatar, agentAv, logo } from './art.js';
+import { banner, heroScene, thumb, avatar, agentAv } from './art.js';
 import { activityCardHtml, agentTip } from './activity.js';
 
 export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

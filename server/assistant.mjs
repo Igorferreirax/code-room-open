@@ -178,7 +178,7 @@ export function localCommand(text, world, alerts = []) {
   return '**Comandos rápidos** (respondem na hora, sem gastar cota):\n- `/status`: o que roda, espera, terminou e falhou\n- `/pendencias`: o que merece a sua atenção\n- `/ajuda`: esta lista\n\nQualquer outra coisa, escreva normalmente: eu proponho os passos e você aprova com um clique.';
 }
 
-export function stateSummary(world, projects = [], question = '') {
+export function stateSummary(world, projects = [], question = '', focus = '') {
   const ag = world.agents.map(a => `- ${a.name} (${short(a.role, 60)}) · ${a.provider} · ${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}`).join('\n') || '(nenhum agente ainda)';
   const tm = world.teams.map(t => `- ${t.name}: ${(t.members || []).map(m => `${m.role}=${world.agents.find(a => a.id === m.agentId)?.name || '?'}`).join(', ')}`).join('\n') || '(nenhuma equipe ainda)';
   const seen = new Set(), usable = world.skills.filter(s => s.recognized && !s.blocked && !seen.has(s.name) && seen.add(s.name));
@@ -188,7 +188,7 @@ export function stateSummary(world, projects = [], question = '') {
   const top = scored.map(x => `- ${x.s.name}: ${short(x.s.description, 110)}`).join('\n'), rest = usable.filter(s => !scored.some(x => x.s === s)).map(s => s.name).slice(0, 60).join(', ');
   const sk = `${usable.length} no total.${top ? `\nMais ligadas ao pedido da pessoa:\n${top}` : '\nNenhuma parece ligada ao pedido atual (se for sobre skills, diga isso e ofereça criar uma com criar_skill ou importar uma pasta).'}\nOutras (só nomes): ${rest || '(nenhuma)'}`;
   const ln = (world.links || []).map(l => `${world.agents.find(a => a.id === l.from)?.name || '?'} → ${world.agents.find(a => a.id === l.to)?.name || '?'}`).slice(0, 20).join('; ') || '(nenhuma)';
-  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nProjetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
+  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
 }
 const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Se não souber, diga que não sabe. Para perguntas de status (“qual o status?”, “como está o projeto X / a equipe Y?”), responda SÓ com a seção STATUS AO VIVO do estado atual, em linguagem simples e curta: o que roda, o que espera, o que terminou, o que falhou e por quê; se o item citado não aparecer, diga que não há registro dele.`;
 export function buildPrompt({ manual, knowledge, summary, history = [], question, max = MAX_PROMPT }) {
@@ -296,14 +296,14 @@ export class Assistant {
     const p = await this.#pickProvider(provider), task = this.#task(p, briefingPrompt(manual.text), 'brief');
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
-  async ask(text) {
+  async ask(text, { projectId = null } = {}) {
     await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
     { const w0 = await this.worldFn(), al = proactiveAlerts(w0).filter(a => !(s.dismissedAlerts || []).includes(a.id)), reply = localCommand(q, w0, al);
       if (reply) { const at = new Date(this.now()).toISOString(); this.#save({ messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at }, { id: randomUUID(), role: 'assistant', text: reply, at, local: true, actions: [] }], error: null }); return this.status(); } }
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
-    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q), history: (s.messages || []).filter(m => m.text), question: q, max: p === 'agy' ? MAX_PROMPT : 80000 }), task = this.#task(p, prompt, 'ask');
+    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || ''), history: (s.messages || []).filter(m => m.text), question: q, max: p === 'agy' ? MAX_PROMPT : 80000 }), task = this.#task(p, prompt, 'ask');
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();
