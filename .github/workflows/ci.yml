@@ -21,6 +21,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: ffmpeg (usado pelos testes de vídeo)
+        run: choco install ffmpeg --no-progress -y
       - name: Sintaxe
         run: node scripts/check.mjs
       - name: Testes do servidor
