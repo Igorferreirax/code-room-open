@@ -36,6 +36,7 @@ export class Store {
     if (TRACKED.has(kind)) this.event('_records', { type: 'record', kind, id: value.id, at: new Date().toISOString() });
     return value;
   }
+  removeEvents(run) { this.db.prepare('DELETE FROM events WHERE run=?').run(run); }
   remove(kind, id) { this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id); }
   transaction(fn) {
     this.db.exec('BEGIN IMMEDIATE');

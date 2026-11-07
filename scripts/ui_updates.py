@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VER = __import__('json').load(open(__import__('os').path.join(ROOT, 'package.json'), encoding='utf-8'))['version']
 PORT, RPORT = 4792, 4794
 ZIPNAME = 'Code-Room-0.9.9-portatil-win-x64.zip'; ZIPDATA = os.urandom(300_000); SHA = hashlib.sha256(ZIPDATA).hexdigest()
 state = {'mode': 'ok'}   # ok | bad (zip adulterado) | down (servidor fora do ar)
@@ -55,10 +56,10 @@ try:
         pg.goto(URL); pg.wait_for_selector('#rail button', timeout=10000); time.sleep(1.0)
         check('sem versão nova conhecida: nenhuma faixa de aviso', pg.locator('.update-bar').count() == 0)
         tab(pg, 'atualizacoes')
-        txt = pg.inner_text('#view'); check('Configurações › Atualizações mostra a versão e "nunca" verificado', '0.2.0' in txt and 'nunca' in txt, txt[:200])
+        txt = pg.inner_text('#view'); check('Configurações › Atualizações mostra a versão e "nunca" verificado', VER in txt and 'nunca' in txt, txt[:200])
         check('o aviso de privacidade está na tela', 'nenhum dado seu, projeto ou chave é enviado' in txt)
         pg.click('[data-act=upd-check]'); pg.wait_for_selector('.update-bar', timeout=10000); time.sleep(0.4)
-        check('Verificar agora acha a 0.9.9 e mostra a faixa de aviso', '0.9.9' in pg.inner_text('.update-bar') and '0.2.0' in pg.inner_text('.update-bar'))
+        check('Verificar agora acha a 0.9.9 e mostra a faixa de aviso', '0.9.9' in pg.inner_text('.update-bar') and VER in pg.inner_text('.update-bar'))
 
         pg.click('.update-bar [data-act=upd-open]'); pg.wait_for_selector('#update-dialog[open]', timeout=5000); time.sleep(0.4)
         dtxt = pg.inner_text('#update-dialog')

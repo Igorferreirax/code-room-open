@@ -80,6 +80,13 @@ try:
         check('acesso: botões Diagnosticar e Liberar no firewall', page.locator('[data-act=net-diagnose]').count() == 1 and page.locator('[data-act=net-firewall]').count() == 1)
         page.click('[data-act=net-diagnose]'); page.wait_for_selector('.diag-list', timeout=15000)
         check('acesso: o diagnóstico lista os itens', page.locator('.diag-list li').count() >= 1)
+        # ---- Limpeza de dados antigos (prévia, sem apagar) ----
+        page.click('[data-act=settings-tab][data-id=execucao]'); page.wait_for_selector('[data-act=retention-preview]', timeout=8000)
+        page.click('[data-act=retention-preview]')
+        for _ in range(20):
+            if 'Nada para limpar' in page.inner_text('#view') or 'seriam apagadas' in page.inner_text('#view'): break
+            page.wait_for_timeout(300)
+        check('retenção: a prévia diz o que seria apagado (ou que não há nada)', 'Nada para limpar' in page.inner_text('#view') or 'seriam apagadas' in page.inner_text('#view'))
         # ---- /celular no chat ----
         page.click('[data-nav=room]'); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)
@@ -88,6 +95,9 @@ try:
         for _ in range(40):
             if 'Abrir o Code Room no celular' in page.inner_text('#chat'): break
             page.wait_for_timeout(500)
+        page.fill('#mission', ''); page.focus('#mission'); page.keyboard.type('@Pes'); page.wait_for_timeout(400)
+        check('chat: digitar @ lista os agentes', page.locator('#slash-pop [data-pick]').count() >= 1 and 'Pesquisador' in page.inner_text('#slash-pop'))
+        page.keyboard.press('Escape'); page.fill('#mission', '')
         txt = page.inner_text('#chat'); srvm = api('assistant')['messages']; check('/celular responde com o passo a passo', 'Abrir o Code Room no celular' in txt, 'msgs no servidor=' + str(len(srvm)) + ' alvo=' + str(page.evaluate("document.getElementById('target') && document.getElementById('target').value")) + ' barra=' + repr(page.input_value('#mission')) + ' reqs=' + str(reqs[-5:]))
         check('sem erro de console', not errors, errors[:3])
         browser.close()

@@ -1,5 +1,5 @@
 ; Instalador do Code Room (Inno Setup 6). Gerado por installer\build.ps1 com:
-;   ISCC /DAppVersion=0.2.0 /DStageDir=<pasta preparada> /DOutDir=<destino> installer\code-room.iss
+;   ISCC /DAppVersion=0.2.1 /DStageDir=<pasta preparada> /DOutDir=<destino> installer\code-room.iss
 ; Instala só para o usuário atual (sem administrador) em %LOCALAPPDATA%\Programs\CodeRoom.
 ; Os dados do usuário ficam em %LOCALAPPDATA%\CodeRoom\data e NÃO são apagados ao desinstalar nem ao atualizar.
 #ifndef AppVersion

@@ -342,6 +342,12 @@ export class Assistant {
     this.#save({ others: [...(s.others || []).filter(o => o.id !== id), { id: th.id, title: th.title, messages: s.messages || [] }], thread: { id: target.id, title: target.title }, messages: target.messages || [], error: null }); return this.status();
   }
   async dismissAlert(id) { const s = this.s; this.#save({ dismissedAlerts: [...new Set([...(s.dismissedAlerts || []), String(id).slice(0, 100)])].slice(-100) }); return this.status(); }
+  // Tira das conversas as mensagens de erro (falhas já resolvidas) e deixa o resto. Não mexe em respostas, ações nem na tarefa em andamento.
+  async clearErrors() {
+    const s = this.s, drop = ms => (ms || []).filter(m => !m.error), n = [...(s.messages || []), ...(s.others || []).flatMap(o => o.messages || [])].filter(m => m.error).length;
+    this.#save({ messages: drop(s.messages), others: (s.others || []).map(o => ({ ...o, messages: drop(o.messages) })), error: null });
+    return { removed: n, status: await this.status() };
+  }
   async renameThread(id, title) {
     const t = short(title, 40); if (!t) throw new Error('Dê um nome para a conversa (até 40 caracteres).');
     const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' };

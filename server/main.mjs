@@ -24,6 +24,7 @@ import { emptyContext, cleanContext } from './context.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
+import { retentionPlan, retentionPurge } from './retention.mjs';
 import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
@@ -236,6 +237,7 @@ const handle = async (req, res) => {
       if (!auth) { tFail(ip); return send(res, 401, { error: 'Abra o Code Room pelo iniciador ou informe a chave local.' }); }
       tOk(ip);
       if (get && p === '/api/updates') return send(res, 200, updates.status());
+      if (get && p === '/api/retention') { masterOnly(auth); const pl = retentionPlan(store, { days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 }); return send(res, 200, { days: pl.days, counts: pl.counts }); }
       if (get && p === '/api/network/diagnose') { masterOnly(auth); return send(res, 200, { checks: await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() }) }); }
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
       if (get && p === '/api/devices') { masterOnly(auth); return send(res, 200, devices.list().map(d => devices.view(d))); }
@@ -308,6 +310,7 @@ const handle = async (req, res) => {
         if (p === '/api/updates/dismiss') { masterOnly(auth); return send(res, 200, updates.dismiss(b.version)); }
         if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
+        if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, { removed: retentionPurge(store, { days: Number(b.days) || 7 }) }); }
         if (p === '/api/network/firewall') { masterOnly(auth); const r = await changeFirewall(b.remove === true ? 'remove' : 'add', process.execPath, port); return send(res, r.ok ? 200 : 502, r.ok ? { ok: true } : { error: r.error }); }
         if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale === true }); await syncListeners(); return send(res, 200, await networkView()); }
         if (p === '/api/usage/refresh') {
@@ -367,6 +370,7 @@ const handle = async (req, res) => {
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread());
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
+          if (a === 'errors/clear') return send(res, 200, await assistant.clearErrors());
           if (a === 'alerts/dismiss') return send(res, 200, await assistant.dismissAlert(text(b.id, 100)));
           if (a === 'thread/rename') return send(res, 200, await assistant.renameThread(text(b.id, 40), text(b.title, 60)));
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
