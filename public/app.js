@@ -322,7 +322,7 @@ async function loadModules() { try { ctx.modules = await api('modules'); render(
 async function loadPublish() { try { ctx.publish = await api('publish/status'); if (['connections', 'routines'].includes(ctx.view)) render(); } catch {} }
 async function loadLimits() { try { ctx.limits = await api('usage/limits'); if (ctx.view === 'usage') render(); } catch {} }
 async function loadRemote() {
-  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); try { ctx.mcp = await api('mcp'); } catch {} } } catch (e) { notify(e.message, true); }
+  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); try { ctx.mcp = await api('mcp'); } catch {} try { ctx.power = await api('power'); } catch {} } } catch (e) { notify(e.message, true); }
   render();
 }
 const deviceName = () => { const ua = navigator.userAgent; return /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Celular Android' : /Windows/.test(ua) ? 'Computador Windows' : /Mac/.test(ua) ? 'Mac' : 'Aparelho'; };
@@ -405,6 +405,7 @@ const actions = {
   toggle: async id => {
     const p = ctx.prefs;
     if (id === 'pref-net-lan' || id === 'pref-net-ts') { const c = ctx.net.config; ctx.net = await api('network', { lan: id === 'pref-net-lan' ? !c.lan : c.lan, tailscale: id === 'pref-net-ts' ? !c.tailscale : c.tailscale }); ctx.pairing = null; render(); return; }
+    if (id === 'pref-keepawake') { try { ctx.power = await api('power', { keepAwake: !ctx.power?.keepAwake }); } catch (e) { notify(e.message, true); } render(); return; }
     if (id === 'pref-autosup') { p.autoSupervisor = !p.autoSupervisor; savePrefs(); }
     else if (id === 'pref-anim') { p.anim = p.anim === false; savePrefs(); }
     else if (id === 'pref-reduce') { p.reduce = !p.reduce; savePrefs(); }

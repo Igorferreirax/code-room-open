@@ -26,6 +26,7 @@ import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
 import { retentionPlan, retentionPurge } from './retention.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
+import { Power } from './power.mjs';
 import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
@@ -67,6 +68,8 @@ for (const r of store.list('runs')) {
 let modules = [], modulesAt = 0;
 async function moduleList() { if (Date.now() - modulesAt > 5 * 60000) { modules = await probeModules(); modulesAt = Date.now(); } return modules; }
 const installed = agent => !!connectors().find(c => c.id === agent.provider)?.path;
+const power = new Power({ store, countRunning: () => store.list('tasks').filter(t => ['running', 'starting'].includes(t.status)).length });
+power.start();
 const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '' });
 setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
@@ -240,6 +243,7 @@ const handle = async (req, res) => {
       tOk(ip);
       if (get && p === '/api/updates') return send(res, 200, updates.status());
       if (get && p === '/api/retention') { masterOnly(auth); const pl = retentionPlan(store, { days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 }); return send(res, 200, { days: pl.days, counts: pl.counts }); }
+      if (get && p === '/api/power') { masterOnly(auth); return send(res, 200, power.status()); }
       if (get && p === '/api/mcp') { masterOnly(auth); return send(res, 200, mcpInfo(mcpCtx())); }
       if (get && p === '/api/network/diagnose') { masterOnly(auth); return send(res, 200, { checks: await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() }) }); }
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
@@ -313,6 +317,7 @@ const handle = async (req, res) => {
         if (p === '/api/updates/dismiss') { masterOnly(auth); return send(res, 200, updates.dismiss(b.version)); }
         if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
+        if (p === '/api/power') { masterOnly(auth); return send(res, 200, power.setKeepAwake(b.keepAwake === true)); }
         if (p === '/api/mcp/activate') { masterOnly(auth); return send(res, 200, mcpActivate(mcpCtx())); }
         if (p === '/api/mcp/deactivate') { masterOnly(auth); return send(res, 200, mcpDeactivate(mcpCtx())); }
         if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, { removed: retentionPurge(store, { days: Number(b.days) || 7 }) }); }
@@ -536,4 +541,5 @@ server.listen(port, '127.0.0.1', async () => {
   const t = setInterval(() => syncListeners().catch(() => {}), 20000); t.unref?.(); // o Tailscale pode conectar depois do serviço
 });
 server.on('error', e => { console.error(e.message); process.exitCode = 1; store.close(); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(0));
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { power.stop(); process.exit(0); });
+process.on('exit', () => power.stop());

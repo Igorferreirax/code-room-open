@@ -80,6 +80,7 @@ try:
         check('acesso: botões Diagnosticar e Liberar no firewall', page.locator('[data-act=net-diagnose]').count() == 1 and page.locator('[data-act=net-firewall]').count() == 1)
         page.click('[data-act=net-diagnose]'); page.wait_for_selector('.diag-list', timeout=15000)
         check('acesso: o diagnóstico lista os itens', page.locator('.diag-list li').count() >= 1)
+        clear_chat(page)  # o chat flutuante cobre o canto da tela e atrapalha os cliques das próximas telas
         # ---- Cartão do MCP ----
         page.on('dialog', lambda d: d.accept())
         check('mcp: o cartão aparece em Acesso com o botão Ativar', page.locator('#mcp-card [data-act=mcp-activate]').count() == 1)
@@ -99,6 +100,13 @@ try:
             if 'Nada para limpar' in page.inner_text('#view') or 'seriam apagadas' in page.inner_text('#view'): break
             page.wait_for_timeout(300)
         check('retenção: a prévia diz o que seria apagado (ou que não há nada)', 'Nada para limpar' in page.inner_text('#view') or 'seriam apagadas' in page.inner_text('#view'))
+        # ---- Energia: manter acordado (desligado por padrão) ----
+        clear_chat(page)
+        check('energia: o cartão aparece em Execução com a opção desligada', page.locator('#power-card #pref-keepawake').count() == 1 and api('power')['keepAwake'] is False)
+        page.click('#pref-keepawake'); page.wait_for_timeout(600)
+        check('energia: ligar grava a preferência no servidor', api('power')['keepAwake'] is True)
+        page.click('#pref-keepawake'); page.wait_for_timeout(600)
+        check('energia: desligar volta ao padrão', api('power')['keepAwake'] is False and api('power')['holding'] is False)
         # ---- /celular no chat ----
         page.click('[data-nav=room]'); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)

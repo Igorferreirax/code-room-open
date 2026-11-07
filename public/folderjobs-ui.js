@@ -45,5 +45,5 @@ export function folderJobDialogHtml(ctx) {
 // Faixa de aviso: lotes concluídos que você ainda não viu.
 export function noticesBarHtml(ctx) {
   const n = (ctx.state.notices || []).slice(0, 3); if (!n.length) return '';
-  return n.map(x => `<div class="update-bar notice-bar" role="status"><span><b>${esc(x.title)}.</b> ${esc(x.text)}</span><span class="grow"></span><button type="button" class="btn sm" data-act="notice-open" data-id="${esc(x.id)}" data-job="${esc(x.jobId || '')}">Ver</button><button type="button" class="btn ghost sm" data-act="notice-seen" data-id="${esc(x.id)}">Ok</button></div>`).join('');
+  return n.map(x => `<div class="update-bar notice-bar" role="status"><span><b>${esc(x.title)}.</b> ${esc(x.text)}</span><span class="grow"></span>${x.jobId ? `<button type="button" class="btn sm" data-act="notice-open" data-id="${esc(x.id)}" data-job="${esc(x.jobId)}">Ver</button>` : ''}<button type="button" class="btn ghost sm" data-act="notice-seen" data-id="${esc(x.id)}">Ok</button></div>`).join('');
 }
