@@ -184,7 +184,7 @@ export function localCommand(text, world, alerts = []) {
   const c = m[1].toLowerCase().replace('ê', 'e');
   if (c === 'status') return `**Status agora** (lido da ferramenta, sem gastar cota):\n${liveStatus(world, '')}`;
   if (c === 'pendencias') return alerts.length ? `**O que pede atenção agora:**\n${alerts.map(a => `- **${a.title}.** ${a.text}`).join('\n')}` : '**Nada pendente agora.** Sem falhas recentes, fila andando e lotes sem problema.';
-  return '**Comandos rápidos** (respondem na hora, sem gastar cota):\n- `/status`: o que roda, espera, terminou e falhou\n- `/pendencias`: o que merece a sua atenção\n- `/ajuda`: esta lista\n\nQualquer outra coisa, escreva normalmente: eu proponho os passos e você aprova com um clique.';
+  return '**Comandos rápidos** (respondem na hora, sem gastar cota):\n- `/status`: o que roda, espera, terminou e falhou\n- `/pendencias`: o que merece a sua atenção\n- `/celular`: como abrir o Code Room no celular (endereço, firewall e QR)\n- `/ajuda`: esta lista\n\nQualquer outra coisa, escreva normalmente: eu proponho os passos e você aprova com um clique.';
 }
 
 export function stateSummary(world, projects = [], question = '', focus = '', focusInfo = '') {
@@ -236,8 +236,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject }) {
-    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject });
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp }) {
+    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp });
     this.dir = join(dataDir, 'assistente');
   }
   get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], thread: { id: 't1', title: 'Conversa 1' }, others: [], order: ['t1'], pending: null, briefing: null, error: null }; }
@@ -318,7 +318,7 @@ export class Assistant {
   }
   async ask(text, { projectId = null } = {}) {
     await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
-    { const w0 = await this.worldFn(), al = proactiveAlerts(w0).filter(a => !(s.dismissedAlerts || []).includes(a.id)), reply = localCommand(q, w0, al);
+    { const w0 = await this.worldFn(), al = proactiveAlerts(w0).filter(a => !(s.dismissedAlerts || []).includes(a.id)), reply = /^\/celular\s*$/i.test(q) && this.phoneHelp ? await this.phoneHelp().catch(e => 'Não consegui ler a rede agora: ' + e.message) : localCommand(q, w0, al);
       if (reply) { const at = new Date(this.now()).toISOString(); this.#save({ messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at }, { id: randomUUID(), role: 'assistant', text: reply, at, local: true, actions: [] }], error: null }); return this.status(); } }
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');

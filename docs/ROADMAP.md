@@ -2,8 +2,15 @@
 
 Legenda: ✅ feito · ⬜ a fazer
 
-Atualizado em 06/11/2026. Para validação e distribuição deste commit, veja [STATUS-2026-11-06.md](STATUS-2026-11-06.md).
+Atualizado em 07/11/2026. Para validação e distribuição deste commit, veja [STATUS-2026-11-06.md](STATUS-2026-11-06.md).
 Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.md).
+
+## Publicado em 07/11/2026
+- ✅ **v0.2.0 no ar**: repositório público, Release (zip portátil + Setup.exe + SHA256SUMS) e landing em produção. Checklist e últimas verificações em [ROADMAP-FINAL.md](ROADMAP-FINAL.md).
+- ✅ **Assistente × Antigravity**: o "prompt grande demais" vinha das respostas do Assistente gravadas como "entregas" do projeto interno e reinseridas em todo prompt; agora ficam de fora, e o orçamento do prompt do Antigravity é 24 mil caracteres.
+- ✅ **Acesso remoto, passo a passo**: botão **Diagnosticar o acesso**, botão **Liberar no firewall do Windows** (regra só para este programa e porta, só para rede local e Tailscale; o Windows pede a permissão), comando **/celular** no Assistente e prompt para Claude Code/Codex em [CELULAR-PROMPT.md](CELULAR-PROMPT.md). O QR prefere o IP do Tailscale. ⚠️ Ainda falta testar com um celular de verdade.
+- ✅ Canvas: a tela não é atualizada no meio do toque no cartão. ⚠️ O teste de toque do ponto de saída ainda falha de vez em quando.
+- ⬜ Pendentes: assinatura digital do Setup.exe (SignPath), domínio da Bytelab na landing (trocar o endereço no SEO), retenção/limpeza de dados antigos, sessão ao vivo por tarefa no chat.
 
 ## Estado confirmado nesta atualização
 - ✅ Modelo e esforço configuráveis por agente e por missão; testes cobrem validação, isolamento do perfil e argumentos dos três conectores locais.

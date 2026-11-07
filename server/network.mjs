@@ -104,3 +104,32 @@ export function windowsFirewall(exe, port) {
     + "$pub=[bool](Get-NetConnectionProfile|Where-Object NetworkCategory -eq 'Public');@{anyEnabled=$any;allowed=$ok;publicLan=$pub}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}";
   return new Promise(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], { timeout: 20000, windowsHide: true, env: { ...process.env, CR_EXE: exe, CR_PORT: String(port) } }, (err, stdout) => { try { resolve(JSON.parse(stdout)); } catch { resolve({ error: err?.message || 'sem resposta' }); } }));
 }
+
+// Regra de entrada do Firewall do Windows só para o Code Room: este programa e esta porta, e só de quem está na mesma rede local ou no Tailscale (100.64.0.0/10).
+// Criar a regra exige administrador: o Windows mostra o pedido de permissão (UAC) e a pessoa precisa clicar em "Sim".
+export const FIREWALL_RULE = 'Code Room (celular)';
+export function firewallScript(action, exe, port) {
+  const q = v => "'" + String(v).replace(/'/g, "''") + "'";
+  if (action === 'remove') return `Remove-NetFirewallRule -DisplayName ${q(FIREWALL_RULE)} -ErrorAction SilentlyContinue`;
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Porta inválida.');
+  return `Remove-NetFirewallRule -DisplayName ${q(FIREWALL_RULE)} -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName ${q(FIREWALL_RULE)} -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${port} -Program ${q(exe)} -Profile Any -RemoteAddress LocalSubnet,100.64.0.0/10 | Out-Null`;
+}
+export function changeFirewall(action, exe, port, run = execFile) {
+  const inner = firewallScript(action, exe, port);
+  const outer = `$p=Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-Command',$env:CR_FW; exit $p.ExitCode`;
+  return new Promise(resolve => run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', outer], { timeout: 120000, windowsHide: true, env: { ...process.env, CR_FW: inner } }, err => {
+    if (!err) return resolve({ ok: true });
+    resolve({ ok: false, error: /cancel|recus|denied|negad|operation was canceled/i.test(String(err.message)) ? 'A permissão do Windows foi recusada. Clique em "Sim" quando ela aparecer.' : 'Não foi possível alterar o Firewall: ' + String(err.message).split(String.fromCharCode(10))[0].slice(0, 160) });
+  }));
+}
+
+// Texto do comando /celular do Assistente: lido da própria ferramenta (sem gastar cota). Não altera nada.
+export function phoneGuide(view, checks = []) {
+  const addr = view.addresses || [], lines = ['**Abrir o Code Room no celular** (só leitura; nada foi alterado):'];
+  if (!addr.length) lines.push('- ⚠️ O acesso remoto está desligado. Em **Configurações › Acesso**, ligue o **Tailscale** (recomendado, funciona de qualquer lugar) ou a **Rede local** (mesmo Wi-Fi).');
+  else lines.push(...addr.map(a => `- ✅ ${a.kind === 'tailscale' ? 'Tailscale' : 'Rede local'}: \`${a.url}\``));
+  for (const c of checks) if (c.ok === false && c.id !== 'off') lines.push(`- ⚠️ ${c.label}${c.hint ? '. ' + c.hint : ''}`);
+  lines.push('', '**Passo a passo:**', '1. Em **Configurações › Acesso**, ligue Tailscale ou Rede local.', '2. Se o celular não abrir a página, clique em **Liberar no firewall do Windows** (o Windows pede a sua permissão uma vez).', '3. Clique em **Parear um celular** e escaneie o QR (ou abra o endereço e digite o código).', '4. Tailscale: o app precisa estar instalado e ligado no celular, na mesma conta do computador.');
+  lines.push('', '⚠️ A Rede local usa HTTP sem criptografia: desligue fora de casa. O celular pareado recebe um token próprio que você revoga em Acesso.');
+  return lines.join(String.fromCharCode(10));
+}

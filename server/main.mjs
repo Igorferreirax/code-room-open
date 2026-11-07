@@ -24,7 +24,7 @@ import { emptyContext, cleanContext } from './context.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
-import { diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
+import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
 import { execFile } from 'node:child_process';
@@ -91,7 +91,7 @@ async function startAssistantTask({ projectId, teamId, agentId, objective }) {
   if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
   const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
 }
-const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p) });
+const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -308,6 +308,7 @@ const handle = async (req, res) => {
         if (p === '/api/updates/dismiss') { masterOnly(auth); return send(res, 200, updates.dismiss(b.version)); }
         if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
+        if (p === '/api/network/firewall') { masterOnly(auth); const r = await changeFirewall(b.remove === true ? 'remove' : 'add', process.execPath, port); return send(res, r.ok ? 200 : 502, r.ok ? { ok: true } : { error: r.error }); }
         if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale === true }); await syncListeners(); return send(res, 200, await networkView()); }
         if (p === '/api/usage/refresh') {
           // Leitura sob demanda dos limites do Claude: uma chamada mínima (usa um pouco da sua cota). Só quando você pede.

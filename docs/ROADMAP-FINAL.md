@@ -30,3 +30,11 @@ Legenda: ✅ feito · 🔄 em andamento · ⬜ a fazer · 👤 depende do Igor
 - Assinatura digital do Setup.exe (SignPath) para o Smart App Control.
 - Teste real com vídeos e com o agente de postagem do YouTube.
 - Quando tocar projetos reais só por dentro do Code Room: avisar o Igor.
+
+## F. Rodada de 07/11/2026 (depois da publicação)
+- ✅ Corrigido o "Prompt grande demais" no Antigravity (causa: respostas do Assistente viravam "entregas" e voltavam em todo prompt).
+- ✅ Acesso remoto: diagnóstico, botão de firewall (UAC), `/celular` no Assistente, aviso de rede local, prompt em `CELULAR-PROMPT.md`. ⬜ Validar com um celular real.
+- ✅ Criativos: Reel v1 e v2 (9:16) e legendas em `Desktop/Code Room Divulgacao`.
+- ⬜ Dois servidores do Code Room antigos (ativos desde 06/11 13:00) ainda rodando na máquina: conferir de onde vêm e encerrar.
+- ⬜ Retenção/limpeza de tarefas internas do Assistente; erros antigos do chat.
+

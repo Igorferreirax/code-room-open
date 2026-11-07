@@ -516,6 +516,7 @@ const actions = {
   'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
   'net-diagnose': async () => { ctx.netDiag = 'busy'; render(); try { ctx.netDiag = (await api('network/diagnose')).checks; } catch (e) { ctx.netDiag = null; notify(e.message, true); } render(); },
+  'net-firewall': async () => { if (!confirm('Criar uma regra no Firewall do Windows só para o Code Room (esta porta, e só para a rede local e o Tailscale)? O Windows vai pedir a sua permissão.')) return; try { await api('network/firewall', {}); notify('Firewall liberado para o Code Room. Se o celular ainda não abrir, rode o diagnóstico.'); } catch (e) { notify(e.message, true); } },
   'pair-new': async () => { ctx.pairing = await api('devices/pair-code', {}); render(); },
   'revoke-device': async id => { await api(`devices/${id}/revoke`, {}); notify('Aparelho revogado.'); ctx.devices = await api('devices'); render(); },
   'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
