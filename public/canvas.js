@@ -81,6 +81,7 @@ export function bindCanvas(root, ctx, { onOpen, onLink, onUnlink, onEnd }) {
     }
     const node = e.target.closest('.cv-node'); if (!node) return;
     const id = node.dataset.agent, start = { x: e.clientX, y: e.clientY }, orig = { ...pos[id] }; let moved = false;
+    dragging = true;   // desde o toque: uma atualização da tela não troca o cartão no meio do gesto (era a falha intermitente no celular)
     const move = ev => {
       const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
       if (!moved && Math.hypot(dx, dy) < 5) return; moved = true; dragging = true; node.classList.add('drag');
