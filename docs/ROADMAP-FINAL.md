@@ -14,7 +14,7 @@ Legenda: ✅ feito · 🔄 em andamento · ⬜ a fazer · 👤 depende do Igor
 7. ✅ Conferir links e SHA-256 da landing contra os arquivos reconstruídos.
 
 ## C. Landing (eu faço)
-8. ⬜ Revisão final da landing: `seo-audit`, `schema`, dados estruturados, textos, mobile, um só "Baixar".
+8. ✅ Revisão final da landing: canonical, Open Graph, Twitter card, JSON-LD (aplicativo + FAQ), robots.txt e sitemap; sem erro de console, sem rolagem lateral, um só "Baixar" e links do Release corretos em 390 e 1440 px.
 9. ⬜ Garantir que o domínio de produção publique a landing nova (não o app).
 
 ## D. Publicação 👤
