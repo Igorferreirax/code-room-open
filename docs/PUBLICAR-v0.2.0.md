@@ -23,13 +23,13 @@ Depois, no GitHub: Settings › Code security › ative **Private vulnerability 
 
 ## 2. Criar o Release
 ```bash
-cd "C:/Users/Igor/Desktop/Code Room Publico"
+cd <pasta do repositório Code Room>
 gh release create v0.2.0 dist/Code-Room-0.2.0-portatil-win-x64.zip dist/Code-Room-0.2.0-Setup.exe dist/SHA256SUMS.txt --title "Code Room 0.2.0" --notes-file docs/RELEASE-NOTES-v0.2.0.md
 ```
 
 ## 3. Publicar a landing (só depois do passo 2)
 ```bash
-cd "C:/Users/Igor/Desktop/Code Room Landing"
+cd <pasta da landing>
 vercel --prod
 ```
 Depois confira em https://… (o endereço que o Vercel mostrar) que sai a landing (não o app) e que os botões baixam os arquivos.
