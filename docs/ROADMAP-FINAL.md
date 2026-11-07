@@ -18,9 +18,9 @@ Legenda: ✅ feito · 🔄 em andamento · ⬜ a fazer · 👤 depende do Igor
 9. ⬜ Garantir que o domínio de produção publique a landing nova (não o app).
 
 ## D. Publicação 👤
-10. 👤 Tornar o repositório público.
-11. 👤 Criar o Release v0.2.0 com os arquivos de `dist/` (passos em `PUBLICAR-v0.2.0.md`).
-12. 👤 `vercel --prod` na landing (só depois do Release), e eu confiro que os botões baixam.
+10. ✅ Repositório público (auditado: sem chaves, e-mails ou IPs pessoais no código nem no histórico).
+11. ✅ Release v0.2.0 publicado; downloads e SHA-256 conferidos.
+12. ✅ Landing nova em produção (code-room-coral.vercel.app); botões conferidos.
 13. 👤 Vincular o domínio .com.br da Bytelab.
 
 ## E. Depois da entrega (backlog)
