@@ -1,4 +1,4 @@
-# Fecha o serviço do Code Room que foi iniciado a partir ESTA pasta (não mexe em nenhum outro processo node).
+﻿# Fecha o serviço do Code Room que foi iniciado a partir ESTA pasta (não mexe em nenhum outro processo node).
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $serverFile = (Join-Path $projectRoot 'server\main.mjs').ToLowerInvariant()

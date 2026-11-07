@@ -1,4 +1,4 @@
-# Cria (ou remove) os atalhos do Code Room: "Code Room" na área de trabalho e no menu Iniciar,
+﻿# Cria (ou remove) os atalhos do Code Room: "Code Room" na área de trabalho e no menu Iniciar,
 # e "Fechar o Code Room" no menu Iniciar. Não precisa de administrador.
 # Uso:  powershell -ExecutionPolicy Bypass -File scripts\criar-atalhos.ps1 [-SemAreaDeTrabalho] [-Remover]
 param([switch]$SemAreaDeTrabalho, [switch]$Remover)

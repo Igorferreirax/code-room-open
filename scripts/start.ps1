@@ -1,4 +1,4 @@
-# Inicia o Code Room (serviço local) e abre o navegador já autenticado.
+﻿# Inicia o Code Room (serviço local) e abre o navegador já autenticado.
 # - Se existir runtime\node.exe (pacote Windows), usa esse Node: não precisa ter Node instalado.
 # - Pacote Windows: os dados ficam em %LOCALAPPDATA%\CodeRoom\data (fora da pasta do programa, para atualizar sem perder nada).
 #   Rodando pelo código-fonte, ficam em .data\ dentro do projeto. CODE_ROOM_DATA e CODE_ROOM_PORT têm prioridade.
@@ -11,11 +11,31 @@ $packaged = Test-Path -LiteralPath $bundledNode
 $nodePath = if ($packaged) { $bundledNode } else { (Get-Command node.exe -ErrorAction Stop).Source }
 if ($packaged) { $env:PATH = $env:PATH + ';' + (Join-Path $projectRoot 'runtime') }   # no fim: o Node do sistema, se houver, tem prioridade
 $dataDir = if ($env:CODE_ROOM_DATA) { $env:CODE_ROOM_DATA } elseif ($packaged) { Join-Path $env:LOCALAPPDATA 'CodeRoom\data' } else { Join-Path $projectRoot '.data' }
-$port = if ($env:CODE_ROOM_PORT) { [int]$env:CODE_ROOM_PORT } else { 4780 }
-$env:CODE_ROOM_DATA = $dataDir; $env:CODE_ROOM_PORT = [string]$port
-$base = "http://127.0.0.1:$port"
+# Porta: CODE_ROOM_PORT manda. Sem ela, usa 4780 (ou a última escolhida, guardada em port.txt). Se a porta estiver
+# ocupada por outro programa (inclusive outro Code Room), escolhe a próxima livre entre 4781 e 4799.
+function Test-PortaEmUso([int]$p) { try { $c = New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1', $p); $c.Close(); $true } catch { $false } }
+function Show-Erro([string]$msg) { try { Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show($msg, 'Code Room', 'OK', 'Error') } catch {}; Write-Host $msg }
+trap { Show-Erro ("O Code Room não abriu.`n`n" + $_.Exception.Message); exit 1 }
+$portFile = Join-Path $dataDir 'port.txt'
+$portaExplicita = [bool]$env:CODE_ROOM_PORT
+$port = 4780
+if ($env:CODE_ROOM_PORT) { $port = [int]$env:CODE_ROOM_PORT }
+elseif (Test-Path -LiteralPath $portFile) { try { $port = [int](Get-Content -LiteralPath $portFile -Raw).Trim() } catch { $port = 4780 } }
+$env:CODE_ROOM_DATA = $dataDir
 $keyFile = Join-Path $dataDir 'access.key'
 $reachable = $false
+function Test-NossoServico([int]$p) {
+  if (-not (Test-Path -LiteralPath $keyFile)) { return $false }
+  try { $k = (Get-Content -LiteralPath $keyFile -Raw).Trim(); $null = Invoke-RestMethod -Uri "http://127.0.0.1:$p/api/state" -Headers @{'X-Code-Room-Key'=$k} -TimeoutSec 2; $true } catch { $false }
+}
+if (-not $portaExplicita -and (Test-PortaEmUso $port) -and -not (Test-NossoServico $port)) {
+  $livre = 4781..4799 | Where-Object { -not (Test-PortaEmUso $_) } | Select-Object -First 1
+  if (-not $livre) { throw "As portas 4780 a 4799 estão ocupadas. Feche outro Code Room ou defina CODE_ROOM_PORT." }
+  $port = $livre
+}
+$env:CODE_ROOM_PORT = [string]$port
+if (-not $portaExplicita) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null; Set-Content -LiteralPath $portFile -Value $port }
+$base = "http://127.0.0.1:$port"
 if (Test-Path -LiteralPath $keyFile) {
   try {
     $key = (Get-Content -LiteralPath $keyFile -Raw).Trim()

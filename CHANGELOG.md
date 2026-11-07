@@ -13,6 +13,8 @@ do meio (0.**3**.0).
 - **Release pelo GitHub:** o workflow `release.yml` gera o zip e o `Setup.exe` e, quando o SignPath estiver configurado, assina o instalador. Guia em [docs/ASSINATURA.md](docs/ASSINATURA.md).
 
 ### Corrigido
+- **O ícone da área de trabalho não abria quando a porta 4780 já estava em uso** (por exemplo, outro Code Room). Agora o app escolhe a próxima porta livre, lembra qual foi e, se não conseguir abrir, mostra uma caixa explicando o motivo em vez de falhar em silêncio.
+- Os scripts de abrir, fechar, atalhos e atualização passam a ter BOM, para o PowerShell 5 não quebrar os acentos das caixas de diálogo.
 - **Celular:** o menu lateral vira uma barra embaixo da tela, com rolagem lateral, e o conteúdo usa a largura toda. O cartão de ferramenta, a tabela de Uso e o cabeçalho de Execução não estouram mais a tela.
 
 ## [0.2.1] - 2026-11-07

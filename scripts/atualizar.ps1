@@ -1,4 +1,4 @@
-# Instala uma atualização do pacote Windows. Chamado pelo próprio Code Room (botão "Atualizar") com o zip JÁ baixado e conferido (SHA-256).
+﻿# Instala uma atualização do pacote Windows. Chamado pelo próprio Code Room (botão "Atualizar") com o zip JÁ baixado e conferido (SHA-256).
 # Ordem de segurança: 1) valida o pacote novo sem tocar em nada; 2) fecha o serviço; 3) guarda a versão atual em "<pasta>.anterior";
 # 4) coloca a nova; 5) abre e confere a versão; 6) se algo falhar, VOLTA para a versão anterior sozinho. Os dados (projetos, agentes,
 # chave) ficam fora da pasta do programa e nunca são tocados. Log: <dados>\update.log
