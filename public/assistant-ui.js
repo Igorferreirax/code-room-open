@@ -1,6 +1,6 @@
 // Conversa do Assistente (corpo da janela de chat). Funções puras: recebem o estado de /api/assistant e devolvem HTML. Nada aqui executa ações.
 import { esc } from './views.js';
-import { catLogo } from './brand.js';
+import { avatar } from './art.js';
 
 export const PROV = { claude: 'Claude Code', codex: 'Codex', agy: 'Gemini (Antigravity)' };
 const hour = t => t ? new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -31,11 +31,13 @@ const actionCard = (m, a) => {
 };
 
 const allBar = m => { const p = (m.actions || []).filter(a => a.status === 'pending'); return p.length >= 2 ? `<div class="btn-row as-all"><button type="button" class="btn sm" data-act="asst-apply-all" data-id="${esc(m.id)}">Aprovar tudo, na ordem (${p.length})</button></div>` : ''; };
-const face = () => `<span class="as-face" aria-hidden="true">${catLogo(28)}</span>`;
+const face = () => `<span class="as-face" aria-hidden="true">${avatar(3, 28)}</span>`;
 const message = m => m.role === 'user'
   ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}</div><small>${esc(hour(m.at))}</small></div>`
   : `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}</div><small>${esc(hour(m.at))}</small></div></div>`;
 
+// O que merece atenção agora (falhas, fila parada, lote com problema, IA indisponível). "Me ajude" manda a pergunta pronta ao Assistente.
+const alertsHtml = a => (a.alerts || []).length ? `<div class="as-alerts" role="region" aria-label="O que merece atenção">${a.alerts.map(x => `<div class="as-alert ${esc(x.level)}"><div><b>${esc(x.title)}</b><p>${esc(x.text)}</p></div><div class="btn-row"><button type="button" class="btn sm" data-act="asst-help" data-id="${esc(x.id)}">Me ajude com isso</button><button type="button" class="btn ghost sm" data-act="asst-alert-dismiss" data-id="${esc(x.id)}">Dispensar</button></div></div>`).join('')}</div>` : '';
 export function assistantHtml(a) {
   if (!a) return '<p class="muted">Carregando…</p>';
   const conn = a.connected || [];
@@ -51,6 +53,6 @@ export function assistantHtml(a) {
   }
   const busy = !!a.pending, msgs = a.messages || [];
   const staleBar = a.stale ? '<div class="as-stale" role="status"><span><b>O manual mudou.</b> O Assistente já usa a versão nova em cada resposta; reapresentar só atualiza o que fica gravado.</span><button type="button" class="btn ghost sm" data-act="asst-brief">Apresentar de novo</button></div>' : '';
-  const intro = msgs.length ? '' : `<div class="as-empty">${face()}<div><p><b>Oi! Eu ajudo você a usar o Code Room.</b></p><p class="small muted">Conte o que quer fazer (um vídeo, um projeto, uma equipe) e eu proponho os passos. Nada acontece sem o seu clique.</p><div class="chips">${['Monte uma equipe de desenvolvimento e revisão', 'Quais skills combinam com um editor de vídeo?', 'Por que a minha tarefa não rodou?'].map(q => `<button type="button" class="chip" data-act="asst-suggest" data-id="${esc(q)}">${esc(q)}</button>`).join('')}</div></div></div>`;
-  return `${staleBar}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${busy ? `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble as-wait" role="status"><span class="as-dots" aria-hidden="true"><i></i><i></i><i></i></span> Pensando…</div></div></div>` : ''}</div>${err}`;
+  const intro = msgs.length ? '' : `<div class="as-empty">${face()}<div><p><b>Oi! Eu ajudo você a usar o Code Room.</b></p><p class="small muted">Conte o que quer fazer (um vídeo, um projeto, uma equipe) e eu proponho os passos. Nada acontece sem o seu clique.</p><div class="chips">${['/status', '/pendencias', 'Monte uma equipe de desenvolvimento e revisão', 'Quais skills combinam com um editor de vídeo?'].map(q => `<button type="button" class="chip" data-act="asst-suggest" data-id="${esc(q)}">${esc(q)}</button>`).join('')}</div></div></div>`;
+  return `${alertsHtml(a)}${staleBar}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${busy ? `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble as-wait" role="status"><span class="as-dots" aria-hidden="true"><i></i><i></i><i></i></span> Pensando…</div></div></div>` : ''}</div>${err}`;
 }

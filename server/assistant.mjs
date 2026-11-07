@@ -13,7 +13,7 @@ import { cleanModel, cleanEffort } from './effort.mjs';
 export const ASSISTANT_PROJECT = 'assistant-internal', PROVIDER_ORDER = ['claude', 'codex', 'agy'];
 const AREAS = ['Programação', 'Vídeo', 'Financeiro', 'Pesquisa', 'Operações', 'Geral'];
 const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: 'teams', receitas: 'recipes', agentes: 'agents', entregas: 'deliveries', skills: 'skills', consumo: 'usage', rotinas: 'routines', conexoes: 'connections', configuracoes: 'settings' };
-const MAX_THREADS = 8, MAX_MANUAL = 14000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
+const MAX_THREADS = 8, MAX_MANUAL = 20000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
 const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -152,6 +152,32 @@ export function liveStatus(world, question = '', now = Date.now()) {
 }
 const FAILED = new Set(['failed', 'timeout', 'blocked', 'cancelled', 'interrupted']);
 
+// ---------- Assistente proativo: o que merece atenção agora (sem gastar cota: são regras sobre o estado real) ----------
+export function proactiveAlerts(world, now = Date.now()) {
+  const out = [], runs = world.runs || [], t = r => Date.parse(r.updatedAt || r.createdAt) || 0;
+  const failed = runs.filter(r => ['failed', 'timeout', 'blocked'].includes(r.status) && now - t(r) < 24 * 3600000).sort((a, b) => t(b) - t(a)).slice(0, 3);
+  for (const r of failed) out.push({ id: `fail:${r.id}`, level: 'bad', title: `${r.agent?.name || 'Um agente'} não conseguiu terminar`, text: `“${short(r.prompt, 70)}”${r.reason ? ` — ${short(r.reason, 100)}` : ''}`, ask: `A tarefa “${short(r.prompt, 80)}” do agente ${r.agent?.name || ''} falhou${r.reason ? ` (${short(r.reason, 120)})` : ''}. Por que isso aconteceu e o que eu faço para corrigir?` });
+  const waiting = runs.filter(r => ['queued', 'waiting_dependency'].includes(r.status) && now - (Date.parse(r.createdAt) || 0) > 10 * 60000), busy = runs.some(r => ['running', 'cancelling'].includes(r.status));
+  if (waiting.length && !busy) out.push({ id: 'queue-stuck', level: 'warn', title: 'A fila parece parada', text: `${waiting.length} tarefa(s) esperam há mais de 10 minutos e nada está rodando.`, ask: 'Há tarefas esperando na fila há muito tempo e nada está rodando. O que pode estar travando e como destravo?' });
+  for (const j of world.folderJobs || []) {
+    const c = j.counts || {};
+    if (c.failed) out.push({ id: `fj:${j.id}:${c.failed}`, level: 'warn', title: `Lote “${j.name}”: ${c.failed} com problema`, text: `${c.done || 0} de ${c.total || 0} prontos. Dá para tentar de novo só as que falharam.`, ask: `No lote “${j.name}” ${c.failed} arquivo(s) falharam. Por que isso pode ter acontecido e o que eu ajusto antes de tentar de novo?` });
+    else if (j.problem) out.push({ id: `fjp:${j.id}`, level: 'warn', title: `Lote “${j.name}”: precisa de atenção`, text: short(j.problem, 120), ask: `A pasta de entrada “${j.name}” mostra este aviso: ${j.problem} O que eu faço?` });
+  }
+  const connected = world.connected || new Set();
+  for (const p of [...new Set((world.agents || []).map(a => a.provider).filter(p => p && p !== 'hermes' && !connected.has(p)))]) out.push({ id: `provider:${p}`, level: 'warn', title: `A IA “${p}” não está disponível`, text: 'Há agentes que usam essa IA, mas ela não está instalada ou conectada neste computador.', ask: `Tenho agentes que usam a IA ${p}, mas ela não está disponível. Como eu instalo e conecto, ou qual outra IA posso usar no lugar?` });
+  if (!(world.agents || []).length) out.push({ id: 'start', level: 'info', title: 'Vamos começar?', text: 'Conte o que você quer fazer (um vídeo, um app, uma rotina) e eu monto o projeto, os agentes e a equipe com você.', ask: 'Quero começar. Me ajude a montar o projeto, os agentes e a equipe.' });
+  return out.slice(0, 5);
+}
+// Comandos que respondem na hora, sem IA e sem gastar cota: /status, /pendencias e /ajuda.
+export function localCommand(text, world, alerts = []) {
+  const m = String(text ?? '').trim().match(/^\/(status|pendencias|pendências|ajuda)\s*$/i); if (!m) return null;
+  const c = m[1].toLowerCase().replace('ê', 'e');
+  if (c === 'status') return `**Status agora** (lido da ferramenta, sem gastar cota):\n${liveStatus(world, '')}`;
+  if (c === 'pendencias') return alerts.length ? `**O que pede atenção agora:**\n${alerts.map(a => `- **${a.title}.** ${a.text}`).join('\n')}` : '**Nada pendente agora.** Sem falhas recentes, fila andando e lotes sem problema.';
+  return '**Comandos rápidos** (respondem na hora, sem gastar cota):\n- `/status`: o que roda, espera, terminou e falhou\n- `/pendencias`: o que merece a sua atenção\n- `/ajuda`: esta lista\n\nQualquer outra coisa, escreva normalmente: eu proponho os passos e você aprova com um clique.';
+}
+
 export function stateSummary(world, projects = [], question = '') {
   const ag = world.agents.map(a => `- ${a.name} (${short(a.role, 60)}) · ${a.provider} · ${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}`).join('\n') || '(nenhum agente ainda)';
   const tm = world.teams.map(t => `- ${t.name}: ${(t.members || []).map(m => `${m.role}=${world.agents.find(a => a.id === m.agentId)?.name || '?'}`).join(', ')}`).join('\n') || '(nenhuma equipe ainda)';
@@ -224,7 +250,7 @@ export class Assistant {
     const taskOf = id => id ? this.store.get('tasks', id) : null, pt = taskOf(s.pending?.taskId), bt = taskOf(s.briefing?.taskId);
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
-      briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, threads: this.#threadList(s), thread: s.thread?.id || 't1',
+      briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
       pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
@@ -271,7 +297,10 @@ export class Assistant {
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
   async ask(text) {
-    await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.'); if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
+    await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
+    { const w0 = await this.worldFn(), al = proactiveAlerts(w0).filter(a => !(s.dismissedAlerts || []).includes(a.id)), reply = localCommand(q, w0, al);
+      if (reply) { const at = new Date(this.now()).toISOString(); this.#save({ messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at }, { id: randomUUID(), role: 'assistant', text: reply, at, local: true, actions: [] }], error: null }); return this.status(); } }
+    if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
     const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q), history: (s.messages || []).filter(m => m.text), question: q, max: p === 'agy' ? MAX_PROMPT : 80000 }), task = this.#task(p, prompt, 'ask');
@@ -292,6 +321,7 @@ export class Assistant {
     const target = (s.others || []).find(o => o.id === id); if (!target) throw new Error('Conversa não encontrada.');
     this.#save({ others: [...(s.others || []).filter(o => o.id !== id), { id: th.id, title: th.title, messages: s.messages || [] }], thread: { id: target.id, title: target.title }, messages: target.messages || [], error: null }); return this.status();
   }
+  async dismissAlert(id) { const s = this.s; this.#save({ dismissedAlerts: [...new Set([...(s.dismissedAlerts || []), String(id).slice(0, 100)])].slice(-100) }); return this.status(); }
   async renameThread(id, title) {
     const t = short(title, 40); if (!t) throw new Error('Dê um nome para a conversa (até 40 caracteres).');
     const s = this.s, th = s.thread || { id: 't1', title: 'Conversa 1' };

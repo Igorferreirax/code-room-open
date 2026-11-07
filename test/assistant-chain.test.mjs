@@ -63,3 +63,22 @@ test('criar_pasta_entrada: instrução precisa citar {arquivo}, projeto e agente
   assert.match(p({ instrucao: 'sem marcador' }).error, /\{arquivo\}/); assert.match(p({ projeto: 'Nada' }).error, /projeto/); assert.match(p({ agente: 'Fantasma' }).error, /não existe/); assert.match(p({ equipe: 'Vídeo' }).error, /OU/); assert.match(p({ nome: '' }).error, /nome/);
   assert.equal(normalizeAction({ acao: 'criar_pasta_entrada', nome: 'N', projeto: 'Novo', agente: 'Novo Ag', instrucao: 'x {arquivo}' }, world({ agents, projects: [] }), { agents: ['Novo Ag'], teams: [], projects: ['Novo'], skills: [] }).valid, true);
 });
+
+import { proactiveAlerts, localCommand } from '../server/assistant.mjs';
+test('assistente proativo: falhas recentes, fila parada, lote com problema, IA indisponível e começo; nada quando está tudo bem', () => {
+  const NOW = Date.parse('2026-11-07T12:00:00Z'), iso = m => new Date(NOW - m * 60000).toISOString();
+  const run = (id, status, min, extra = {}) => ({ id, status, agent: { id: 'a1', name: 'Montador' }, project: { id: 'p1', name: 'Doc' }, prompt: 'Editar vídeos', reason: '', createdAt: iso(min + 1), updatedAt: iso(min), ...extra });
+  const w = over => ({ agents, connected: new Set(['claude', 'codex']), runs: [], folderJobs: [], ...over });
+  assert.deepEqual(proactiveAlerts(w({ runs: [run('a', 'completed', 5)] }), NOW), [], 'tudo bem: nenhum aviso');
+  const f = proactiveAlerts(w({ runs: [run('x', 'failed', 20, { reason: 'sem login' }), run('old', 'failed', 3000)] }), NOW); assert.equal(f.length, 1, 'falha de mais de 24 h não aparece'); assert.equal(f[0].level, 'bad'); assert.match(f[0].text, /sem login/); assert.match(f[0].ask, /Montador/);
+  assert.equal(proactiveAlerts(w({ runs: [run('q', 'queued', 30)] }), NOW)[0].id, 'queue-stuck'); assert.deepEqual(proactiveAlerts(w({ runs: [run('q', 'queued', 30), run('r', 'running', 2)] }), NOW), [], 'com algo rodando a fila não está parada');
+  assert.match(proactiveAlerts(w({ folderJobs: [{ id: 'j', name: 'Cortes', counts: { failed: 2, done: 3, total: 5 } }] }), NOW)[0].title, /2 com problema/); assert.match(proactiveAlerts(w({ folderJobs: [{ id: 'j', name: 'Cortes', counts: {}, problem: 'A pasta de entrada ainda não existe.' }] }), NOW)[0].text, /não existe/);
+  assert.equal(proactiveAlerts(w({ connected: new Set(['claude']) }), NOW).find(a => a.id === 'provider:codex').level, 'warn'); assert.equal(proactiveAlerts(w({ agents: [] }), NOW)[0].id, 'start');
+  assert.ok(proactiveAlerts(w({ runs: Array.from({ length: 9 }, (_, i) => run('f' + i, 'failed', i + 1)) }), NOW).length <= 5);
+});
+
+test('comandos locais: /status, /pendencias e /ajuda respondem na hora; outras mensagens vão para a IA', () => {
+  const w = { agents, projects: [], teams: [], runs: [{ id: 'r', status: 'running', agent: { id: 'a1', name: 'Montador' }, project: { id: 'p1', name: 'Doc' }, prompt: 'Editar vídeos', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] };
+  assert.match(localCommand('/status', w), /Status agora[\s\S]*Montador está trabalhando em “Editar vídeos”/); assert.match(localCommand('/pendencias', w, []), /Nada pendente agora/); assert.match(localCommand('/PENDÊNCIAS', w, [{ title: 'T', text: 'x' }]), /\*\*T\.\*\* x/);
+  assert.match(localCommand(' /ajuda ', w), /\/status[\s\S]*\/pendencias/); for (const t of ['status', '/status do projeto', 'oi /status', '/outra']) assert.equal(localCommand(t, w), null, t);
+});

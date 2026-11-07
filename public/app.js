@@ -225,7 +225,7 @@ function renderAsst() {
   const open = !!ctx.ui.asstOpen, nA = (ctx.asst?.messages || []).filter(m => m.role === 'assistant').length;
   if (open || ctx.ui.chatSeen == null) ctx.ui.chatSeen = nA;
   win.hidden = !open; bubble.hidden = open; document.querySelector('.asst-btn')?.setAttribute('aria-pressed', String(open));
-  const unread = !open && nA > ctx.ui.chatSeen, busy = !!(ctx.asst?.pending || ctx.asst?.briefing), bh = bubbleHtml(ctx, { unread, busy });
+  const unread = !open && nA > ctx.ui.chatSeen, busy = !!(ctx.asst?.pending || ctx.asst?.briefing), bh = bubbleHtml(ctx, { unread, busy, alert: !open && (ctx.asst?.alerts || []).some(x => x.level !== 'info') });
   if (ctx.ui._bh !== bh) { bubble.innerHTML = bh; ctx.ui._bh = bh; } bubble.setAttribute('aria-label', unread ? 'Abrir o chat: resposta nova' : 'Abrir o chat');
   if (!open) return;
   const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? assistantHtml(ctx.asst) : targetBodyHtml(ctx);
@@ -405,6 +405,8 @@ const actions = {
   'chat-open': () => setChatOpen(true),
   'chat-min': () => setChatOpen(false),
   'asst-thread-rename': id => { ctx.ui.renameId = id; renderAsst(); const i = document.querySelector('.cw-rename'); if (i) { i.focus(); i.select(); } },
+  'asst-help': id => { const al = ctx.asst?.alerts?.find(x => x.id === id); if (al) return askAssistant(al.ask); },
+  'asst-alert-dismiss': id => asstCall('alerts/dismiss', { id }),
   'asst-new-thread': () => asstCall('thread/new'),
   'asst-thread': id => asstCall('thread/select', { id }),
   'asst-thread-del': id => { if (confirm('Apagar esta conversa? O histórico dela some.')) return asstCall('thread/delete', { id }); },

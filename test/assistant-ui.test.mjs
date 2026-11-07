@@ -76,3 +76,11 @@ test('janela do chat: missão direta mostra a atividade do agente ou da equipe; 
   assert.match(targetBodyHtml(cctx({ ui: { target: 't:t9' } })), /a equipe deve fazer/); assert.match(targetBodyHtml(cctx({ ui: { target: 'a:zzz' } })), /Crie um agente/);
   assert.match(bubbleHtml(cctx(), { unread: true, busy: true }), /cb-dot[\s\S]*|cb-busy/); assert.ok(!bubbleHtml(cctx()).includes('cb-dot')); assert.match(bubbleHtml(cctx(), { busy: true }), /cb-busy/);
 });
+
+test('avisos do Assistente: cartões com "Me ajude" e "Dispensar", HTML escapado, balão com marca de aviso e comandos nas sugestões', () => {
+  const a = { ...base, alerts: [{ id: 'fail:1', level: 'bad', title: '<b>Montador</b> falhou', text: 'sem login <img src=x>', ask: 'ajuda' }] };
+  const h = assistantHtml(a); assert.ok(!h.includes('<b>Montador</b>') && !h.includes('<img src=x>')); assert.match(h, /as-alert bad/); assert.match(h, /data-act="asst-help" data-id="fail:1"/); assert.match(h, /data-act="asst-alert-dismiss" data-id="fail:1"/);
+  assert.ok(!assistantHtml(base).includes('as-alerts')); assert.match(assistantHtml(base), /data-id="\/status"/); assert.match(assistantHtml(base), /data-id="\/pendencias"/);
+  const ctx = cctx(); assert.match(bubbleHtml(ctx, { alert: true }), /cb-dot cb-alert/); assert.ok(!bubbleHtml(ctx, { alert: false }).includes('cb-alert')); assert.ok(!bubbleHtml(ctx, { unread: true, alert: true }).includes('cb-alert'), 'resposta nova tem prioridade sobre o aviso');
+  assert.match(bubbleHtml(ctx), /class="avatar"/, 'o rosto é um personagem pixel, não o gato');
+});

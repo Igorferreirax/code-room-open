@@ -49,6 +49,7 @@ try:
             for v in VIEWS:
                 where[0] = f'{label}/{v}'; pg.keyboard.press('Escape'); pg.click(f'[data-nav={v}]', timeout=8000); time.sleep(0.9)
                 if not pg.inner_text('#view').strip(): problems.append(f'{where[0]}: tela em branco')
+                if pg.evaluate("document.querySelector('#topbar .project-pill')?.getBoundingClientRect().width || 0") < 100: problems.append(f'{where[0]}: o seletor de projeto ficou espremido na barra do topo')
                 if not pg.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'): problems.append(f'{where[0]}: rolagem lateral na página ({pg.evaluate("document.documentElement.scrollWidth")} > {size["width"]})')
                 cut = pg.evaluate("""() => [...document.querySelectorAll('#view *')].filter(e => { const cs = getComputedStyle(e); if (e.closest('svg') || e.classList.contains('sr-only') || cs.display === 'inline' || cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.textOverflow === 'ellipsis') return false; return e.children.length === 0 && e.textContent.trim().length > 3 && e.scrollWidth > e.clientWidth + 3 && e.clientWidth > 0; }).slice(0, 5).map(e => (e.className || e.tagName) + ': ' + e.textContent.trim().slice(0, 40))""")
                 for c in cut: problems.append(f'{where[0]}: texto cortado -> {c}')

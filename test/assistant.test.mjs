@@ -157,7 +157,7 @@ test('fluxo: entidades internas, prompt sem caminhos nem chaves, falha da IA vir
 
 test('manual real do projeto: existe, cabe no limite e documenta exatamente os papéis, capacidades e ações que o servidor aceita', async () => {
   const { ROLES } = await import('../server/orchestrator.mjs'), { KNOWN_CAPABILITIES } = await import('../server/supervisor.mjs'), m = loadManual(process.cwd());
-  assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 14000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
+  assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 20000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
   for (const r of ROLES) assert.ok(m.text.includes('`' + r + '`'), `papel ${r}`); for (const c of KNOWN_CAPABILITIES) assert.ok(m.text.includes('`' + c + '`'), `capacidade ${c}`);
   for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill', 'criar_pasta_entrada']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
   assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
@@ -232,4 +232,12 @@ test('fluxo: a pasta de entrada proposta no chat é criada pelo mesmo caminho do
   say([block({ acao: 'criar_pasta_entrada', nome: 'Cortes', projeto: 'canal', agente: 'Desenvolvedor', extensoes: ['mp4'], instrucao: 'Corte {arquivo} e salve em SAIDA/.' })].join('\n'));
   await asst.ask('tenho 15 vídeos para cortar'); const m = (await done()).messages.at(-1); assert.equal(m.actions.length, 1); assert.equal(m.actions[0].valid, true, m.actions[0].error); assert.equal(m.actions[0].detail, 'Corte {arquivo} e salve em SAIDA/.');
   const r = await asst.apply(m.id, 0); assert.match(r.result, /Pasta de entrada criada.*ENTRADA/); assert.equal(r.view, 'routines'); assert.equal(made[0].exts, 'mp4'); assert.equal(made[0].agentId, store.list('agents').find(a => a.name === 'Desenvolvedor').id);
+});
+
+test('fluxo: /status responde na hora, sem apresentação e sem tarefa; avisos aparecem e podem ser dispensados', async () => {
+  const { asst, store } = await rig(); const before = store.list('tasks').length;
+  let s = await asst.status(); assert.equal(s.briefed, false);
+  s = await asst.ask('/status'); assert.equal(s.messages.length, 2); assert.equal(s.messages.at(-1).local, true); assert.match(s.messages.at(-1).text, /Status agora/); assert.equal(s.pending, null); assert.equal(store.list('tasks').length, before, 'nenhuma tarefa de IA foi criada');
+  s = await asst.ask('/ajuda'); assert.match(s.messages.at(-1).text, /Comandos rápidos/);
+  const s2 = await asst.status(); assert.ok(Array.isArray(s2.alerts)); const id = 'start'; s = await asst.dismissAlert(id); assert.ok(!s.alerts.some(a => a.id === id)); await asst.dismissAlert(id); assert.equal((await asst.status()).alerts.filter(a => a.id === id).length, 0);
 });

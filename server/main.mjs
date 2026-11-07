@@ -362,6 +362,7 @@ const handle = async (req, res) => {
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread());
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
+          if (a === 'alerts/dismiss') return send(res, 200, await assistant.dismissAlert(text(b.id, 100)));
           if (a === 'thread/rename') return send(res, 200, await assistant.renameThread(text(b.id, 40), text(b.title, 60)));
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
           if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));

@@ -440,3 +440,10 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 
 /* Marca: só o nome "Code Room" (sem ícone), igual no app, na landing e no instalador */
 .brand .brand-name{display:inline!important;font-family:var(--display);font-size:1.35rem;font-weight:500;letter-spacing:.02em;white-space:nowrap}.brand .brand-name b{color:var(--accent-h);font-weight:500}
+/* Barra do topo no celular: o seletor de projeto precisa de espaço (o balão do chat já abre o Assistente) */
+@media (max-width:560px){.asst-btn{display:none}.brand .brand-name{font-size:1.02rem}}
+@media (max-width:400px){.top-right .pill{display:none}}
+
+/* Chat: personagem pixel como rosto, balão mais limpo e avisos do Assistente */
+.chat-bubble{padding:0;overflow:visible;border-width:2px}.cb-face{width:100%;height:100%;display:block;border-radius:50%;overflow:hidden}.cb-face img,.cb-face svg,.cw-face img,.as-face img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+.cb-dot.cb-alert{background:#f5b73b}.as-alerts{display:grid;gap:8px;margin-bottom:10px}.as-alert{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;background:var(--panel2);padding:8px 10px}.as-alert.bad{border-left-color:#ef5b5b}.as-alert.warn{border-left-color:#f5b73b}.as-alert p{margin:.2em 0 .5em;font-size:.84rem;color:var(--muted)}.as-alert b{font-size:.9rem}
