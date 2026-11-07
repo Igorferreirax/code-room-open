@@ -10,6 +10,7 @@ import { killTree, alive, processIdentity } from './procs.mjs';
 import { buildPrompt, emptyContext } from './context.mjs';
 import { createWorktree } from './worktree.mjs';
 import { claudeFromEvent } from './usage.mjs';
+import { browserNote } from './browseruse.mjs';
 
 export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1, agy: 1, hermes: 1 }, video: 1 };
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
@@ -131,7 +132,7 @@ export class Runner {
     const selected = wantIds.length ? (await scanSkills(root, { extraRoots: this.store.get('settings', 'skillRoots')?.roots || [] })).filter(s => wantIds.includes(s.id)) : [];
     if (selected.length !== wantIds.length) throw fail('skill_unavailable', 'Uma skill escolhida não está mais disponível. Edite o agente ou escolha outra.');
     const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root });
-    this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.` });
+    this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${browserNote(task.agent?.browser)}` });
     for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de skill: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, timeoutMs: task.limits.timeoutMs });

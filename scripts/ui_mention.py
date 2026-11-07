@@ -108,15 +108,9 @@ try:
         page.click('#pref-keepawake'); page.wait_for_timeout(600)
         check('energia: desligar volta ao padrão', api('power')['keepAwake'] is False and api('power')['holding'] is False)
         check('inicio: o interruptor aparece desligado', page.locator('#power-card #pref-startup').count() == 1 and api('startup')['on'] is False)
-        page.click('#pref-startup')
-        for _ in range(50):
-            if api('startup')['on']: break
-            page.wait_for_timeout(400)
+        page.click('#pref-startup'); page.wait_for_selector('#pref-startup[aria-checked=true]', timeout=20000)
         check('inicio: ligar cria o atalho (na pasta de teste)', api('startup')['on'] is True and os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
-        page.click('#pref-startup')
-        for _ in range(50):
-            if not api('startup')['on']: break
-            page.wait_for_timeout(400)
+        page.click('#pref-startup'); page.wait_for_selector('#pref-startup[aria-checked=false]', timeout=20000)
         check('inicio: desligar remove o atalho', api('startup')['on'] is False and not os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
         # ---- Hermes (servidor remoto): configuração dentro do app ----
         clear_chat(page); page.click('[data-nav=connections]'); page.wait_for_selector('#hermes-card', timeout=10000); page.wait_for_timeout(400)
@@ -141,6 +135,25 @@ try:
             if not api('hermes')['configured']: break
             page.wait_for_timeout(300)
         check('hermes: remover apaga a configuração', api('hermes')['configured'] is False)
+        # ---- Navegador do agente (opcional, desligado por padrão) ----
+        clear_chat(page); page.click('[data-nav=agents]'); page.wait_for_selector('[data-act=new-agent]', timeout=8000); page.click('[data-act=new-agent]'); page.wait_for_selector('#agent-form [name=browser]', timeout=5000)
+        def opt(v): return page.eval_on_selector(f'#agent-form [name=browser] [value={v}]', 'o => o.disabled')
+        check('navegador: começa desligado por padrão', page.input_value('#agent-form [name=browser]') == 'off')
+        page.select_option('#agent-form [name=provider]', 'codex'); page.wait_for_timeout(200)
+        check('navegador: com Codex, "separado" vale e "meu Chrome" fica desligado', opt('isolado') is False and opt('chrome') is True)
+        page.select_option('#agent-form [name=provider]', 'claude'); page.wait_for_timeout(200)
+        check('navegador: com Claude Code, as duas opções valem', opt('isolado') is False and opt('chrome') is False)
+        page.select_option('#agent-form [name=browser]', 'chrome'); page.select_option('#agent-form [name=provider]', 'codex'); page.wait_for_timeout(200)
+        check('navegador: trocar para uma IA que não suporta volta para desligado', page.input_value('#agent-form [name=browser]') == 'off')
+        page.select_option('#agent-form [name=provider]', 'agy'); page.wait_for_timeout(200)
+        check('navegador: sem suporte (Gemini/Antigravity) o campo fica bloqueado', page.eval_on_selector('#agent-form [name=browser]', 'o => o.disabled') is True)
+        page.select_option('#agent-form [name=provider]', 'claude'); page.wait_for_timeout(200)
+        page.fill('#agent-form [name=name]', 'Agente com Navegador'); page.fill('#agent-form [name=role]', 'pesquisa na web'); page.select_option('#agent-form [name=browser]', 'isolado')
+        page.locator('#agent-form [name=cap]').first.check(); page.click('#agent-form >> text=Salvar agente'); page.wait_for_timeout(1200)
+        ag = [x for x in api('state')['agents'] if x['name'] == 'Agente com Navegador']
+        check('navegador: o agente é salvo com o navegador separado', len(ag) == 1 and ag[0].get('browser') == 'isolado', ag)
+        try: api('agents', {**ag[0], 'browser': 'chrome', 'provider': 'codex'}); check('navegador: servidor recusa "meu Chrome" com Codex', False)
+        except Exception: check('navegador: servidor recusa "meu Chrome" com Codex', True)
         # ---- /celular no chat ----
         page.click('[data-nav=room]'); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)

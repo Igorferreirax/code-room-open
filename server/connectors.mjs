@@ -6,6 +6,7 @@ import { effortsFor } from './effort.mjs';
 const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
 import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
 import { loadHermesFile, sshArgs, findSsh } from './hermes.mjs';
+import { claudeBrowserArgs, codexBrowserArgs } from './browseruse.mjs';
 
 export function executable(name, candidates = []) {
   return [...candidates, ...(process.env.PATH || '').split(delimiter).map(d => join(d, process.platform === 'win32' ? name + '.exe' : name))].find(p => p && existsSync(p)) || null;
@@ -45,6 +46,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     args = resumeId ? ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode="${mode}"`] : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', mode];
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('-c', `model_reasoning_effort="${e}"`); }
+    args.push(...codexBrowserArgs(agent.browser));
     if (resumeId) args.push(resumeId);
     args.push('-');
   } else if (agent.provider === 'agy') {
@@ -66,6 +68,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
     for (const prog of agent.commands || []) if (/^[\w.-]{1,40}$/.test(prog)) for (const tool of ['Bash', 'PowerShell']) args.push('--allowedTools', `${tool}(${prog}:*)`);
+    args.push(...claudeBrowserArgs(agent.browser));
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
     if (resumeId) args.push('--resume', resumeId);

@@ -452,7 +452,11 @@ const actions = {
   toggle: async id => {
     const p = ctx.prefs;
     if (id === 'pref-net-lan' || id === 'pref-net-ts') { const c = ctx.net.config; ctx.net = await api('network', { lan: id === 'pref-net-lan' ? !c.lan : c.lan, tailscale: id === 'pref-net-ts' ? !c.tailscale : c.tailscale }); ctx.pairing = null; render(); return; }
-    if (id === 'pref-startup') { try { ctx.startup = await api('startup', { on: !ctx.startup?.on }); notify(ctx.startup.on ? 'O Code Room vai abrir com o Windows.' : 'O Code Room não abre mais com o Windows.'); } catch (e) { notify(e.message, true); } render(); return; }
+    if (id === 'pref-startup') {   // um clique de cada vez: o segundo só vale depois que o primeiro terminou (senão o estado antigo desfaz o clique)
+      if (ctx.ui.startupBusy) return; ctx.ui.startupBusy = true;
+      try { ctx.startup = await api('startup', { on: !ctx.startup?.on }); notify(ctx.startup.on ? 'O Code Room vai abrir com o Windows.' : 'O Code Room não abre mais com o Windows.'); } catch (e) { notify(e.message, true); } finally { ctx.ui.startupBusy = false; }
+      render(); return;
+    }
     if (id === 'pref-keepawake') { try { ctx.power = await api('power', { keepAwake: !ctx.power?.keepAwake }); } catch (e) { notify(e.message, true); } render(); return; }
     if (id === 'pref-autosup') { p.autoSupervisor = !p.autoSupervisor; savePrefs(); }
     else if (id === 'pref-anim') { p.anim = p.anim === false; savePrefs(); }
@@ -629,7 +633,7 @@ document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.pcard[role=button]')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('change', async e => {
-  if (e.target.matches?.('#agent-form [name=provider]')) { fillModelOptions(e.target.value); }
+  if (e.target.matches?.('#agent-form [name=provider]')) { fillModelOptions(e.target.value); syncBrowserOptions(); }
   const t = e.target;
   try {
     if (t.id === 'project-select') { setProject(t.value); render(); }
@@ -694,7 +698,7 @@ document.addEventListener('submit', async e => {
       notify(t.resumed ? 'Continuando a mesma sessão.' : 'Nova missão iniciada com o resumo e os arquivos da anterior.'); await refresh(); return openTask(t.id);
     } else if (fid === 'login-form') { key = $('access-key').value.trim(); ctx.ui.loginError = ''; start(); }
     else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area }); if (d.team) store.set('cr.team.' + p.id, d.team); ctx.ui.panel = null; setProject(p.id); await refresh(); notify('Projeto criado.'); }
-    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
+    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
     else if (fid === 'flow-form') { const d = Object.fromEntries(new FormData(f)); await api('flows', { projectId: ctx.project, teamId: d.team, requestId: crypto.randomUUID(), objective: d.objective, criteria: lines(d.criteria), maxReviewRounds: ctx.prefs.rounds || 1 }); f.reset(); notify('Fluxo iniciado.'); await refresh(); }
     else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v); await api('settings/concurrency', { global: n(d.global), provider: { codex: n(d.codex), claude: n(d.claude) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
     else if (fid === 'context-form') { const d = Object.fromEntries(new FormData(f)); ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context`, { goals: d.goals, decisions: lines(d.decisions), pending: lines(d.pending), references: lines(d.references) }); notify('Contexto salvo.'); render(); }
@@ -726,11 +730,19 @@ async function fillModelOptions(provider, current = {}) {
   sel.disabled = !(info.efforts || []).length; $('effort-hint').textContent = sel.disabled ? 'Esta IA não tem ajuste de esforço.' : 'Mais esforço pensa mais e gasta mais cota. “Padrão da IA” usa o que ela já está configurada.';
 }
 let pickedSkills = new Set();
+// Navegador do agente: "separado" só para Claude Code e Codex; "meu Chrome" só para Claude Code. Opção que não vale para a IA escolhida fica desligada.
+function syncBrowserOptions() {
+  const f = $('agent-form'), p = f.elements.provider.value, sel = f.elements.browser;
+  const okIso = p === 'claude' || p === 'codex', okChrome = p === 'claude';
+  sel.querySelector('[value=isolado]').disabled = !okIso; sel.querySelector('[value=chrome]').disabled = !okChrome;
+  if ((sel.value === 'isolado' && !okIso) || (sel.value === 'chrome' && !okChrome)) sel.value = 'off';
+  sel.disabled = !okIso;
+}
 function editAgent(id) {
   const f = $('agent-form'); f.reset();
   const sel = f.elements.provider; [...sel.querySelectorAll('[data-custom]')].forEach(o => o.remove()); for (const c of ctx.state.connectors || []) if (c.custom) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + (c.available ? '' : ' (não encontrada)'); o.dataset.custom = '1'; sel.append(o); } const a = ctx.state.agents.find(x => x.id === id);
   for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions', 'effort']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
-  f.elements.commands.value = (a?.commands || []).join(', '); fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' });
+  f.elements.commands.value = (a?.commands || []).join(', '); f.elements.browser.value = a?.browser || 'off'; fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' }); syncBrowserOptions();
   f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));
   pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); $('agent-dialog').showModal();
   if (!ctx.skills.length) loadSkills().then(renderPicker);
