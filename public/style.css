@@ -509,3 +509,11 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
   .btn{max-width:100%;box-sizing:border-box}
   .hero .hero-actions{min-width:0;margin-right:0}
 }
+
+/* Sessão ao vivo no chat com um agente */
+.cw-live{margin:12px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+.cw-live h3{margin:0 0 2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.live-prompt{margin:2px 0 6px;overflow-wrap:anywhere}
+.live-log{list-style:none;margin:8px 0;padding:0;max-height:190px;overflow:auto;font-size:.85rem}
+.live-log li{padding:3px 0;display:flex;gap:6px;align-items:baseline;overflow-wrap:anywhere}.live-log .lv-text{min-width:0}
+.live-log .lv-error .lv-text{color:var(--bad)}.live-log .lv-diag .lv-text,.live-log .lv-status .lv-text{color:var(--muted)}
+.live-answer{margin:6px 0}.live-answer pre{max-height:210px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}

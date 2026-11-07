@@ -8,6 +8,7 @@ import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
+import { liveTaskOf } from './live-ui.js';
 import { sayOf } from './mascot.js';
 import { extractProject, projectToken } from './mentions.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
@@ -115,8 +116,17 @@ async function refresh() {
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
     for (const f of Object.values(ctx.flows)) if (f?.id) api('flows/' + f.id).then(v => { ctx.flows[f.id] = v; render(); }).catch(() => {});
     if (ctx.detail) ctx.detail = await api('tasks/' + ctx.detail.id).catch(() => ctx.detail);
+    await refreshLive();
     render();
   } catch { setConnection('lost'); }
+}
+// Sessão ao vivo: com o chat aberto em um agente, acompanha a tarefa dele (a que roda agora, ou a última).
+async function refreshLive() {
+  const tg = ctx.ui.asstOpen ? String(V.targetOf(ctx) || '') : '';
+  if (!tg.startsWith('a:')) { ctx.live = null; return; }
+  const t = liveTaskOf(ctx.state?.runs, tg.slice(2));
+  if (!t) { ctx.live = null; return; }
+  ctx.live = await api('tasks/' + t.id).catch(() => ctx.live?.id === t.id ? ctx.live : null);
 }
 function setConnection(s) { ctx.connection = s; if (ctx.authed) render(); }
 let lastSeq = 0;
@@ -245,7 +255,9 @@ function renderAsst() {
   win.hidden = !open; bubble.hidden = open; document.querySelector('.asst-btn')?.setAttribute('aria-pressed', String(open));
   const unread = !open && nA > ctx.ui.chatSeen, busy = !!(ctx.asst?.pending || ctx.asst?.briefing), bh = bubbleHtml(ctx, { unread, busy, alert: !open && (ctx.asst?.alerts || []).some(x => x.level !== 'info'), say: open ? '' : sayOf(ctx.asst, { unread }) });
   if (ctx.ui._bh !== bh) { bubble.innerHTML = bh; ctx.ui._bh = bh; } bubble.setAttribute('aria-label', unread ? 'Abrir o chat: resposta nova' : 'Abrir o chat');
-  if (!open) return;
+  if (!open) { ctx.ui._liveFor = null; return; }
+  const tgNow = String(V.targetOf(ctx) || '');
+  if (ctx.ui._liveFor !== tgNow) { ctx.ui._liveFor = tgNow; ctx.live = null; refreshLive().then(renderAsst); }   // trocou de agente: busca a tarefa dele
   const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? assistantHtml(ctx.asst) : targetBodyHtml(ctx);
   if (ctx.ui._ch !== head) { $('chat-head').innerHTML = head; ctx.ui._ch = head; }
   if (ctx.ui._cb !== body) {
@@ -253,6 +265,7 @@ function renderAsst() {
     $('asst').innerHTML = body; ctx.ui._cb = body; const nl = $('asst-log');
     if (nl && (atEnd || n !== ctx.ui.asstCount || ctx.ui.asstThread !== ctx.asst?.thread)) nl.scrollTop = nl.scrollHeight; else $('asst').scrollTop = keep;
     ctx.ui.asstCount = n; ctx.ui.asstThread = ctx.asst?.thread;
+    const lv = $('live-log'); if (lv) lv.scrollTop = lv.scrollHeight;
   }
 }
 async function loadAsst() {

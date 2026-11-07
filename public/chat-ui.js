@@ -4,6 +4,7 @@ import { agentAv } from './art.js';
 import { mascot, moodOf, sayOf, MOODS } from './mascot.js';
 import { activityEvents } from './activity.js';
 import { PROV } from './assistant-ui.js';
+import { liveHtml } from './live-ui.js';
 
 const DOT = { running: 'run', queued: 'warn', waiting_dependency: 'warn', completed: 'ok', failed: 'bad', timeout: 'bad', blocked: 'bad', cancelled: 'idle', interrupted: 'idle' };
 const VERB = { running: 'trabalhando em', queued: 'na fila:', waiting_dependency: 'esperando a vez:', completed: 'concluiu', failed: 'falhou em', cancelled: 'cancelado:', interrupted: 'interrompido:', timeout: 'estourou o tempo em', blocked: 'bloqueado:' };
@@ -33,7 +34,9 @@ export function targetBodyHtml(ctx) {
   const ev = ids.length ? activityEvents(ctx, { agentIds: ids, limit: 8 }) : [];
   const status = w.agent ? `<p class="small">${esc(ctx.agentStatus(w.agent).label)}</p>` : '';
   const rows = ev.map(e => `<li><span class="dot d-${DOT[e.status] || 'idle'}"></span><button type="button" class="link" data-act="task" data-id="${esc(e.id)}"><b>${esc(e.agent)}</b> ${esc(VERB[e.status] || e.status)} <span class="muted">“${esc(e.text)}”</span></button><small class="muted"> ${esc(e.ago)}</small></li>`).join('');
+  const live = w.kind === 'agent' || w.kind === 'supervisor' ? liveHtml(ctx.live) : '';
   return `<div class="cw-direct"><p><b>Missão direta.</b> Escreva abaixo o que ${w.kind === 'team' ? 'a equipe' : 'o agente'} deve fazer. Use <code>/skill</code> para anexar uma skill (agente) e o clipe para critérios de conclusão. O resultado aparece em <button type="button" class="linkbtn" data-nav="tasks">Tarefas</button>.</p>${status}
+    ${live}
     <h3 class="small">Atividade recente</h3>${rows ? `<ul class="dots-list activity-list">${rows}</ul>` : '<p class="muted small">Ainda sem atividade.</p>'}</div>`;
 }
 
