@@ -37,7 +37,8 @@ try:
     for i in range(1, 7): f = os.path.join(proj, 'ENTRADA', f'corte{i}.mp4'); open(f, 'w').write('x'); os.utime(f, (old, old))
     api('folderjobs', {'name': 'Cortes verticais', 'projectId': P['id'], 'dir': 'ENTRADA', 'exts': 'mp4', 'agentId': mon['id'], 'instruction': 'Edite o vídeo {arquivo} com a skill de cortes verticais, adicione as legendas e salve o resultado em SAIDA mantendo o mesmo nome. [[fake sleep=60000]]', 'parallel': 1})
     time.sleep(4)
-    ASSIST = {'manual': {'available': True}, 'briefed': True, 'stale': False, 'provider': 'claude', 'connected': ['claude', 'codex'], 'error': None, 'pending': None, 'briefing': None, 'thread': 't1', 'threads': [{'id': 't1', 'title': 'Documentário', 'active': True, 'count': 2}, {'id': 't2', 'title': 'Revisão de legendas', 'active': False, 'count': 0}],
+    ALERTS = []
+    ASSIST = {'manual': {'available': True}, 'briefed': True, 'stale': False, 'provider': 'claude', 'connected': ['claude', 'codex'], 'error': None, 'pending': None, 'briefing': None, 'alerts': ALERTS, 'thread': 't1', 'threads': [{'id': 't1', 'title': 'Documentário', 'active': True, 'count': 2}, {'id': 't2', 'title': 'Revisão de legendas', 'active': False, 'count': 0}],
       'messages': [{'id': 'u1', 'role': 'user', 'text': 'Quero editar um documentário com cortes verticais. O que você sugere?', 'at': '2026-11-07T10:00:00Z'},
         {'id': 'a1', 'role': 'assistant', 'text': 'Sugiro uma equipe com **4 agentes** e uma pasta de entrada para os cortes:\n- Diretor, Roteirista, Montador e Revisor\n- cada vídeo da pasta vira uma tarefa, e eu aviso quando todos terminarem', 'at': '2026-11-07T10:00:06Z', 'actions': [
           {'idx': 0, 'type': 'criar_equipe', 'summary': 'Criar a equipe “Equipe de Vídeo”: desenvolvedor → Montador, revisor → Revisor', 'valid': True, 'status': 'pending'},
@@ -53,7 +54,8 @@ try:
         c, p = page(1440, 900, False, 'scene', True); p.screenshot(path=os.path.join(DEST, 'desktop-room.png')); c.close()
         c, p = page(1440, 900, False, 'canvas', False); p.wait_for_selector('.cv-node', timeout=8000); time.sleep(1.0); p.screenshot(path=os.path.join(DEST, 'desktop-canvas.png')); c.close()
         c, p = page(1440, 900, False, 'scene', False); p.click('[data-nav=routines]'); p.wait_for_selector('.fj-card'); time.sleep(1.0); p.evaluate("document.querySelector('.fj-card').scrollIntoView({block:'center'})"); time.sleep(0.6); p.screenshot(path=os.path.join(DEST, 'desktop-routines.png')); c.close()
-        c, p = page(390, 844, True, 'scene', False); p.screenshot(path=os.path.join(DEST, 'celular-room.png')); c.close()
+        ALERTS.append({'id': 'fail:1', 'level': 'bad', 'title': 'Montador não conseguiu terminar', 'text': 'x', 'ask': 'x'})
+        c, p = page(390, 844, True, 'scene', False); p.screenshot(path=os.path.join(DEST, 'celular-room.png')); c.close(); ALERTS.clear()
         c, p = page(390, 844, True, 'scene', False); p.click('[data-nav=routines]'); p.wait_for_selector('.fj-card'); time.sleep(0.8); p.evaluate("document.querySelector('.fj-card').scrollIntoView(); window.scrollBy(0, -80)"); time.sleep(0.6); p.screenshot(path=os.path.join(DEST, 'celular-routines.png')); c.close()
         b.close()
     print('capturas gravadas em', DEST)

@@ -1,6 +1,7 @@
 // Janela de chat única (estilo mensageiro): cabeçalho com foto e conversas, corpo conforme com quem se fala e balão minimizado. Funções puras.
 import { esc, idx, targetOf } from './views.js';
-import { agentAv, avatar } from './art.js';
+import { agentAv } from './art.js';
+import { mascot, moodOf, sayOf, MOODS } from './mascot.js';
 import { activityEvents } from './activity.js';
 import { PROV } from './assistant-ui.js';
 
@@ -10,11 +11,11 @@ const VERB = { running: 'trabalhando em', queued: 'na fila:', waiting_dependency
 // Com quem a pessoa está falando agora: foto, título e subtítulo.
 export function whoIs(ctx) {
   const t = targetOf(ctx), a = ctx.asst, st = ctx.state || {};
-  if (t === 'assistant') return { kind: 'assistant', face: avatar(3, 36), title: 'Assistente', sub: a?.briefed ? `${PROV[a.provider] || a.provider || 'IA'} · só propõe, você aprova` : 'Ainda não apresentado ao Code Room' };
+  if (t === 'assistant') return { kind: 'assistant', face: mascot(moodOf(a), 38), title: 'Assistente', sub: moodOf(a) === 'pensando' ? 'pensando…' : a?.briefed ? `${MOODS[moodOf(a)].label} · ${PROV[a.provider] || a.provider || 'IA'} · só propõe` : 'dormindo: apresente o Code Room a ele' };
   if (t.startsWith('a:')) { const ag = (st.agents || []).find(x => x.id === t.slice(2)); if (ag) return { kind: 'agent', face: agentAv(ag, idx(ctx, ag), 36), title: ag.name, sub: `${ag.role} · missão direta`, agent: ag }; }
   if (t.startsWith('t:')) { const tm = (st.teams || []).find(x => x.id === t.slice(2)); if (tm) { const first = (st.agents || []).find(x => x.id === tm.members?.[0]?.agentId); return { kind: 'team', face: first ? agentAv(first, idx(ctx, first), 36) : avatar(3, 36), title: `Equipe ${tm.name}`, sub: 'desenvolvedor → revisor · missão direta', team: tm }; } }
   if (t === 's') { const sup = ctx.supervisorAgent?.(); return { kind: 'supervisor', face: sup ? agentAv(sup, idx(ctx, sup), 36) : avatar(3, 36), title: 'Supervisor', sub: 'propõe um plano para você aceitar', agent: sup }; }
-  return { kind: 'none', face: avatar(3, 36), title: 'Chat', sub: '' };
+  return { kind: 'none', face: mascot('feliz', 38), title: 'Chat', sub: '' };
 }
 
 export function chatHeaderHtml(ctx) {
@@ -36,4 +37,4 @@ export function targetBodyHtml(ctx) {
     <h3 class="small">Atividade recente</h3>${rows ? `<ul class="dots-list activity-list">${rows}</ul>` : '<p class="muted small">Ainda sem atividade.</p>'}</div>`;
 }
 
-export const bubbleHtml = (ctx, { unread = false, busy = false, alert = false } = {}) => `<span class="cb-face">${avatar(3, 46)}</span>${busy ? '<span class="cb-busy" aria-hidden="true"></span>' : ''}${unread ? '<span class="cb-dot" role="status" aria-label="Resposta nova"></span>' : alert ? '<span class="cb-dot cb-alert" role="status" aria-label="O Assistente notou algo"></span>' : ''}`;
+export const bubbleHtml = (ctx, { unread = false, busy = false, alert = false, say = '' } = {}) => `${say ? `<span class="cb-say" role="status">${esc(say)}</span>` : ''}<span class="cb-face" data-mood="${moodOf(ctx.asst, { unread })}">${mascot(moodOf(ctx.asst, { unread }), 48)}</span>${busy ? '<span class="cb-busy" aria-hidden="true"></span>' : ''}${unread ? '<span class="cb-dot" role="status" aria-label="Resposta nova"></span>' : alert ? '<span class="cb-dot cb-alert" role="status" aria-label="O Assistente notou algo"></span>' : ''}`;

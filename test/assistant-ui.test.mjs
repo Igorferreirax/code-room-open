@@ -82,5 +82,17 @@ test('avisos do Assistente: cartões com "Me ajude" e "Dispensar", HTML escapado
   const h = assistantHtml(a); assert.ok(!h.includes('<b>Montador</b>') && !h.includes('<img src=x>')); assert.match(h, /as-alert bad/); assert.match(h, /data-act="asst-help" data-id="fail:1"/); assert.match(h, /data-act="asst-alert-dismiss" data-id="fail:1"/);
   assert.ok(!assistantHtml(base).includes('as-alerts')); assert.match(assistantHtml(base), /data-id="\/status"/); assert.match(assistantHtml(base), /data-id="\/pendencias"/);
   const ctx = cctx(); assert.match(bubbleHtml(ctx, { alert: true }), /cb-dot cb-alert/); assert.ok(!bubbleHtml(ctx, { alert: false }).includes('cb-alert')); assert.ok(!bubbleHtml(ctx, { unread: true, alert: true }).includes('cb-alert'), 'resposta nova tem prioridade sobre o aviso');
-  assert.match(bubbleHtml(ctx), /class="avatar"/, 'o rosto é um personagem pixel, não o gato');
+  assert.match(bubbleHtml(ctx), /class="mascot mc-feliz"/, 'o rosto é o mascote de LED, não o gato nem a logo');
+});
+
+import { mascot, moodOf, sayOf, MOODS } from '../public/mascot.js';
+test('mascote: um rosto por humor, com nome acessível; o humor segue o estado (pensando > falha > aviso > novidade > dormindo > ok)', () => {
+  for (const m of Object.keys(MOODS)) { const h = mascot(m, 40); assert.match(h, new RegExp(`class="mascot mc-${m}"`)); assert.match(h, /role="img" aria-label="Assistente: /); assert.match(h, /width="40"/); }
+  assert.match(mascot('inexistente'), /mc-feliz/, 'humor desconhecido volta ao padrão');
+  const a = { briefed: true, alerts: [], pending: null };
+  assert.equal(moodOf(a), 'feliz'); assert.equal(moodOf({ ...a, briefed: false }), 'dormindo'); assert.equal(moodOf(a, { unread: true }), 'surpreso'); assert.equal(moodOf(null), 'feliz');
+  assert.equal(moodOf({ ...a, alerts: [{ level: 'warn' }] }), 'alerta'); assert.equal(moodOf({ ...a, alerts: [{ level: 'warn' }, { level: 'bad' }] }), 'preocupado'); assert.equal(moodOf({ ...a, alerts: [{ level: 'info' }] }), 'feliz', 'aviso só informativo não muda o humor');
+  assert.equal(moodOf({ ...a, pending: { status: 'running' }, alerts: [{ level: 'bad' }] }), 'pensando'); assert.equal(moodOf({ ...a, briefing: { status: 'running' } }), 'pensando');
+  assert.equal(sayOf({ ...a, alerts: [{ level: 'bad', title: 'Montador não conseguiu terminar' }] }), 'Montador não conseguiu terminar'); assert.equal(sayOf(a, { unread: true }), 'Respondi! Toque para ver.'); assert.equal(sayOf(a), ''); assert.equal(sayOf({ ...a, pending: {} }, { unread: true }), '');
+  assert.match(bubbleHtml(cctx(), { say: '<b>x</b>' }), /cb-say[^>]*>&lt;b&gt;x&lt;\/b&gt;/, 'a fala é escapada');
 });

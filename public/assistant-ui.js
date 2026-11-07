@@ -1,6 +1,6 @@
 // Conversa do Assistente (corpo da janela de chat). Funções puras: recebem o estado de /api/assistant e devolvem HTML. Nada aqui executa ações.
 import { esc } from './views.js';
-import { avatar } from './art.js';
+import { mascot } from './mascot.js';
 
 export const PROV = { claude: 'Claude Code', codex: 'Codex', agy: 'Gemini (Antigravity)' };
 const hour = t => t ? new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -31,7 +31,7 @@ const actionCard = (m, a) => {
 };
 
 const allBar = m => { const p = (m.actions || []).filter(a => a.status === 'pending'); return p.length >= 2 ? `<div class="btn-row as-all"><button type="button" class="btn sm" data-act="asst-apply-all" data-id="${esc(m.id)}">Aprovar tudo, na ordem (${p.length})</button></div>` : ''; };
-const face = () => `<span class="as-face" aria-hidden="true">${avatar(3, 28)}</span>`;
+const face = () => `<span class="as-face" aria-hidden="true">${mascot('feliz', 30)}</span>`;
 const message = m => m.role === 'user'
   ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}</div><small>${esc(hour(m.at))}</small></div>`
   : `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}</div><small>${esc(hour(m.at))}</small></div></div>`;
