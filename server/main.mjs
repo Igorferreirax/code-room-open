@@ -24,7 +24,7 @@ import { emptyContext, cleanContext } from './context.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
-import { retentionPlan, retentionPurge } from './retention.mjs';
+import { retentionScan, retentionClean } from './retention.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { Power } from './power.mjs';
 import { startupState, setStartup } from './startup.mjs';
@@ -243,7 +243,7 @@ const handle = async (req, res) => {
       if (!auth) { tFail(ip); return send(res, 401, { error: 'Abra o Code Room pelo iniciador ou informe a chave local.' }); }
       tOk(ip);
       if (get && p === '/api/updates') return send(res, 200, updates.status());
-      if (get && p === '/api/retention') { masterOnly(auth); const pl = retentionPlan(store, { days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 }); return send(res, 200, { days: pl.days, counts: pl.counts }); }
+      if (get && p === '/api/retention') { masterOnly(auth); return send(res, 200, await retentionScan({ store, dataDir: data, appDir: root, days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 })); }
       if (get && p === '/api/startup') { masterOnly(auth); return send(res, 200, startupState()); }
       if (get && p === '/api/power') { masterOnly(auth); return send(res, 200, power.status()); }
       if (get && p === '/api/mcp') { masterOnly(auth); return send(res, 200, mcpInfo(mcpCtx())); }
@@ -323,7 +323,7 @@ const handle = async (req, res) => {
         if (p === '/api/power') { masterOnly(auth); return send(res, 200, power.setKeepAwake(b.keepAwake === true)); }
         if (p === '/api/mcp/activate') { masterOnly(auth); return send(res, 200, mcpActivate(mcpCtx())); }
         if (p === '/api/mcp/deactivate') { masterOnly(auth); return send(res, 200, mcpDeactivate(mcpCtx())); }
-        if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, { removed: retentionPurge(store, { days: Number(b.days) || 7 }) }); }
+        if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, await retentionClean({ store, dataDir: data, appDir: root, days: Number(b.days) || 7 })); }
         if (p === '/api/network/firewall') { masterOnly(auth); const r = await changeFirewall(b.remove === true ? 'remove' : 'add', process.execPath, port); return send(res, r.ok ? 200 : 502, r.ok ? { ok: true } : { error: r.error }); }
         if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale === true }); await syncListeners(); return send(res, 200, await networkView()); }
         if (p === '/api/usage/refresh') {

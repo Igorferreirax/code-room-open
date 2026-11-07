@@ -55,6 +55,8 @@ if (Test-Path -LiteralPath $keyFile) {
 }
 if (-not $reachable) {
   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+  # Logs: com o serviço parado, guarda o log grande como .1 (um só de reserva) para a pasta de dados não crescer sem limite.
+  foreach ($lf in 'server.log', 'server-error.log') { $lp = Join-Path $dataDir $lf; try { if ((Test-Path -LiteralPath $lp) -and ((Get-Item -LiteralPath $lp).Length -gt 5MB)) { Move-Item -LiteralPath $lp -Destination ($lp + '.1') -Force } } catch {} }
   $serverFile = Join-Path $projectRoot 'server\main.mjs'
   $process = Start-Process -FilePath $nodePath -ArgumentList ('"' + $serverFile + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $dataDir 'server.log') -RedirectStandardError (Join-Path $dataDir 'server-error.log')
   for ($attempt=0; $attempt -lt 40; $attempt++) {

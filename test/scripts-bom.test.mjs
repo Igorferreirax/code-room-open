@@ -40,3 +40,8 @@ test('start.ps1: a bandeja é lançada com o caminho entre aspas (usuário com e
   const b = readFileSync(new URL('../scripts/bandeja.ps1', import.meta.url), 'utf8');
   assert.match(b, /'"' \+ \(Join-Path \$PSScriptRoot \$name\) \+ '"'/, 'a bandeja também cita os caminhos ao chamar outros scripts');
 });
+
+test('start.ps1: gira os logs grandes com o serviço parado (a pasta de dados não cresce sem limite)', () => {
+  const s = readFileSync(new URL('../scripts/start.ps1', import.meta.url), 'utf8');
+  assert.match(s, /server-error\.log/); assert.match(s, /Length -gt 5MB/); assert.match(s, /\$lp \+ '\.1'/);
+});
