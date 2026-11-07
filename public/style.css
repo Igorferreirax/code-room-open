@@ -527,3 +527,6 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .mini-form{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}.mini-form textarea{flex:1;resize:none;min-width:0}
 @media (max-width:1280px){.mini-chats.shift{display:none}}
 @media (max-width:760px){.mini-chats{display:none}}
+
+/* Toque: alvo maior para pegar o ponto de saída do Canvas com o dedo (o recomendado é 44 px ou mais) */
+@media (pointer:coarse){.cv-port.out{width:18px;height:18px;margin-top:-9px;right:-10px}.cv-port.out::after{inset:-18px}}
