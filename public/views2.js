@@ -6,6 +6,7 @@ import { updatesSettingsHtml } from './updates-ui.js';
 import { agentTip } from './activity.js';
 export const EFFORT_LABEL = { low: 'baixo', medium: 'médio', high: 'alto', xhigh: 'muito alto', max: 'máximo' };
 import { providersCardHtml } from './providers-ui.js';
+import { hermesCardHtml } from './hermes-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
@@ -138,7 +139,7 @@ export function viewConnections(ctx) {
     <h3 style="margin:16px 0 8px">Autenticação</h3><p class="small ${info.authenticated ? '' : 'muted'}">${info.authenticated == null ? 'Login não verificado.' : info.authenticated ? `Login ativo${info.method ? ' (' + esc(info.method) + ')' : ''}.` : 'Login inativo.'}</p>
     <button class="btn block" data-act="copy" data-id="${esc(cmd.login)}" ${cmd.login && info.installed ? '' : 'disabled'} style="margin-top:8px">${icon('copy', 18)} Copiar comando de login</button><p class="muted small" style="text-align:center;margin-top:8px">Rode <code>${esc(cmd.login || '—')}</code> no terminal e conclua o acesso no fluxo oficial do provedor. O Code Room não captura senha.</p>
     <h3 style="margin:16px 0 8px">Recursos disponíveis</h3><div class="chips"><span class="chip">${icon('file', 16)} Arquivos</span><span class="chip">${icon('terminal', 16)} Comandos</span></div></aside></div>
-  ${providersCardHtml(ctx)}
+  ${providersCardHtml(ctx)}${hermesCardHtml(ctx)}
   ${publishCard(ctx)}
   ${channelsCard(ctx)}
   <section class="card"><h2>Módulos e capacidades</h2>${mods ? mods.map(m => `<div class="module"><strong>${esc(m.name)}</strong> ${Object.entries(m.capabilities).map(([k, v]) => `<span class="pill ${s[v.status][0]}" title="${esc(v.detail)}" style="margin-left:6px">${esc(CAPS[k] || k)}: ${s[v.status][1]}</span>`).join('')}</div>`).join('') : empty('Verificando…')}<p class="muted small" style="margin-top:8px">Uma capacidade só aparece como verificada depois de uma sonda real neste computador.</p></section>

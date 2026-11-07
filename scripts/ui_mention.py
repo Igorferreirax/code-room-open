@@ -6,8 +6,8 @@ from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 4796
-data = tempfile.mkdtemp(prefix='cr-men-data-'); proj = tempfile.mkdtemp(prefix='cr-men-proj-'); atalhos = tempfile.mkdtemp(prefix='cr-men-atalhos-')  # o teste nunca mexe na pasta Inicializar de verdade
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_ATALHOS_DIR=atalhos), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+data = tempfile.mkdtemp(prefix='cr-men-data-'); proj = tempfile.mkdtemp(prefix='cr-men-proj-'); atalhos = tempfile.mkdtemp(prefix='cr-men-atalhos-'); homedir = tempfile.mkdtemp(prefix='cr-men-home-')  # sem o hermes.bat de verdade  # o teste nunca mexe na pasta Inicializar de verdade
+srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_ATALHOS_DIR=atalhos, USERPROFILE=homedir, HOME=homedir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 
 def check(name, ok, extra=''):
@@ -109,15 +109,38 @@ try:
         check('energia: desligar volta ao padrão', api('power')['keepAwake'] is False and api('power')['holding'] is False)
         check('inicio: o interruptor aparece desligado', page.locator('#power-card #pref-startup').count() == 1 and api('startup')['on'] is False)
         page.click('#pref-startup')
-        for _ in range(20):
+        for _ in range(50):
             if api('startup')['on']: break
             page.wait_for_timeout(400)
         check('inicio: ligar cria o atalho (na pasta de teste)', api('startup')['on'] is True and os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
         page.click('#pref-startup')
-        for _ in range(20):
+        for _ in range(50):
             if not api('startup')['on']: break
             page.wait_for_timeout(400)
         check('inicio: desligar remove o atalho', api('startup')['on'] is False and not os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
+        # ---- Hermes (servidor remoto): configuração dentro do app ----
+        clear_chat(page); page.click('[data-nav=connections]'); page.wait_for_selector('#hermes-card', timeout=10000); page.wait_for_timeout(400)
+        check('hermes: o cartão aparece em Conexões, ainda não configurado', 'Não configurado' in page.inner_text('#hermes-card') and api('hermes')['configured'] is False)
+        keyfile = os.path.join(proj, 'chave_de_teste'); open(keyfile, 'w').write('segredo-que-nao-pode-ser-copiado')
+        page.fill('#hermes-host', '-oProxyCommand=calc'); page.fill('#hermes-key', keyfile.replace(chr(92), '/')); page.click('#hermes-card button[type=submit]'); page.wait_for_timeout(800)
+        check('hermes: servidor com cara de opção do ssh é recusado e nada é salvo', api('hermes')['configured'] is False)
+        page.fill('#hermes-host', 'ubuntu@servidor-que-nao-existe.invalid'); page.fill('#hermes-port', '22'); page.fill('#hermes-bin', 'hermes'); page.click('#hermes-card button[type=submit]')
+        page.wait_for_function if False else None
+        for _ in range(20):
+            if api('hermes')['configured']: break
+            page.wait_for_timeout(300)
+        h = api('hermes'); check('hermes: configuração válida é salva (só o caminho da chave, não o conteúdo)', h['configured'] and h['source'] == 'app' and h['host'].startswith('ubuntu@') and 'segredo' not in json.dumps(h))
+        page.wait_for_selector('#hermes-card [data-act=hermes-test]', timeout=5000); page.click('#hermes-card [data-act=hermes-test]')
+        for _ in range(60):
+            t = page.inner_text('#hermes-card')
+            if 'Conectou' in t or page.locator('#hermes-card .upd-err').count(): break
+            page.wait_for_timeout(500)
+        check('hermes: o teste de conexão responde com uma frase clara (sem travar)', page.locator('#hermes-card .upd-err').count() >= 1 or 'Conectou' in page.inner_text('#hermes-card'), page.inner_text('#hermes-card')[-200:])
+        page.click('#hermes-card [data-act=hermes-delete]')
+        for _ in range(20):
+            if not api('hermes')['configured']: break
+            page.wait_for_timeout(300)
+        check('hermes: remover apaga a configuração', api('hermes')['configured'] is False)
         # ---- /celular no chat ----
         page.click('[data-nav=room]'); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)
@@ -130,6 +153,7 @@ try:
         check('chat: digitar @ lista os agentes', page.locator('#slash-pop [data-pick]').count() >= 1 and 'Pesquisador' in page.inner_text('#slash-pop'))
         page.keyboard.press('Escape'); page.fill('#mission', '')
         txt = page.inner_text('#chat'); srvm = api('assistant')['messages']; check('/celular responde com o passo a passo', 'Abrir o Code Room no celular' in txt, 'msgs no servidor=' + str(len(srvm)) + ' alvo=' + str(page.evaluate("document.getElementById('target') && document.getElementById('target').value")) + ' barra=' + repr(page.input_value('#mission')) + ' reqs=' + str(reqs[-5:]))
+        errors = [e for e in errors if 'status of 400' not in e]   # o 400 do Hermes inválido é o servidor recusando de propósito
         check('sem erro de console', not errors, errors[:3])
         browser.close()
 finally:

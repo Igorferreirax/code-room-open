@@ -244,6 +244,7 @@ function readFjForm() { const f = $('fj-form'); if (!f) return; const d = Object
 function renderFj() { if ($('fj-dialog').open || true) $('fj-body').innerHTML = folderJobDialogHtml(ctx); }
 // ---------- Outras IAs (conectadas pela pessoa) ----------
 function syncProviderNames() { for (const c of ctx.state.connectors || []) if (c.custom) { V.PROVIDER[c.id] = c.name; PROVIDER_NAMES[c.id] = c.name; } }
+async function loadHermes() { try { ctx.hermes = await api('hermes'); } catch { ctx.hermes = null; } if (ctx.view === 'connections') render(); }
 async function loadProviders() { try { ctx.providers = await api('providers'); } catch { ctx.providers = { catalog: [], custom: [], max: 10 }; } if (ctx.view === 'connections') render(); renderProv(); }
 function readProvForm() { const f = $('prov-form'); if (!f) return; const d = Object.fromEntries(new FormData(f)); ctx.ui.provForm = { ...(ctx.ui.provForm || emptyForm()), name: d.name || '', exe: d.exe || '', promptVia: d.promptVia || 'arg', argsText: d.argsText || '', modelFlag: d.modelFlag || '' }; }
 function renderProv() { const d = $('prov-dialog'); if (!d.open) return; $('prov-body').innerHTML = providerDialogHtml(ctx); }
@@ -340,7 +341,7 @@ function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.
 async function go(view) {
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
   if (view === 'skills') loadSkills(true);
-  if (view === 'connections') loadProviders();
+  if (view === 'connections') { loadProviders(); loadHermes(); }
   if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
   if (view === 'settings') loadStorage();
   if (view === 'usage') loadLimits();
@@ -422,6 +423,13 @@ const actions = {
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
   'retention-preview': async () => { ctx.retention = 'busy'; render(); try { ctx.retention = await api('retention?days=7'); } catch (e) { ctx.retention = null; notify(e.message, true); } render(); },
   'retention-purge': async () => { if (!confirm('Apagar de vez os itens da lista? Isso não pode ser desfeito. Suas entregas, projetos e conversas não são afetados.')) return; try { const r = await api('retention/purge', { days: 7 }); ctx.retention = null; const mb = r.freedBytes ? ` ${(r.freedBytes / 1048576).toFixed(1).replace('.', ',')} MB liberados.` : ''; notify('Limpeza concluída.' + mb); } catch (e) { notify(e.message, true); } render(); },
+  'hermes-test': async () => {
+    const body = { host: $('hermes-host')?.value, port: $('hermes-port')?.value, key: $('hermes-key')?.value, bin: $('hermes-bin')?.value, trustNew: $('hermes-trust')?.checked === true };
+    ctx.hermesTest = 'busy'; render();
+    try { ctx.hermesTest = await api('hermes/test', body.host || body.key ? body : {}); } catch (e) { ctx.hermesTest = { ok: false, error: e.message }; }
+    render();
+  },
+  'hermes-delete': async () => { if (!confirm('Remover a configuração do servidor Hermes? A chave e o servidor não são tocados, só o registro aqui no Code Room.')) return; try { ctx.hermes = await api('hermes/delete', {}); ctx.hermesTest = null; await refresh(); loadChecks(true); notify('Configuração do Hermes removida.'); } catch (e) { notify(e.message, true); } render(); },
   'mini-open': id => openMini(id),
   'mini-close': id => closeMini(id),
   'mention-agent': id => mentionAgent(id),
@@ -652,6 +660,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey
 document.addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, fid = f.getAttribute('id');
   try {
+    if (fid === 'hermes-form') {   // servidor do Hermes: o servidor valida de novo tudo o que chega
+      ctx.hermes = await api('hermes', { host: $('hermes-host').value, port: $('hermes-port').value, key: $('hermes-key').value, bin: $('hermes-bin').value, trustNew: $('hermes-trust').checked });
+      ctx.hermesTest = null; await refresh(); loadChecks(true); notify('Servidor do Hermes salvo. Clique em “Testar a conexão”.'); render(); return;
+    }
     if (f.classList.contains('mini-form')) {   // janela de chat extra: missão direta ao agente daquela janela
       const ta = f.querySelector('textarea'), text = ta.value.trim(); if (!text) return;
       if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.');

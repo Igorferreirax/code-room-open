@@ -16,7 +16,7 @@ import { cleanLook } from './looks.mjs';
 import { Orchestrator } from './orchestrator.mjs';
 import { Routines } from './routines.mjs';
 import { Recipes } from './recipes.mjs';
-import { connectors, check, REMOTE_PROVIDERS } from './connectors.mjs';
+import { connectors, check, REMOTE_PROVIDERS, setHermesDir } from './connectors.mjs';
 import { scanSkills, auditSummary, usable } from './skills.mjs';
 import { createTask, retryTask } from './tasks.mjs';
 import { safeFile, contentType, mintToken, checkToken } from './deliverables.mjs';
@@ -28,6 +28,7 @@ import { retentionScan, retentionClean } from './retention.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { Power } from './power.mjs';
 import { startupState, setStartup } from './startup.mjs';
+import { saveHermesFile, clearHermesFile, loadHermesFile, testHermes, validateHermes, findSsh } from './hermes.mjs';
 import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
@@ -46,6 +47,7 @@ import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, M
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = readPackageVersion(join(root, 'package.json'));   // uma só fonte da versão
 const data = resolve(process.env.CODE_ROOM_DATA || join(root, '.data'));
+setHermesDir(data);
 mkdirSync(data, { recursive: true });
 const keyFile = join(data, 'access.key');
 if (!existsSync(keyFile)) writeFileSync(keyFile, randomBytes(32).toString('hex'), { mode: 0o600 });
@@ -128,6 +130,10 @@ const routines = new Routines(store, (r, slot) => {
 function okKey(value) { const a = Buffer.from(value || ''), b = Buffer.from(key); return a.length === b.length && timingSafeEqual(a, b); }
 // 'master' = chave do PC; 'device' = token de um celular pareado (revogável, sem acesso a rede, aparelhos e registro de projetos).
 function authLevel(req) { const v = req.headers['x-code-room-key']; if (okKey(v)) return 'master'; return devices.verify(v, req.socket.remoteAddress) ? 'device' : null; }
+const hermesView = () => {
+  const saved = loadHermesFile(data), cur = saved || connectors().find(c => c.id === 'hermes')?.remote || null;
+  return { configured: !!cur, source: saved ? 'app' : cur ? 'hermes.bat' : null, host: cur?.host || '', port: Number(cur?.port) || 22, key: cur?.key || '', bin: cur?.bin || 'hermes', trustNew: !!saved?.trustNew, sshInstalled: !!findSsh() };
+};
 const mcpCtx = () => ({ dataDir: data, devices, node: process.execPath, script: join(root, 'server', 'mcp.mjs') });
 const masterOnly = auth => { if (auth !== 'master') throw Object.assign(new Error('Esta ação só pode ser feita no computador (chave principal).'), { status: 403 }); };
 function text(value, max = 200) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`Texto obrigatório (até ${max} caracteres).`); return value.trim(); }
@@ -246,6 +252,7 @@ const handle = async (req, res) => {
       if (get && p === '/api/retention') { masterOnly(auth); return send(res, 200, await retentionScan({ store, dataDir: data, appDir: root, days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 })); }
       if (get && p === '/api/startup') { masterOnly(auth); return send(res, 200, startupState()); }
       if (get && p === '/api/power') { masterOnly(auth); return send(res, 200, power.status()); }
+      if (get && p === '/api/hermes') { masterOnly(auth); return send(res, 200, hermesView()); }
       if (get && p === '/api/mcp') { masterOnly(auth); return send(res, 200, mcpInfo(mcpCtx())); }
       if (get && p === '/api/network/diagnose') { masterOnly(auth); return send(res, 200, { checks: await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() }) }); }
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
@@ -321,6 +328,9 @@ const handle = async (req, res) => {
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
         if (p === '/api/startup') { masterOnly(auth); return send(res, 200, await setStartup(b.on === true, { root })); }
         if (p === '/api/power') { masterOnly(auth); return send(res, 200, power.setKeepAwake(b.keepAwake === true)); }
+        if (p === '/api/hermes') { masterOnly(auth); saveHermesFile(data, b); return send(res, 200, hermesView()); }
+        if (p === '/api/hermes/test') { masterOnly(auth); const cfg = Object.keys(b).length ? validateHermes(b) : loadHermesFile(data); if (!cfg) throw new Error('Preencha e salve a configuração do servidor antes de testar.'); return send(res, 200, await testHermes(cfg)); }
+        if (p === '/api/hermes/delete') { masterOnly(auth); clearHermesFile(data); return send(res, 200, hermesView()); }
         if (p === '/api/mcp/activate') { masterOnly(auth); return send(res, 200, mcpActivate(mcpCtx())); }
         if (p === '/api/mcp/deactivate') { masterOnly(auth); return send(res, 200, mcpDeactivate(mcpCtx())); }
         if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, await retentionClean({ store, dataDir: data, appDir: root, days: Number(b.days) || 7 })); }

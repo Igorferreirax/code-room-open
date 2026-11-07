@@ -5,13 +5,17 @@ import { homedir } from 'node:os';
 import { effortsFor } from './effort.mjs';
 const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
 import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
+import { loadHermesFile, sshArgs, findSsh } from './hermes.mjs';
 
 export function executable(name, candidates = []) {
   return [...candidates, ...(process.env.PATH || '').split(delimiter).map(d => join(d, process.platform === 'win32' ? name + '.exe' : name))].find(p => p && existsSync(p)) || null;
 }
 // Hermes Agent roda em um servidor remoto (via SSH). Host, chave e caminho vêm do wrapper que você já usa (hermes.bat); nada disso é copiado para o banco.
+let hermesDir = null; export const setHermesDir = d => { hermesDir = d; };
 function hermesConfig() {
   try {
+    const saved = loadHermesFile(hermesDir);   // configuração feita dentro do app (Conexões) tem prioridade sobre o hermes.bat
+    if (saved) { const ssh = findSsh() || executable('ssh'); return ssh ? { ssh, ...saved, port: String(saved.port), source: 'app' } : null; }
     const text = readFileSync(join(homedir(), 'bin', 'hermes.bat'), 'utf8'), get = k => text.match(new RegExp(`set "${k}=([^"]+)"`, 'i'))?.[1]?.replace(/%USERPROFILE%/gi, homedir());
     const ssh = [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe')].find(existsSync) || executable('ssh');
     const key = get('SSH_KEY'), host = get('SSH_HOST'), bin = get('HERMES_BIN'), port = text.match(/ssh [^\r\n]*? -p (\d+)/)?.[1] || '22';
@@ -57,7 +61,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     // Prompt pela entrada padrão (--query-file -): nada passa pelo shell remoto, então aspas, $(...) e quebras de linha chegam intactas.
     const r = provider.remote; if (!r) throw Object.assign(new Error('Hermes não configurado: o arquivo bin\hermes.bat não foi encontrado.'), { failureKind: 'executable_missing' });
     const budget = Math.max(30, Math.floor(timeoutMs / 1000) - 10), q = `${r.bin} chat --query-file - --oneshot -Q --format stream-json --max-turns 12 --run-budget ${budget}`;
-    return { file: r.ssh, args: ['-T', '-p', r.port, '-i', r.key, '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', r.host, q], input: prompt };
+    return { file: r.ssh, args: sshArgs(r, q), input: prompt };
   } else {
     args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
@@ -131,7 +135,7 @@ export async function check() {
   for (const c of connectors()) {
     if (!c.path) { result.push({ id: c.id, installed: false, path: null, version: null, authenticated: null, method: null }); continue; }
     if (c.custom) { const l = launcher(c.path), v = l ? await run(l.file, [...l.pre, ...(c.spec.versionArgs || ['--version'])], 15000) : { out: '' }; result.push({ id: c.id, installed: true, path: c.path, version: v.out.split(String.fromCharCode(10))[0] || null, authenticated: null, method: 'conta ou chave da própria IA (o Code Room não guarda credenciais)', custom: true }); continue; }
-    const version = c.id === 'hermes' ? await run(c.path, ['-T', '-p', c.remote.port, '-i', c.remote.key, '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', c.remote.host, `${c.remote.bin} --version`], 15000) : await run(c.path, ['--version']);
+    const version = c.id === 'hermes' ? await run(c.path, sshArgs(c.remote, `${c.remote.bin} --version`, { connectTimeout: 10 }), 15000) : await run(c.path, ['--version']);
     let authenticated = null, method = null;
     if (c.id === 'codex') {
       const s = await run(c.path, ['login', 'status']);
