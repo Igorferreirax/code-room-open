@@ -24,3 +24,15 @@ Quando terminar, responda assim
 ```
 
 Observações de segurança do Code Room: o acesso remoto vem desligado; o serviço escuta só nos endereços que você liberar; o celular pareado recebe um token próprio (revogável em Configurações › Acesso) e não acessa as rotas exclusivas do computador (rede, aparelhos, registro de projetos).
+
+## Testar no Android (Tailscale, funciona de qualquer rede)
+1. No computador: Configurações › Acesso › ligue o **Tailscale**. No celular: instale o app **Tailscale** (Play Store), entre com a MESMA conta do computador e deixe a chave ligada.
+2. No computador: clique em **Diagnosticar o acesso** (tudo ✅ ou ℹ️) e em **Parear um celular**.
+3. No celular: abra a câmera ou o leitor de QR e escaneie, ou digite o endereço `http://100.x.y.z:4780/` (o Code Room mostra) no Chrome e informe o código.
+4. Se não abrir: **Liberar no firewall do Windows** (clique em Sim) e tente de novo.
+
+## Testar no Android pelo Wi-Fi de casa (sem Tailscale)
+1. Ligue **Rede local** em Configurações › Acesso e clique em **Liberar no firewall do Windows**.
+2. Celular e computador no mesmo Wi-Fi; escaneie o QR ou abra `http://IP-do-computador:4780/`.
+3. Desligue a Rede local fora de casa (HTTP sem criptografia).
+

@@ -38,3 +38,9 @@ Legenda: ✅ feito · 🔄 em andamento · ⬜ a fazer · 👤 depende do Igor
 - ⬜ Dois servidores do Code Room antigos (ativos desde 06/11 13:00) ainda rodando na máquina: conferir de onde vêm e encerrar.
 - ⬜ Retenção/limpeza de tarefas internas do Assistente; erros antigos do chat.
 
+## G. Fechamento (07/11/2026, noite)
+- ✅ v0.2.1 publicada (Release, landing com links e SHA-256 novos conferidos em produção). Teste do atualizador: 28 OK.
+- ✅ Mencionar agente por clique; limpar erros do chat; limpeza de tarefas internas com prévia; comandos locais antes da apresentação.
+- ⬜ Teste do acesso remoto no Android (guia em CELULAR-PROMPT.md), assinatura do Setup.exe, domínio da Bytelab.
+- ⬜ Dois processos antigos do Code Room (desde 06/11 13:00; um em porta aleatória) ainda ativos: não encerrados por não saber de quem são.
+
