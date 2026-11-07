@@ -10,6 +10,9 @@ do meio (0.**3**.0).
 ## [Não lançado]
 
 ### Adicionado
+- **Assistente com mais autonomia (sempre com o seu clique):** novas ações `criar_canal` (perfil por nicho, com as contas só como @ público) e `criar_rotina` (manual, diária ou semanal), e `navegador` opcional ao criar agente. Ele enxerga os canais e rotinas que já existem. O manual dele agora explica as capacidades do Code Room e a orquestração. Ele continua sem conectar contas nem publicar.
+- **Limpeza automática opcional** (Configurações › Execução, desligada por padrão): uma vez por dia apaga só o que a limpeza com prévia já apagaria e avisa quanto liberou.
+- **Player da Rádio Lo-Fi recolhível:** começa como um botãozinho discreto; abre com play, próxima faixa e volume, e se recolhe sozinho. Equalizador animado quando está tocando.
 - **Balão de conversa ao lado do agente:** clicar em um agente abre um balão colado nele, com estado, o que faz ao vivo e caixa de missão. **Fixar em janela** leva para uma janela lateral (até 3 agentes lado a lado).
 - **Sessão ao vivo no chat com o agente:** a linha do tempo da tarefa (ações, resposta chegando, estado) aparece no chat e atualiza sozinha.
 - **Servidor MCP** (`server/mcp.mjs`): o Claude Code, o Codex e outras ferramentas consultam o Code Room. Token próprio e revogável, somente leitura por padrão; aprovar e apagar nunca ficam disponíveis. Guia em [docs/MCP.md](docs/MCP.md).
@@ -19,6 +22,13 @@ do meio (0.**3**.0).
 - **Ícone perto do relógio e "Iniciar com o Windows"**, com ícone próprio na janela de app.
 - **Limpeza ampliada, com prévia:** pacotes de atualização já baixados, cópia da versão anterior (depois de 7 dias) e avisos antigos; logs grandes giram no início.
 - **Teste do Canvas por toque** que mede a taxa de acerto (`scripts/ui_touch.py`); alvo maior do ponto de saída em telas de toque.
+
+### Alterado
+- **Ícone do chat minimalista:** sem o círculo em volta, só o mascote. O humor muda a cor do próprio assistente (verde-água tudo certo, amarelo aviso, vermelho falha, verde novidade) e o rodapé deixa espaço para o "Desenvolvido por Bytelab" nunca ficar coberto.
+- **"Atividade recente" compacta:** uma linha por atividade e lista com altura máxima e rolagem própria (guarda 20 em vez de 8), sem esticar a página.
+
+### Removido
+- **Player de músicas locais** ("Música de foco"): a Rádio Lo-Fi, gerada no próprio navegador, faz o papel dele.
 
 ### Corrigido
 - **`/celular` e o diagnóstico de acesso respondiam em cerca de 15 segundos** (a leitura do Firewall exigia administrador e terminava em "acesso negado"). Agora levam menos de 1 segundo e não precisam de administrador.
