@@ -13,6 +13,9 @@
 - **Aprovação antes de sair.** A prévia espera em `AGUARDANDO_APROVACAO/<CANAL>`. *Aprovar* entrega o pacote em `POSTAR_<CANAL>`. *Pedir ajuste* refaz só o que você apontar. *Reprovar* move tudo para a `LIXEIRA` (nada é apagado de vez). Nada é publicado sozinho.
 - **Rotinas.** Por horário, manuais ou quando um arquivo aparece.
 - **Consumo honesto.** O que o provedor não informa aparece como “indisponível”, nunca como zero nem inventado.
+- **Uso por IA.** Cartões resumem as janelas de uso que cada provedor reporta, com o horário da leitura e o reset; a tabela detalhada existente continua abaixo.
+- **Assistente.** Conversas podem ser renomeadas; o contexto inclui o status atual das tarefas, equipes e pastas de entrada.
+- **Modelos e esforço.** Configure no agente ou temporariamente para uma missão individual, respeitando as opções aceitas por cada IA.
 - **No celular.** Pareamento por QR (código de uso único, token por aparelho, revogável) pela rede local ou pelo Tailscale. Vem **desligado** por padrão.
 - **Primeiro uso guiado.** Em uma instalação nova, uma triagem confere quais IAs (Codex, Claude Code, Gemini) estão instaladas e conectadas, mostra o comando exato para instalar ou entrar, e cria agentes iniciais com um clique. Depois, um tutorial passo a passo apresenta as 12 telas. Dá para **pular** a qualquer momento e rever pelo menu do usuário › Guia de boas-vindas.
 - **Local e privado.** O serviço escuta só em `127.0.0.1`. Usa os CLIs que você já tem logados; o Code Room não guarda nem mostra credenciais.
@@ -48,7 +51,7 @@ Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais 
 - O teste de toque do Canvas no `test:ui` é intermitente.
 
 ## Documentação
-[docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
+[docs/VISAO-PRODUTO.md](docs/VISAO-PRODUTO.md) · [docs/STATUS-2026-11-06.md](docs/STATUS-2026-11-06.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
 
 ## Licença e créditos
 [MIT](LICENSE). Desenvolvido por [Bytelab](https://www.agenciabytelab.com.br).

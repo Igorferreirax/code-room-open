@@ -70,6 +70,10 @@ try:
             OTHER[S['thread']] = S['messages']; S['thread'] = body['id']; S['messages'] = OTHER.get(body['id'], [])
             for t in S['threads']: t['active'] = t['id'] == body['id']
             return out(S)
+        if path == 'thread/rename':
+            for t in S['threads']:
+                if t['id'] == body['id']: t['title'] = body['title']
+            return out(S)
         if path == 'thread/delete':
             S['threads'] = [t for t in S['threads'] if t['id'] != body['id']]; S['thread'] = S['threads'][0]['id']; S['threads'][0]['active'] = True; S['messages'] = OTHER.get(S['thread'], []); return out(S)
         if path == 'apply':
@@ -117,7 +121,10 @@ try:
         pg.click('[data-act=asst-new-thread]'); nap(0.5); check('Nova conversa: abre uma aba vazia e a anterior continua guardada', pg.locator('.cw-th:not(.add)').count() == 2 and pg.is_visible('.as-empty') and calls[-1][0] == 'thread/new')
         pg.fill('#mission', 'Revise o código do projeto'); pg.keyboard.press('Enter'); nap(0.6); S['pending'] = None; S['messages'].append({'id': 'a2', 'role': 'assistant', 'text': 'Resposta da conversa 2', 'at': '2026-11-07T10:01:00Z', 'actions': []}); nap(2.0)
         pg.click('.cw-th:not(.add) >> nth=0 >> button'); nap(0.6); check('voltar à primeira conversa mostra o histórico dela, não o da segunda', 'Sugiro' in pg.inner_text('#asst') and 'Resposta da conversa 2' not in pg.inner_text('#asst'))
-        pg.on('dialog', lambda d: d.accept()); pg.click('.cw-th.on .cw-x'); until(lambda: calls[-1][0] == 'thread/delete'); nap(0.5); check('apagar uma conversa (com confirmação) remove a aba', pg.locator('.cw-th:not(.add)').count() == 1 and calls[-1][0] == 'thread/delete', (pg.locator('.cw-th:not(.add)').count(), calls[-3:]))
+        pg.on('dialog', lambda d: d.accept()); pg.click('[data-act=asst-thread-del]'); until(lambda: calls[-1][0] == 'thread/delete'); nap(0.5); check('apagar uma conversa (com confirmação) remove a aba', pg.locator('.cw-th:not(.add)').count() == 1 and calls[-1][0] == 'thread/delete', (pg.locator('.cw-th:not(.add)').count(), calls[-3:]))
+        pg.click('[data-act=asst-thread-rename]'); pg.wait_for_selector('.cw-rename'); pg.fill('.cw-rename', 'Equipe de vídeo (teste)'); pg.keyboard.press('Enter'); until(lambda: calls[-1][0] == 'thread/rename'); nap(0.5)
+        check('renomear: o lápis abre o campo, Enter grava e a aba mostra o novo nome', calls[-1] == ('thread/rename', {'id': S['thread'], 'title': 'Equipe de vídeo (teste)'}) and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-th.on') and pg.locator('.cw-rename').count() == 0, calls[-1])
+        pg.dblclick('.cw-th.on [data-act=asst-thread]'); pg.wait_for_selector('.cw-rename'); pg.keyboard.press('Escape'); nap(0.3); check('duplo clique também abre o campo e Esc cancela sem gravar', pg.locator('.cw-rename').count() == 0 and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-th.on'))
         # missão direta: mesma janela, mesma barra
         pg.select_option('#target', 'a:' + AG['id']); nap(0.6)
         check('trocar o destino muda a foto, o nome e o corpo para "missão direta" (sem abas de conversa)', 'Diretor' in pg.inner_text('#chat-head') and 'missão direta' in pg.inner_text('#chat-head') and 'Missão direta' in pg.inner_text('#asst') and pg.locator('.cw-threads').count() == 0)

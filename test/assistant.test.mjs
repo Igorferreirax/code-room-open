@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { parseActions, normalizeAction, stateSummary, buildPrompt, briefingPrompt, checkBriefing, chooseProvider, loadManual, Assistant, ASSISTANT_PROJECT } from '../server/assistant.mjs';
+import { parseActions, normalizeAction, stateSummary, liveStatus, buildPrompt, briefingPrompt, checkBriefing, chooseProvider, loadManual, Assistant, ASSISTANT_PROJECT } from '../server/assistant.mjs';
 import { setup, addProject, addAgent, waitFor, tempDir } from './helpers.mjs';
 
 const world = (over = {}) => ({
@@ -53,6 +53,27 @@ test('abrir_tela e ação desconhecida: telas conhecidas viram o id interno; o r
 test('resumo do estado: nomes, papéis e skills; nunca caminhos, chaves nem dados de projeto', () => {
   const w = world({ teams: [{ name: 'E1', members: [{ role: 'revisor', agentId: 'a2' }] }] }); const s = stateSummary(w, [{ name: 'Canal', path: 'C:/Users/pessoa/segredo' }]);
   assert.match(s, /Desenvolvedor \(dev\) · codex · edita arquivos/); assert.match(s, /E1: revisor=Revisor/); assert.match(s, /Projetos \(só os nomes\): Canal/); assert.match(s, /copywriting/); assert.ok(!/segredo|C:\/Users|access\.key/.test(s)); assert.ok(!/quebrada|sem-cabecalho/.test(s), 'skill bloqueada não é oferecida');
+});
+
+test('status ao vivo: resume tarefas, lotes e detalha projeto, equipe e agente citados', () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  const runs = [
+    { id: 'r1', status: 'running', agent: { id: 'a1', name: 'Desenvolvedor' }, project: { id: 'p1', name: 'Canal' }, prompt: 'editar vídeo', createdAt: new Date(now - 120000).toISOString() },
+    { id: 'r2', status: 'queued', agent: { id: 'a2', name: 'Revisor' }, project: { id: 'p1', name: 'Canal' }, prompt: 'revisar entrega', createdAt: new Date(now - 60000).toISOString() },
+    { id: 'r3', status: 'failed', agent: { id: 'a1', name: 'Desenvolvedor' }, project: { id: 'p1', name: 'Canal' }, prompt: 'renderizar arquivo', reason: 'ffmpeg indisponível', updatedAt: new Date(now - 30000).toISOString() },
+    { id: 'r4', status: 'completed', agent: { id: 'a2', name: 'Revisor' }, project: { id: 'p2', name: 'Site' }, prompt: 'revisar página', updatedAt: new Date(now - 10000).toISOString(), files: 2 }
+  ];
+  const w = { ...world(), runs, projects: [{ id: 'p1', name: 'Canal' }], teams: [{ id: 'team1', name: 'Equipe de Vídeo', members: [{ agentId: 'a1' }, { agentId: 'a2' }] }], flows: [{ teamId: 'team1', status: 'running', objective: 'Produzir vídeo' }], folderJobs: [{ name: 'Vídeos novos', counts: { total: 4, done: 1, failed: 1, running: 1, queued: 1 } }] };
+  const status = liveStatus(w, 'Qual o status da Equipe de Vídeo no projeto Canal?', now);
+  assert.match(status, /1 em execução, 1 na fila, 4 tarefas no histórico recente/);
+  assert.match(status, /Desenvolvedor está trabalhando em/);
+  assert.match(status, /Revisor está na fila/);
+  assert.match(status, /FALHOU em “renderizar arquivo”.*motivo: ffmpeg indisponível/);
+  assert.match(status, /Equipe de Vídeo: running/);
+  assert.match(status, /Vídeos novos: 1 de 4 prontos, 1 com problema, 1 processando, 1 na fila/);
+  assert.match(status, /Detalhe — projeto Canal:/);
+  assert.match(status, /Detalhe — equipe Equipe de Vídeo:/);
+  assert.match(stateSummary(w, w.projects, 'status do Canal'), /STATUS AO VIVO[\s\S]*projeto Canal/);
 });
 
 test('prompt: tem as regras, o manual, o que a IA entendeu, o estado e a pergunta por último; histórico é cortado, tamanho limitado', () => {
@@ -188,15 +209,19 @@ test('fluxo: cadeia por @menções com skill nova: criar_skill, definir_skills, 
 test('conversas: cada uma tem o seu histórico e título; a resposta volta para a conversa que perguntou mesmo se você trocou; apagar e limites funcionam', async () => {
   const { asst, say, done } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
   let s = await asst.status(); assert.equal(s.threads.length, 1); assert.equal(s.threads[0].title, 'Conversa 1'); const first = s.thread;
+  s = await asst.renameThread(first, 'Planejamento de vídeo'); assert.equal(s.threads[0].title, 'Planejamento de vídeo');
   say('Resposta da conversa 1'); await asst.ask('Monte uma equipe de edição de vídeo para o documentário'); s = await done();
-  assert.equal(s.threads[0].title, 'Monte uma equipe de edição d', 'o título vem da primeira pergunta'); assert.equal(s.messages.length, 2);
+  assert.equal(s.threads[0].title, 'Planejamento de vídeo', 'o título escolhido permanece'); assert.equal(s.messages.length, 2);
   s = await asst.newThread(); assert.equal(s.threads.length, 2); assert.equal(s.messages.length, 0, 'conversa nova começa vazia'); assert.notEqual(s.thread, first); const second = s.thread; assert.equal(s.threads[1].title, 'Conversa 2');
   say('Resposta da conversa 2'); await asst.ask('Revise o código do projeto'); s = await done(); assert.match(s.messages.at(-1).text, /conversa 2/); assert.equal(s.threads[1].title, 'Revise o código do projeto');
+  s = await asst.renameThread(first, 'Ideias de roteiro'); assert.equal(s.threads.find(t => t.id === first).title, 'Ideias de roteiro', 'também renomeia conversa inativa');
   s = await asst.selectThread(first); assert.equal(s.messages.length, 2); assert.match(s.messages.at(-1).text, /conversa 1/, 'histórico da primeira intacto'); assert.deepEqual(s.threads.map(t => t.id), [first, second], 'a ordem das abas não muda ao trocar');
   // pergunta na 1, troca para a 2 antes da resposta: a resposta cai na 1
   say('Chegou depois'); await asst.ask('Outra pergunta'); s = await asst.selectThread(second); assert.equal(s.threads.find(t => t.id === first).waiting, true); await assert.rejects(() => asst.deleteThread(first), /esperando uma resposta/);
   s = await done(); assert.equal(s.messages.length, 2, 'a conversa 2 não recebeu a resposta da 1'); s = await asst.selectThread(first); assert.equal(s.messages.length, 4); assert.match(s.messages.at(-1).text, /Chegou depois/);
   await assert.rejects(() => asst.selectThread('nao-existe'), /não encontrada/);
+  await assert.rejects(() => asst.renameThread('nao-existe', 'Título'), /não encontrada/);
+  await assert.rejects(() => asst.renameThread(first, '   '), /Dê um nome/);
   s = await asst.deleteThread(second); assert.equal(s.threads.length, 1); assert.equal(s.thread, first); s = await asst.deleteThread(first); assert.equal(s.threads.length, 1); assert.equal(s.messages.length, 0, 'apagar a última deixa uma vazia');
   for (let i = 0; i < 7; i++) await asst.newThread(); await assert.rejects(() => asst.newThread(), /Limite de 8/);
 });

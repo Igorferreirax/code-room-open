@@ -34,7 +34,12 @@ Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
 Write-Host ("zip: {0} ({1:N1} MB, Node {2})" -f $zip, ((Get-Item $zip).Length / 1MB), $nodeVersion)
 
 # 4) Instalador (Inno Setup 6), se existir
-$iscc = @("$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$iscc = $null
+$candidates = @("$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
+foreach ($candidate in $candidates) {
+  try { if (Test-Path -LiteralPath $candidate) { $iscc = $candidate; break } }
+  catch { continue } # caminhos protegidos podem negar acesso; ainda verificamos as outras instalações conhecidas
+}
 $setup = $null
 if ($iscc) {
   & $iscc "/DAppVersion=$version" "/DStageDir=$stage" "/DOutDir=$out" (Join-Path $PSScriptRoot 'code-room.iss')

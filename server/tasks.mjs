@@ -73,6 +73,9 @@ export function createTask(store, input) {
   const project = store.get('projects', input.projectId), agent = store.get('agents', input.agentId);
   if (!project || !agent) throw new Error('Escolha projeto e agente.');
   if (['hermes'].includes(agent.provider) && project.area === 'Financeiro') throw new Error('Projeto financeiro: dados financeiros não são enviados a um provedor remoto (Hermes).');
+  // Valide os ajustes da missão antes de avançar o contador ou gravar qualquer registro.
+  const missionModel = input.model ? cleanModel(input.model) : agent.model;
+  const missionEffort = input.effort ? cleanEffort(agent.provider, input.effort) : agent.effort;
   const dependsOn = [...new Set(input.dependsOn || [])];
   for (const id of dependsOn) {
     const dep = store.get('tasks', id);
@@ -105,7 +108,7 @@ export function createTask(store, input) {
   const task = {
     id: input.id || randomUUID(), order: counter.n + 1, requestId, kind: input.kind === 'plan' ? 'plan' : 'work',
     project: { id: project.id, name: project.name, path: project.path, area: project.area || 'Geral' },
-    agent: { ...agent, ...(input.model ? { model: cleanModel(input.model) } : {}), ...(input.effort ? { effort: cleanEffort(agent.provider, input.effort) } : {}) }, environment: agent.room || 'Geral',
+    agent: { ...agent, model: missionModel, effort: missionEffort }, environment: agent.room || 'Geral',
     objective: str(input.objective ?? input.prompt, 30000, 'Objetivo'),
     criteria: (input.criteria || []).map(c => str(c, 500, 'Critério')).slice(0, 12),
     inputs: cleanInputs(input.inputs), dependsOn, limits: cleanLimits(input.limits, store.get('settings', 'limits')),

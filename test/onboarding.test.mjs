@@ -22,6 +22,16 @@ test('triagem sem nenhuma IA: mostra como instalar cada uma, avisa e não oferec
   assert.match(html, /não guarda senha nem chave/);
 });
 
+test('primeiro uso oferece checagem opcional do ambiente de vídeo sem instalar nada e exibe itens escapados', () => {
+  const base = setupHtml(ctx(PROVIDERS.map(id => ck(id))));
+  assert.match(base, /data-act="onb-video-check"/);
+  assert.match(base, /Não instala programas nem mostra valores de chaves/);
+  const checked = setupHtml({ ...ctx(PROVIDERS.map(id => ck(id))), ui: { onb: { mode: 'setup', videoCheck: { summary: 'aviso', items: [{ label: '<script>x</script>', status: 'aviso', detail: 'não encontrado', fix: 'instale manualmente' }] } } } });
+  assert.doesNotMatch(checked, /<script>x/);
+  assert.match(checked, /&lt;script&gt;x&lt;\/script&gt;/);
+  assert.match(checked, /Ambiente de vídeo: há avisos/);
+});
+
 test('triagem: instalada mas sem login mostra o comando de entrada; enquanto verifica, não acusa erro', () => {
   const html = setupHtml(ctx([ck('codex', { authenticated: false }), ck('claude'), ck('agy', { installed: false })]));
   assert.match(html, /Instalado: falta entrar/); assert.match(html, /<pre>codex login<\/pre>/); assert.match(html, /Conectado/);

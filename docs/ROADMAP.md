@@ -2,6 +2,21 @@
 
 Legenda: ✅ feito · ⬜ a fazer
 
+Atualizado em 06/11/2026. Para validação e distribuição deste commit, veja [STATUS-2026-11-06.md](STATUS-2026-11-06.md).
+Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.md).
+
+## Estado confirmado nesta atualização
+- ✅ Modelo e esforço configuráveis por agente e por missão; testes cobrem validação, isolamento do perfil e argumentos dos três conectores locais.
+- ✅ Renomear conversas do Assistente pelo lápis ou duplo clique; Enter salva, Esc cancela. Cobertura de renderização e persistência adicionada.
+- ✅ Status ao vivo no contexto do Assistente, com detalhe por projeto, equipe, agente e pasta de entrada; cobertura automatizada adicionada.
+- ✅ Painel compacto de Uso por IA usando somente janelas fornecidas pelos provedores; a tabela redundante foi removida, mantendo totais, custos e gráfico de tokens por dia.
+- ✅ Checagem opcional do ambiente de vídeo no primeiro uso; leitura local sem instalação silenciosa. O guia de demonstração ainda falta.
+- ✅ Histórico de rotinas mostra até 30 execuções recentes e permite abrir tarefas vinculadas; filtros e relatórios completos continuam como melhoria futura.
+- ✅ Worktrees para tarefas de escrita isoladas; integração das alterações continua manual.
+- ✅ Atualização do app com conferência de SHA-256 e retorno automático já implementada e testada nos testes automatizados.
+- ⚠️ Os novos fluxos e o painel de uso ainda precisam de inspeção visual no navegador. O rastreador anterior relatado pelo usuário marcou 160 cliques sem problemas; essa rodada não foi reproduzida nesta sessão.
+- ⚠️ O toque para arrastar ligações no Canvas permanece intermitente conforme o relato mais recente; até estabilizar, registrar essa ressalva em vez de marcar como resolvido.
+
 ## Feito
 - ✅ Backend validado com Codex e Claude Code reais: fila, tentativas, cancelamento da árvore de processos, tempo limite, recuperação após queda.
 - ✅ Equipes (desenvolvedor → revisor), supervisor e ligações entre agentes no Canvas.
@@ -13,6 +28,9 @@ Legenda: ✅ feito · ⬜ a fazer
 
 - ✅ Identidade visual (gato no monitor, letreiro pixel), Rádio Lo-Fi (estação com 5 faixas geradas no navegador, 0 MB) e Canvas ao vivo (verde = trabalhando, linha com o trabalho viajando).
 - ✅ **Assistente**: um chat só (janela estilo mensageiro). A IA da pessoa lê o manual, e o que entendeu fica gravado na máquina. Propõe projeto, agentes, equipe, skills (inclusive criar uma), ligações e tarefa; cada passo só roda com aprovação.
+
+- ✅ **Instalador com o visual do Code Room**: assistente do Inno Setup em modo escuro, com a arte pixel das referências (boas-vindas e conclusão), selo do "R", textos em português e arte na tela de progresso. Compilado e conferido na tela (boas-vindas, licença, escolhas e resumo); as telas de progresso e conclusão não foram capturadas porque exigem instalar de verdade. Fica de fora, de propósito: "Todos os usuários" e "Abrir ao entrar no Windows" (ver INSTALADOR-UX.md).
+- ⬜ **Revisar o logotipo** (o "R" com a porta ainda não agradou ao Igor): refazer e aplicar em app, landing e instalador de uma vez.
 
 ## Próximos passos
 ### Fase 2: ver o trabalho acontecendo
@@ -26,9 +44,9 @@ Legenda: ✅ feito · ⬜ a fazer
 - ✅ **Várias conversas** com o Assistente (até 8), em abas, cada uma com seu histórico; a resposta volta para a conversa que perguntou. ⬜ Várias janelas abertas ao mesmo tempo e uma conversa por equipe com histórico próprio.
 
 ### Fase 2: conectar o Code Room ao mundo
-- ⬜ **Servidor MCP do Code Room**: para a IA da pessoa (Claude, Codex…) controlar o Code Room por conexão MCP quando o terminal não for opção. Somente leitura por padrão; criar e iniciar exigem aprovação.
+- ⬜ **Servidor MCP do Code Room**: ainda não implementado. Para a IA da pessoa (Claude, Codex…) controlar o Code Room por conexão MCP quando o terminal não for opção. Somente leitura por padrão; criar e iniciar exigem aprovação.
 - ⬜ **Ferramentas locais** (ex.: HyperFrames aberto no navegador, ffmpeg, scripts): cadastrar nome, comando ou endereço local e pasta de saída; o agente recebe a ferramenta liberada e a pessoa vê o que ele rodou.
-- ⬜ **Hermes na VPS**: assistente de conexão por SSH (host, chave, comando), com teste na hora, e o Hermes aparecendo na triagem do primeiro uso junto com Claude, Codex e Gemini.
+- ⬜ **Configuração guiada do Hermes na VPS**: o conector remoto de leitura já existe e usa `~/bin/hermes.bat`; falta o assistente de configuração/teste por SSH e a apresentação dele na triagem inicial.
 - ✅ **Conectar outra IA** (Conexões › Outras IAs): lista com Gemini CLI, OpenCode, Qwen Code, Amp, Copilot CLI, Aider e Goose, ou uma IA própria (programa, argumentos, `{prompt}` ou entrada padrão), com botão **Testar** que roda de verdade. Roda sem shell. Os argumentos de cada IA da lista são sugestões a confirmar com o Testar.
 - ⬜ Triagem do primeiro uso com cartões grandes por IA (logo, estado, botão Conectar), incluindo o Hermes e as outras IAs.
 
@@ -40,16 +58,17 @@ Legenda: ✅ feito · ⬜ a fazer
 - ✅ **Pastas de entrada (lotes)**, em Rotinas: uma pasta do projeto, um agente ou equipe e uma instrução com `{arquivo}`; cada arquivo novo vira uma tarefa, com barra de progresso, tentar de novo as que falharam e faixa de aviso quando o lote termina. O Assistente cria isso pelo chat (`criar_pasta_entrada`). ⬜ Aviso do Windows fora do navegador e aba de resultados com os arquivos gerados.
 
 ### Empacotamento (Windows)
-- ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos (testado em pasta limpa, sem Node, com Smart App Control ligado e arquivos marcados como baixados da internet).
-- ✅ Instalador `.exe` gerado (Inno Setup, assistente em português, ícone opcional na área de trabalho). **Não executado em teste**: o Windows 11 com Smart App Control barra instaladores sem assinatura.
+- ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos; rebuilt e smoke-tested em pasta temporária isolada em 06/11/2026 (SHA-256 no checklist de lançamento). Teste em outro computador, sem Node, com Smart App Control continua pendente.
+- ⬜ Instalador `.exe`: não foi reconstruído em 06/11/2026 porque Inno Setup 6 não está instalado neste ambiente. A busca por `ISCC.exe` foi ajustada para ignorar caminhos sem acesso.
+- ⬜ UX do instalador baseada nas quatro telas de `Tela de Instalação/`; especificação e decisões de segurança em [INSTALADOR-UX.md](INSTALADOR-UX.md). A implementação e compilação ainda estão pendentes.
 - ⬜ **Assinatura digital** do instalador (necessária para o Smart App Control): [SignPath Foundation](https://signpath.org/) (gratuito para código aberto), Azure Artifact Signing ou certificado pago.
 - ⬜ SHA-256 de cada arquivo publicado junto do Release.
-- ✅ **Atualização em um clique** (verificação opcional no GitHub, SHA-256, volta sozinha se a versão nova não abrir). Testada de ponta a ponta. Plano em [LANCAMENTO-V1.md](LANCAMENTO-V1.md).
+- ✅ **Atualização em um clique** (verificação opcional no GitHub, SHA-256, volta sozinha se a versão nova não abrir). Testes automatizados cobrem consulta, download e instalação; veja [LANCAMENTO-V1.md](LANCAMENTO-V1.md).
 
 ### Primeiro uso
 - ✅ Triagem para conectar as IAs (Codex, Claude Code, Gemini) com o comando exato de instalar ou entrar, e criação de agentes iniciais.
 - ✅ Tutorial guiado pelas 12 telas, com opção de pular e de rever pelo menu do usuário.
-- ⬜ Incluir na triagem a verificação do ambiente de vídeo (ffmpeg, Python, HyperFrames) e um projeto de demonstração.
+- ✅ Checagem opcional do ambiente de vídeo no primeiro uso (ffmpeg, ffprobe, Python, HyperFrames, disco, memória, CPU e integrações da esteira); apenas leitura, sem instalar ferramentas. Projeto de demonstração continua pendente.
 
 ### Biblioteca de skills
 - ⬜ Biblioteca inicial de skills genéricas, instalada como pasta extra de skills.
@@ -58,7 +77,7 @@ Legenda: ✅ feito · ⬜ a fazer
 - ⬜ Hoje o lote de vídeo é uma esteira de exemplo que depende de uma skill e de scripts específicos. Tornar o formato configurável.
 
 ### Qualidade
-- ✅ Teste de toque do Canvas estabilizado (a falha era do teste: escolhia um cartão fora da tela).
+- ⬜ Estabilizar o teste de toque do Canvas no celular; o relato mais recente ainda indica falha intermitente.
 - ⬜ Publicação em outras redes além do YouTube Shorts (Instagram).
 - ⬜ Instalação e atualização dos CLIs pelo próprio app.
 

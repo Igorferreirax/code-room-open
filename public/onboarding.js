@@ -46,11 +46,14 @@ export function setupHtml(ctx) {
   // Agentes iniciais são para instalação nova: quem já tem agentes não recebe a oferta.
   const create = (ctx.state?.agents || []).length === 0 && (plan.agents.length || plan.team)
     ? `<button type="button" class="btn" data-act="onb-create"${o.busy ? ' disabled' : ''}>${o.busy ? 'Criando…' : `Criar agentes iniciais (${plan.agents.length}${plan.team ? ' + equipe' : ''})`}</button>` : '';
+  const pf = o.videoCheck;
+  const videoCheck = pf ? `<section class="onb-note" aria-label="Verificação do ambiente de vídeo"><b>Ambiente de vídeo: ${pf.summary === 'ok' ? 'pronto' : pf.summary === 'falha' ? 'há itens para corrigir' : 'há avisos'}</b><ul class="onb-pf-list">${pf.items.map(i => `<li><span class="pill ${i.status === 'ok' ? 'ok' : i.status === 'falha' ? 'bad' : 'warn'}">${i.status === 'ok' ? 'OK' : i.status === 'falha' ? 'Verificar' : 'Aviso'}</span> <b>${esc(i.label)}</b>: ${esc(i.detail)}${i.fix ? ` <small>${esc(i.fix)}</small>` : ''}</li>`).join('')}</ul></section>` : '';
   return `<div class="onb-backdrop"><section class="onb-card" role="dialog" aria-modal="true" aria-labelledby="onb-title" tabindex="-1">
     <p class="onb-kicker">Boas-vindas</p><h2 id="onb-title">Vamos conectar as suas IAs</h2>
     <p class="muted">O Code Room usa os programas de IA que você já tem no computador. Ele não guarda senha nem chave: só confere se cada um está instalado e conectado.</p>
     <ul class="onb-list">${PROVIDERS.map(id => row(ctx, id)).join('')}</ul>
     ${nothing ? '<p class="onb-note">Nenhuma IA conectada ainda. Instale ou entre em pelo menos uma e clique em “Verificar de novo”. Você também pode pular e voltar depois pelo menu do usuário.</p>' : ''}
+    <details class="onb-video"><summary>Vai trabalhar com vídeo? Verifique as ferramentas locais</summary><p class="small muted">A checagem só lê versões, disponibilidade e recursos do computador. Não instala programas nem mostra valores de chaves.</p><button type="button" class="btn ghost sm" data-act="onb-video-check"${o.videoBusy ? ' disabled' : ''}>${o.videoBusy ? 'Verificando…' : 'Verificar ambiente de vídeo'}</button>${videoCheck}</details>
     ${o.msg ? `<p class="onb-note ok" role="status">${esc(o.msg)}</p>` : ''}
     <div class="btn-row onb-actions"><button type="button" class="btn ghost" data-act="onb-recheck">Verificar de novo</button>${create}<span class="grow"></span><button type="button" class="btn ghost" data-act="onb-skip">Pular</button><button type="button" class="btn${create ? ' ghost' : ''}" data-act="onb-tour">Ver o tutorial →</button></div>
   </section></div>`;

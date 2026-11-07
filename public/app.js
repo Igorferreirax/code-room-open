@@ -430,6 +430,7 @@ const actions = {
   // ---- Primeiro uso: triagem das IAs e tutorial guiado (pode ser pulado; o guia reabre pelo menu do usuário) ----
   'onb-open': () => { ctx.ui.whoOpen = false; openSetup(); },
   'onb-recheck': async () => { ctx.ui.onb = { ...ctx.ui.onb, msg: '' }; ctx.checks = null; render(); await loadChecks(true); },
+  'onb-video-check': async () => { ctx.ui.onb = { ...ctx.ui.onb, videoBusy: true, videoCheck: null }; render(); try { ctx.ui.onb.videoCheck = await api('preflight?projectId=' + encodeURIComponent(ctx.project || '')); } catch (e) { ctx.ui.onb.videoCheck = { summary: 'falha', items: [{ label: 'Verificação', status: 'falha', detail: e.message }] }; } finally { ctx.ui.onb.videoBusy = false; render(); } },
   'onb-create': async () => {
     const plan = O.starterPlan(ctx); if (!plan.agents.length && !plan.team) return;
     ctx.ui.onb = { ...ctx.ui.onb, busy: true, msg: '' }; render();

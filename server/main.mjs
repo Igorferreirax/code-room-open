@@ -231,7 +231,7 @@ const handle = async (req, res) => {
       if (get && p === '/api/devices') { masterOnly(auth); return send(res, 200, devices.list().map(d => devices.view(d))); }
       if (get && p === '/api/usage/limits') return send(res, 200, { providers: limitsView(store), now: new Date().toISOString() });
       if (get && p === '/api/whoami') return send(res, 200, { level: auth });
-      if (get && p === '/api/preflight') { const pr = store.get('projects', url.searchParams.get('projectId')); return send(res, 200, await preflight({ workDir: pr?.path || '' })); }
+      if (get && p === '/api/preflight') { masterOnly(auth); const pr = store.get('projects', url.searchParams.get('projectId')); return send(res, 200, await preflight({ workDir: pr?.path || '' })); }
       if (get && p === '/api/publish/status') return send(res, 200, await publisher.status());
       const qm = get ? p.match(/^\/api\/batches\/([a-zA-Z0-9-]+)\/episodes\/([a-zA-Z0-9-]+)\/qa$/) : null;
       if (qm) {

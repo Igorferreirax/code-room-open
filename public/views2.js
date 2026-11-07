@@ -261,6 +261,20 @@ function lastRun(ctx, r) {
   const t = h.taskId ? ctx.state.runs.find(x => x.id === h.taskId) : null;
   return { at: h.at, task: t, text: h.taskId ? t : null };
 }
+export function routineReportRows(ctx, routines, limit = 30) {
+  const history = routines.flatMap(r => (r.history || []).map(h => ({ r, h }))).sort((a, b) => b.h.at.localeCompare(a.h.at)).slice(0, limit);
+  return history.map(({ r, h }) => {
+    let status, detail, taskId = null;
+    if (h.status === 'skipped') { status = '<span class="pill warn">Ignorada</span>'; detail = h.reason; }
+    else if (h.status === 'failed_to_start') { status = '<span class="pill bad">Falhou ao iniciar</span>'; detail = h.reason; }
+    else {
+      const task = h.taskId ? ctx.state.runs.find(x => x.id === h.taskId) : null;
+      if (task) { status = pill(task.status); detail = task.reason || (task.status === 'completed' ? `${(task.deliverables || []).length} arquivo(s)` : ''); taskId = task.id; }
+      else { status = '<span class="pill info">Iniciada</span>'; detail = h.flowId ? 'Fluxo dev → revisor' : ''; }
+    }
+    return `<tr><td>${new Date(h.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(r.name)}</td><td>${esc(ctx.projectNameOf(r.projectId))}</td><td>${status}</td><td class="muted small">${esc(String(detail || '').slice(0, 80))}${taskId ? ` <button type="button" class="linkbtn" data-act="task" data-id="${esc(taskId)}">Abrir tarefa</button>` : ''}</td></tr>`;
+  }).join('');
+}
 // Player do episódio dentro do Code Room: prévia (ou final), capa e POST, servidos por link curto só deste episódio.
 // Publicar um episódio pronto: rascunho (título, legenda, tags) → confirmação explícita com visibilidade → envio.
 function postBlock(ctx, b, ep) {
@@ -336,15 +350,14 @@ export function viewRoutines(ctx) {
   const list = rs.filter(r => (tab === 'all' || (tab === 'active' && r.status === 'active') || (tab === 'paused' && r.status === 'paused') || (tab === 'ready' && r.status === 'ready')) && (!ctx.ui.routineProj || r.projectId === ctx.ui.routineProj) && (r.name + ' ' + r.description).toLowerCase().includes(q));
   const pname = id => ctx.projectNameOf(id);
   const rows = list.map(r => { const [c, l, ic] = rstatus(r), [t1, t2] = trigText(r), lr = lastRun(ctx, r); return `<tr><td><div class="nm"><span class="ico">${icon(r.trigger.type === 'manual' ? 'check-square' : 'calendar', 24)}</span><span><b>${esc(r.name)}</b><small>${esc(r.description || r.objective.slice(0, 60))}</small></span></div></td><td><span class="dot" style="background:var(--accent-h)"></span> ${esc(pname(r.projectId))}</td><td>${esc(t1)}<small>${esc(t2)}</small></td><td>${lr ? `${new Date(lr.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}<small>${lr.task ? (lr.task.status === 'completed' ? 'concluída' : (STATUS[lr.task.status] || '').toLowerCase()) : 'iniciada'}</small>` : '<span class="muted">Nunca executou</span>'}</td><td><span class="pill ${c}">${icon(ic, 14)} ${l}</span>${r.running ? ' <span class="pill info">em execução</span>' : ''}</td><td style="position:relative"><button class="iconbtn" data-act="routine-menu" data-id="${esc(r.id)}" aria-label="Ações da rotina ${esc(r.name)}">${icon('dots', 20)}</button>${ctx.ui.routineMenu === r.id ? `<div class="menu" role="menu"><button role="menuitem" data-act="routine-run" data-id="${esc(r.id)}">${icon('play', 16)} Executar agora</button>${r.trigger.type !== 'manual' ? `<button role="menuitem" data-act="routine-toggle" data-id="${esc(r.id)}">${icon(r.status === 'active' ? 'pause' : 'play', 16)} ${r.status === 'active' ? 'Pausar' : 'Retomar'}</button>` : ''}<button role="menuitem" data-act="routine-edit" data-id="${esc(r.id)}">${icon('edit', 16)} Editar</button><button role="menuitem" data-act="routine-del" data-id="${esc(r.id)}">${icon('trash', 16)} Excluir</button></div>` : ''}</td></tr>`; }).join('');
-  const hist = rs.flatMap(r => (r.history || []).map(h => ({ r, h }))).sort((a, b) => b.h.at.localeCompare(a.h.at)).slice(0, 8);
-  const res = ({ r, h }) => { if (h.status === 'skipped') return [`<span class="pill warn">Ignorada</span>`, h.reason]; if (h.status === 'failed_to_start') return [`<span class="pill bad">Falhou ao iniciar</span>`, h.reason]; const t = h.taskId ? ctx.state.runs.find(x => x.id === h.taskId) : null; return t ? [pill(t.status), t.reason || (t.status === 'completed' ? `${(t.deliverables || []).length} arquivo(s)` : '')] : [`<span class="pill info">Iniciada</span>`, h.flowId ? 'Fluxo dev → revisor' : '']; };
+  const reports = routineReportRows(ctx, rs);
   return `<div class="page">${hero('Rotinas', 'Automatize tarefas dos seus projetos e ganhe tempo.', 'clock', `<span class="chip" style="padding:.5em 1em">${icon('globe', 18)} São Paulo (GMT-3)</span>`)}
   ${tabs([['all', 'Todas'], ['active', 'Ativas', null, count('active')], ['paused', 'Pausadas', null, count('paused')], ['ready', 'Prontas', null, count('ready')]], tab, 'routine-tab')}
   <div class="filters"><div class="input-icon">${icon('search', 18)}<input id="routine-q" placeholder="Buscar rotinas por nome ou projeto…" aria-label="Buscar rotinas" value="${esc(ctx.ui.routineQ || '')}"></div><select id="routine-proj" style="width:200px" aria-label="Filtrar por projeto"><option value="">Todos os projetos</option>${ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${ctx.ui.routineProj === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" data-act="new-routine">${icon('plus', 18)} Nova rotina</button></div>
   ${rs.length ? `<div class="tbl rtable"><table><thead><tr><th>Nome da rotina</th><th>Projeto</th><th>Disparo</th><th>Última execução</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6">Nenhuma rotina neste filtro.</td></tr>'}</tbody></table></div>` : empty('Nenhuma rotina ainda. Crie uma para executar um agente ou uma equipe em horário fixo.')}
   ${batchesCard(ctx)}
   <div style="margin-top:16px">${folderJobsCardHtml(ctx)}</div>
-  <section class="card" style="margin-top:16px"><div class="card-h"><h2>Últimas execuções</h2></div>${hist.length ? `<div class="tbl"><table><thead><tr><th>Data e hora</th><th>Rotina</th><th>Projeto</th><th>Resultado</th><th>Detalhes</th></tr></thead><tbody>${hist.map(x => { const [rs1, det] = res(x); return `<tr><td>${new Date(x.h.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${esc(x.r.name)}</td><td>${esc(pname(x.r.projectId))}</td><td>${rs1}</td><td class="muted small">${esc(String(det || '').slice(0, 80))}</td></tr>`; }).join('')}</tbody></table></div>` : '<p class="muted">Nenhuma execução registrada.</p>'}
+  <section class="card" style="margin-top:16px"><div class="card-h"><h2>Últimas execuções</h2></div>${reports ? `<div class="tbl"><table><thead><tr><th>Data e hora</th><th>Rotina</th><th>Projeto</th><th>Resultado</th><th>Detalhes</th></tr></thead><tbody>${reports}</tbody></table></div>` : '<p class="muted">Nenhuma execução registrada.</p>'}
   ${note('Rotinas só rodam com o Code Room aberto e o computador ligado. Se a hora marcada passar com o serviço desligado, a execução é registrada como ignorada e não roda com atraso.', 'info')}</section></div>`;
 }
 export function panelRoutine(ctx) {
@@ -412,7 +425,6 @@ function remoteCard(ctx) {
 
 // ---------- Janelas de uso por conta + tokens por dia ----------
 const left = ms => { const m = Math.max(0, Math.round(ms / 60000)), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mi = m % 60; return d ? `${d} d ${h} h` : h ? `${h} h ${String(mi).padStart(2, '0')} min` : `${mi} min`; };
-const clock = iso => new Date(iso).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 function dailyBars(runs) {
   const days = []; for (let i = 13; i >= 0; i--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); days.push({ key: d.toISOString().slice(0, 10), d, by: {} }); }
   for (const r of runs) { const k = new Date(r.createdAt); k.setHours(0, 0, 0, 0); const day = days.find(x => x.key === k.toISOString().slice(0, 10)); if (!day || r.usage?.input == null) continue; day.by[r.agent.provider] = (day.by[r.agent.provider] || 0) + (r.usage.input || 0) + (r.usage.output || 0); }
@@ -422,18 +434,28 @@ function dailyBars(runs) {
   return total ? `<svg viewBox="0 0 ${W} ${H + 14}" class="spark" role="img" aria-label="Tokens por dia nos últimos 14 dias">${bars}<line x1="0" y1="${H + .5}" x2="${W}" y2="${H + .5}" stroke="var(--line)"/><text x="3" y="${H + 12}" font-size="9" fill="var(--muted)">${days[0].d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</text><text x="${W - 3}" y="${H + 12}" font-size="9" text-anchor="end" fill="var(--muted)">hoje</text></svg>` : '<p class="muted small">Ainda não há tokens reportados nos últimos 14 dias.</p>';
 }
 function limitsCard(ctx, runs) {
-  const L = ctx.limits, now = Date.now();
-  const rows = !L ? `<tr><td colspan="4" class="muted">Carregando…</td></tr>` : L.providers.map(p => {
-    if (!p.windows.length) return `<tr><td><b>${esc(p.name)}</b></td><td colspan="3" class="muted">${esc(p.unavailable || 'Indisponível')}</td></tr>`;
-    const age = p.observedAt ? left(now - Date.parse(p.observedAt)) : null;
-    return p.windows.map((w, i) => {
-      const reset = w.resetsAt ? Date.parse(w.resetsAt) : null, passed = reset != null && reset <= now, pct = Math.min(100, Math.max(0, w.usedPercent ?? 0));
-      const resetTxt = reset == null ? 'indisponível' : passed ? `já reiniciou (${clock(w.resetsAt)}); leitura antiga` : `em ${left(reset - now)} <small class="muted">(${clock(w.resetsAt)})</small>`;
-      return `<tr>${i === 0 ? `<td rowspan="${p.windows.length}"><b>${esc(p.name)}</b>${p.plan ? `<br><small class="muted">plano ${esc(p.plan)}</small>` : ''}</td>` : ''}<td>${esc(w.label)}</td><td><div class="lim"><i class="${pct >= 80 ? 'hot' : ''}" style="width:${passed ? 0 : pct}%"></i></div> <span class="lim-n">${passed ? '—' : pct.toFixed(pct < 10 && pct % 1 ? 1 : 0) + '%'}</span></td><td>${resetTxt}${i === 0 && age ? `<br><small class="muted">lido há ${age}</small>` : ''}</td></tr>`;
-    }).join('');
-  }).join('');
-  return `<section class="card" style="margin:0 0 14px"><div class="card-h"><h2>Janelas de uso por conta</h2><button class="btn ghost sm" data-act="refresh-limits" title="Faz uma chamada mínima ao Claude para ler os limites agora">${icon('clock', 16)} Atualizar leitura do Claude</button></div>
-    <div class="tbl"><table class="limtab"><thead><tr><th>Conta</th><th>Janela</th><th>Usado</th><th>Reinicia</th></tr></thead><tbody>${rows}</tbody></table></div>
+  return `<section class="card" style="margin:0 0 14px"><div class="card-h"><div><h2>Uso por IA</h2><small class="muted">Limites reportados pelas contas conectadas</small></div><button class="btn ghost sm" data-act="refresh-limits" title="Faz uma chamada mínima ao Claude para ler os limites agora">${icon('clock', 16)} Atualizar leitura do Claude</button></div>
+    ${usageCards(ctx)}
     <p class="muted small" style="margin-top:8px">Valores informados pelos próprios provedores (o Codex grava nas sessões locais; o Claude, na saída de cada execução). Sem leitura, aparece "indisponível": nada é estimado.</p>
     <h3 style="margin:14px 0 6px;font-size:1rem">Tokens por dia (14 dias)</h3>${dailyBars(runs)}</section>`;
+}
+
+// Cartões compactos reaproveitam somente as janelas que os próprios provedores reportaram.
+export function usageCards(ctx) {
+  const data = ctx.limits?.providers;
+  if (!data) return '<div class="quota-board" aria-label="Resumo do uso por IA"><p class="muted">Carregando leituras de uso…</p></div>';
+  const now = Date.now();
+  const cards = data.map(p => {
+    const windows = (p.windows || []).map(w => {
+      const valid = Number.isFinite(w.usedPercent), pct = valid ? Math.min(100, Math.max(0, w.usedPercent)) : null;
+      const parsedReset = w.resetsAt ? Date.parse(w.resetsAt) : NaN, reset = Number.isFinite(parsedReset) ? parsedReset : null, expired = reset != null && reset <= now;
+      const resetLabel = reset == null ? 'Reinício indisponível' : expired ? 'Leitura vencida' : `Reinicia em ${left(reset - now)}`;
+      return `<div class="quota-window"><div class="quota-window-head"><span>${esc(w.label)}</span><b>${pct == null || expired ? 'indisponível' : `${pct.toFixed(pct < 10 && pct % 1 ? 1 : 0)}%`}</b></div><div class="quota-track" role="img" aria-label="${esc(w.label)}: ${pct == null || expired ? 'uso indisponível' : `${pct}% usado`}"><i class="${pct >= 80 ? 'hot' : ''}" style="width:${pct == null || expired ? 0 : pct}%"></i></div><small class="muted">${resetLabel}</small></div>`;
+    }).join('');
+    const observed = p.observedAt ? Date.parse(p.observedAt) : NaN;
+    const age = Number.isFinite(observed) ? `Leitura de ${left(Math.max(0, now - observed))}` : 'Leitura sem horário informado';
+    const note = p.unavailable || p.note || 'Este provedor não disponibilizou uma janela de uso.';
+    return `<article class="quota-card"><div class="quota-card-head"><div><b>${esc(p.name)}</b>${p.plan ? `<small>${esc(p.plan)}</small>` : ''}</div><span class="quota-live"><i></i>${windows ? esc(age) : 'sem leitura'}</span></div>${windows || `<p class="quota-empty">${esc(note)}</p>`}</article>`;
+  }).join('');
+  return `<div class="quota-board" aria-label="Resumo do uso por IA"><div class="quota-grid">${cards}</div></div>`;
 }

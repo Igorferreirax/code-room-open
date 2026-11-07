@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mdLite, assistantHtml } from '../public/assistant-ui.js';
 
 test('markdown simples: escapa HTML da IA, aplica negrito, código e listas, sem links nem scripts', () => {
@@ -30,6 +31,7 @@ test('cartões de ação: válida tem Criar e Descartar; inválida só explica; 
 });
 
 import { whoIs, chatHeaderHtml, targetBodyHtml, bubbleHtml } from '../public/chat-ui.js';
+import { composerBar } from '../public/views.js';
 const cctx = (over = {}) => ({ ui: {}, prefs: {}, asstOk: true, project: 'p1', asst: { briefed: true, provider: 'claude', threads: [{ id: 't1', title: 'Conversa 1', active: true, count: 0 }], messages: [] },
   state: { agents: [{ id: 'a1', name: 'Diretor', role: 'Dirige', provider: 'claude' }], teams: [{ id: 't9', name: 'Doc', members: [{ role: 'desenvolvedor', agentId: 'a1' }] }], runs: [{ id: 'r1', status: 'completed', agent: { id: 'a1', name: 'Diretor' }, project: { id: 'p1', name: 'Canal' }, prompt: 'roteiro', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(), deliverables: [] }] },
   agentStatus: () => ({ status: 'idle', label: 'Inativo' }), supervisorAgent: () => null, ...over });
@@ -40,6 +42,33 @@ test('janela do chat: cabeçalho muda com quem se fala (Assistente, agente, equi
   const h = chatHeaderHtml(two); assert.match(h, /aria-selected="true"[^>]*data-id="t2"|data-id="t2"[^>]*>/); assert.match(h, /esperando resposta/); assert.match(h, /asst-thread-del" data-id="t2"/); assert.ok(!h.includes('<b>Código</b>'));
   const ag = chatHeaderHtml(cctx({ ui: { target: 'a:a1' } })); assert.match(ag, /Diretor[\s\S]*missão direta/); assert.ok(!ag.includes('asst-new-thread'), 'conversas só no Assistente');
   assert.match(chatHeaderHtml(cctx({ ui: { target: 't:t9' } })), /Equipe Doc/); assert.equal(whoIs(cctx({ ui: { target: 'a:inexistente' } })).kind, 'none');
+});
+
+test('renomear conversa: lápis só na aba ativa; campo inline limita tamanho e escapa o título', () => {
+  const two = cctx(); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false }, { id: 't2', title: '<b>Código</b>', active: true }];
+  const html = chatHeaderHtml(two);
+  assert.match(html, /asst-thread-rename" data-id="t2" aria-label="Renomear esta conversa"/);
+  assert.doesNotMatch(html, /asst-thread-rename" data-id="t1/);
+  assert.match(html, /duplo clique para renomear/);
+  const editing = chatHeaderHtml(cctx({ ui: { renameId: 't2' }, asst: { ...two.asst, threads: two.asst.threads } }));
+  assert.match(editing, /<input class="cw-rename" data-rename="t2" value="&lt;b&gt;Código&lt;\/b&gt;" maxlength="40" aria-label="Nome da conversa">/);
+  assert.doesNotMatch(editing, /asst-thread-rename" data-id="t2/);
+  const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /e\.key === 'Enter'.{0,120}saveRename\(e\.target, true\)/s);
+  assert.match(app, /e\.key === 'Escape'.{0,160}saveRename\(e\.target, false\)/s);
+  assert.match(app, /\.cw-th\.on \[data-act=asst-thread\]/, 'duplo clique só edita a conversa ativa');
+});
+
+test('clipe de missão individual: oferece modelo e esforço opcionais sem afetar equipes ou Assistente', () => {
+  const missionCtx = { ...cctx({ ui: { target: 'a:a1', optsOpen: true }, models: { 'a:a1': [{ id: 'claude-sonnet-4-5', label: 'Sonnet' }] }, efforts: { 'a:a1': [{ id: 'high', label: 'alto' }] } }), state: { ...cctx().state, runtime: {}, projects: [{ id: 'p1', name: 'Canal' }] } };
+  const html = composerBar(missionCtx);
+  assert.match(html, /id="ov-model"[^>]*list="ov-models"/);
+  assert.match(html, /<option value="claude-sonnet-4-5">Sonnet<\/option>/);
+  assert.match(html, /id="ov-effort"/);
+  assert.match(html, /<option value="high">alto<\/option>/);
+  assert.match(html, /Vale só para esta missão/);
+  const teamHtml = composerBar({ ...missionCtx, ui: { target: 't:t9', optsOpen: true } });
+  assert.doesNotMatch(teamHtml, /ov-model|ov-effort/);
 });
 
 test('janela do chat: missão direta mostra a atividade do agente ou da equipe; sem agente, orienta; balão mostra aviso e atividade', () => {

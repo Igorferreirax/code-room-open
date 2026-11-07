@@ -52,6 +52,8 @@ Pendente: fluxo no navegador (host de automação indisponível), primeira taref
 
 ## Atualização 0.2.0 (contratos que substituem os acima onde diferem)
 
+- Agent inclui `effort` validado por provedor; a missão pode sobrescrever `model` e `effort` no snapshot sem editar o perfil do agente.
+- Assistente injeta status ao vivo de tarefas, fluxos de equipe e pastas de entrada no contexto de cada pergunta. Conversas podem receber título próprio.
 - `server/tasks.mjs`: **Task** (`tasks`) = objetivo, critérios, entradas, dependências, limites, tentativas, resultado, motivo. Estados: waiting_dependency, queued, running, cancelling, completed, failed, cancelled, interrupted, blocked, needs_decision; transições em `TRANSITIONS`.
 - **Run** (`runs`) agora é a *tentativa*: `taskId`, `n`, `pid`, `modelReported`, `usage` (com `costKind`), `failureKind`, `killResult`, `answer`.
 - `server/runner.mjs`: claim atômico (`claims` + heartbeat), limites global/provedor/vídeo, trava de escrita por pasta, tempo limite, cancelamento da árvore de processos, entregas por snapshot, recuperação segura.

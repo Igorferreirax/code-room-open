@@ -2,6 +2,8 @@
 
 Início: 30/10/2026. Este documento é o registro vivo da validação. Nada aqui é marcado como validado sem a evidência indicada.
 
+> **Atualização 06/11/2026:** os registros abaixo preservam rodadas antigas. Estado atual após as melhorias de Uso, onboarding de vídeo e histórico de rotinas: `npm test` passou 167/167 fora da sandbox; `npm run audit` passou 62/62; `npm run check` passou 90/90. Dentro da sandbox, os testes que encerram filhos falharam por restrição de processo; fora dela passaram. Inspeção visual continua pendente. Veja [STATUS-2026-11-06.md](STATUS-2026-11-06.md).
+
 ## 1. Auditoria do estado real (antes desta etapa)
 
 Código lido: `server/` (≈270 linhas), `public/`, `test/`, `scripts/`, docs. CLIs instalados: Codex `0.166.0`, Claude Code `2.1.314`, Node `26.7.0`. Codex autenticado por ChatGPT; Claude autenticado por claude.ai (assinatura). Isso é cota de assinatura, não crédito de API.
@@ -82,11 +84,11 @@ Disponível em `~/.claude/skills/alethe` e lida. É uma skill para a sessão do 
 ### 3.6 Não validado / pendente
 
 - Tempo limite com o **Codex real** (provado com o Claude real e com processos de teste; o código é o mesmo).
-- Worktrees para edição simultânea no mesmo repositório: **não implementado**. Política atual: um escritor por pasta de projeto (travado pelo backend); leitores simultâneos permitidos; integração de alterações continua manual.
+- Worktrees estão implementadas e têm testes de isolamento; falta validação de uso prolongado em repositórios reais. A integração das alterações entre worktrees continua manual.
 - Pedido de ajuda entre agentes existe só como subtarefa registrada pela API; os CLIs ainda não têm ferramenta para pedi-la sozinhos.
 - Vídeo: só a sonda de codificação do ffmpeg foi validada; nenhuma ferramenta de edição foi.
 - Pesquisa e Operações: reservados na arquitetura, sem execução própria.
-- Aprovações interativas e retomada nativa de sessão (`resume`) não implementadas.
+- Aprovações interativas dentro dos CLIs não são suportadas. A continuação de sessão (`resume`) está implementada para Codex e Claude Code e coberta por testes; Antigravity usa o id de conversa do CLI.
 - Medições de RAM/CPU do serviço, do navegador e dos agentes: pendentes (etapa 10).
 
 ## 4. Interface pixel art conectada (etapas 9 e 10)

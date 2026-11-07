@@ -61,7 +61,7 @@ try {
   if (token) {
     const D = { 'X-Code-Room-Key': token, 'Content-Type': 'application/json' }, dget = path => req('GET', path, { headers: D }), dpost = (path, b = {}) => req('POST', path, { headers: D, body: JSON.stringify(b) });
     check('celular pareado enxerga o estado (200)', (await dget('/api/state')).status === 200);
-    for (const path of ['/api/assistant', '/api/providers', '/api/network', '/api/devices']) { const r = await dget(path); check(`celular pareado não lê ${path} (só o computador)`, r.status === 403, `veio ${r.status}`); }
+    for (const path of ['/api/assistant', '/api/providers', '/api/network', '/api/devices', '/api/preflight']) { const r = await dget(path); check(`celular pareado não lê ${path} (só o computador)`, r.status === 403, `veio ${r.status}`); }
     const writes = [['/api/assistant/ask', { text: 'oi' }], ['/api/assistant/brief', {}], ['/api/assistant/thread/new', {}], ['/api/providers', { name: 'x', exe: 'node', args: ['{prompt}'] }], ['/api/providers/test', { name: 'x', exe: 'node', args: ['{prompt}'] }], ['/api/providers/delete', { id: 'x-a' }],
       ['/api/folderjobs', { name: 'x', projectId: 'p', instruction: '{arquivo}', agentId: 'a' }], ['/api/notices/seen', { all: true }], ['/api/projects', { name: 'x', path: 'C:/' }], ['/api/settings/skill-roots', { path: 'C:/' }], ['/api/updates/install', {}], ['/api/updates/download', {}], ['/api/network', { lan: true }], ['/api/devices/pair-code', {}]];
     for (const [path, b] of writes) { const r = await dpost(path, b); check(`celular pareado não faz POST ${path}`, r.status === 403, `veio ${r.status}`); }

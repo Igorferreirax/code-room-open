@@ -233,9 +233,8 @@ pre{max-width:100%}img,svg,iframe,video{max-width:100%}
 @media (max-width:760px){.pair-qr{width:170px}.pair-code{font-size:1.6rem}}
 
 /* Janelas de uso por conta */
-.limtab td,.limtab th{vertical-align:middle}.lim{display:inline-block;vertical-align:middle;width:120px;height:8px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}.lim i{display:block;height:100%;background:var(--accent-h,#6ea8ff);border-radius:99px}.lim i.hot{background:var(--warn)}.lim-n{font-variant-numeric:tabular-nums;margin-left:6px}
+.quota-board{margin:2px 0 16px}.quota-board-title{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}.quota-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:9px}.quota-card{min-width:0;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}.quota-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-height:34px}.quota-card-head>div{min-width:0}.quota-card-head b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.quota-card-head small{display:block;color:var(--muted);margin-top:2px}.quota-live{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:.68rem;white-space:nowrap}.quota-live i{width:7px;height:7px;border-radius:50%;background:var(--accent-h,#6ea8ff);flex:none}.quota-window{margin-top:10px}.quota-window-head{display:flex;justify-content:space-between;gap:8px;font-size:.78rem}.quota-window-head b{font-variant-numeric:tabular-nums}.quota-track{height:7px;margin:5px 0 3px;border:1px solid var(--line);border-radius:99px;background:var(--bg);overflow:hidden}.quota-track i{display:block;height:100%;border-radius:99px;background:var(--accent-h,#6ea8ff)}.quota-track i.hot{background:var(--bad,#e96767)}.quota-window>small{font-size:.7rem}.quota-empty{margin:10px 0 2px;color:var(--muted);font-size:.76rem;line-height:1.4}
 .spark{width:100%;max-width:420px;height:auto;display:block}
-@media (max-width:760px){.lim{width:70px}}
 
 /* Estados dos agentes na Sala: sem linhas ao redor, só um ícone minimalista (como o ZZZ) */
 .st-failed .ps-veil,.st-done .ps-veil,.st-waiting .ps-veil,.st-queued .ps-veil,.st-decision .ps-veil{box-shadow:none!important;background:none!important}
@@ -325,6 +324,7 @@ ul.plain{list-style:none;margin:8px 0 10px;padding:0;display:grid;gap:6px}ul.pla
 .onb-row p{margin:.25em 0}
 .onb-note{background:var(--accent-soft);border:1px solid var(--line);border-radius:10px;padding:.7em .9em;margin:12px 0;font-size:.92rem}.onb-note.ok{border-color:rgba(45,212,160,.5);color:var(--ok)}
 .onb-actions{margin-top:16px;align-items:center}.onb-actions .grow,.tour .grow{flex:1}
+.onb-video{margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:10px}.onb-video summary{cursor:pointer;font-weight:600}.onb-pf-list{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:8px}.onb-pf-list li{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center}.onb-pf-list li small{grid-column:2;color:var(--muted)}
 .tour{position:fixed;right:24px;bottom:124px;z-index:80;width:min(390px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--accent);border-radius:16px;padding:16px 18px;box-shadow:0 24px 70px rgba(0,0,0,.6),0 0 0 4px var(--accent-soft);outline:none}
 .tour h2{font-size:1.2rem;margin:.15em 0 .3em}.tour p{margin:0 0 .6em;font-size:.92rem;line-height:1.45}
 .tour .onb-kicker{margin-bottom:.1em}

@@ -1,6 +1,8 @@
-# Code Room — backlog executável
+# Code Room — backlog de requisitos histórico
 
-Atualização 0.1.0: base local implementada. Esta tabela mantém os critérios finais; não significa que todos foram aceitos.
+Este documento registra critérios da primeira versão do produto e **não é o status atual de implementação**. Algumas linhas abaixo ficaram obsoletas quando o produto evoluiu para a v0.2. Consulte [ROADMAP.md](ROADMAP.md) para o estado atual e [STATUS-2026-11-06.md](STATUS-2026-11-06.md) para a última rodada de trabalho e validação.
+
+Atualização original 0.1.0: mantida como registro histórico dos critérios iniciais; não significa que todos foram aceitos.
 
 - CR-01: estrutura e contrato inicial implementados (ver `docs/IMPLEMENTACAO.md`).
 - CR-02 e CR-08: adaptadores Codex/Claude implementados e formatos testados com fixtures. Execução real com conta autenticada ainda não validada.

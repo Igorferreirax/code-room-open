@@ -29,7 +29,8 @@ UninstallDisplayIcon={app}\code-room.ico
 LicenseFile={#StageDir}\LICENSE
 Compression=lzma2/ultra64
 SolidCompression=yes
-WizardStyle=modern
+WizardStyle=modern dark
+DisableWelcomePage=no
 WizardImageFile={#SourcePath}\wizard\lateral-164.bmp,{#SourcePath}\wizard\lateral-246.bmp,{#SourcePath}\wizard\lateral-328.bmp
 WizardSmallImageFile={#SourcePath}\wizard\selo-55.bmp,{#SourcePath}\wizard\selo-64.bmp,{#SourcePath}\wizard\selo-110.bmp
 WizardImageAlphaFormat=none
@@ -42,14 +43,27 @@ UsePreviousAppDir=yes
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Messages]
-brazilianportuguese.WelcomeLabel2=Este assistente instala o [name/ver] só para o seu usuário do Windows, sem precisar de administrador.%n%nSeus projetos, agentes e a chave de acesso ficam em uma pasta separada e não são apagados ao atualizar nem ao desinstalar.%n%nFeche outros programas se quiser e clique em Avançar.
-brazilianportuguese.FinishedHeadingLabel=Tudo pronto!
-brazilianportuguese.FinishedLabel=O [name] foi instalado. Ele abre no seu navegador e roda só neste computador.
+brazilianportuguese.SetupWindowTitle=Code Room — Instalação
+brazilianportuguese.WelcomeLabel1=Bem-vindo ao Code Room
+brazilianportuguese.WelcomeLabel2=Seu espaço para projetos, agentes e ideias.%n%n•  Organize seus projetos%n•  Conecte suas ferramentas%n•  Acompanhe suas tarefas%n%nInstala só para o seu usuário do Windows, sem precisar de administrador. Seus projetos, agentes e a chave de acesso ficam em uma pasta separada e não são apagados ao atualizar nem ao desinstalar.
+brazilianportuguese.WizardSelectDir=Prepare seu espaço
+brazilianportuguese.SelectDirDesc=Defina onde instalar o Code Room.
+brazilianportuguese.WizardSelectTasks=Prepare seu espaço
+brazilianportuguese.SelectTasksDesc=Escolha como o Code Room será configurado.
+brazilianportuguese.SelectTasksLabel2=Marque o que você quer. Nada roda sozinho com o Windows: o Code Room só abre quando você pedir.
+brazilianportuguese.WizardReady=Tudo pronto para instalar
+brazilianportuguese.ReadyLabel1=Tudo certo para instalar o Code Room.
+brazilianportuguese.ReadyLabel2a=Clique em Instalar para começar ou em Voltar para rever as escolhas.
+brazilianportuguese.WizardInstalling=Preparando seu Code Room
+brazilianportuguese.InstallingLabel=Isso pode levar alguns instantes. Copiando os arquivos e criando os atalhos…
+brazilianportuguese.FinishedHeadingLabel=Seu espaço está pronto
+brazilianportuguese.FinishedLabel=O Code Room foi instalado. Ele abre no seu navegador e roda só neste computador.%n%nComo começar: conecte suas ferramentas, crie uma equipe e abra um projeto. A conexão com as IAs é feita dentro do aplicativo, no primeiro acesso.
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar um ícone do Code Room na área de trabalho"; GroupDescription: "Atalhos:"
 
 [Files]
+Source: "{#SourcePath}\wizard\progresso.bmp"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
@@ -70,4 +84,21 @@ var Code: Integer;
 begin
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\scripts\stop.ps1') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Result := '';
+end;
+
+// Arte da tela de progresso (a pessoa abrindo a caixa), abaixo da barra. Se não couber, fica escondida.
+procedure InitializeWizard;
+var Img: TBitmapImage; Top, H, W: Integer;
+begin
+  ExtractTemporaryFile('progresso.bmp');
+  Img := TBitmapImage.Create(WizardForm);
+  Img.Parent := WizardForm.InstallingPage;
+  Img.Bitmap.LoadFromFile(ExpandConstant('{tmp}\progresso.bmp'));
+  Img.Stretch := True;
+  Top := WizardForm.ProgressGauge.Top + WizardForm.ProgressGauge.Height + ScaleY(36);
+  H := WizardForm.InstallingPage.ClientHeight - Top - ScaleY(4);
+  if H > ScaleY(140) then H := ScaleY(140);
+  W := (H * Img.Bitmap.Width) div Img.Bitmap.Height;
+  Img.SetBounds((WizardForm.InstallingPage.ClientWidth - W) div 2, Top, W, H);
+  Img.Visible := H >= ScaleY(60);
 end;
