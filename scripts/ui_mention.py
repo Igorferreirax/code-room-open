@@ -6,8 +6,8 @@ from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 4796
-data = tempfile.mkdtemp(prefix='cr-men-data-'); proj = tempfile.mkdtemp(prefix='cr-men-proj-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+data = tempfile.mkdtemp(prefix='cr-men-data-'); proj = tempfile.mkdtemp(prefix='cr-men-proj-'); atalhos = tempfile.mkdtemp(prefix='cr-men-atalhos-')  # o teste nunca mexe na pasta Inicializar de verdade
+srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_ATALHOS_DIR=atalhos), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 
 def check(name, ok, extra=''):
@@ -107,6 +107,17 @@ try:
         check('energia: ligar grava a preferência no servidor', api('power')['keepAwake'] is True)
         page.click('#pref-keepawake'); page.wait_for_timeout(600)
         check('energia: desligar volta ao padrão', api('power')['keepAwake'] is False and api('power')['holding'] is False)
+        check('inicio: o interruptor aparece desligado', page.locator('#power-card #pref-startup').count() == 1 and api('startup')['on'] is False)
+        page.click('#pref-startup')
+        for _ in range(20):
+            if api('startup')['on']: break
+            page.wait_for_timeout(400)
+        check('inicio: ligar cria o atalho (na pasta de teste)', api('startup')['on'] is True and os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
+        page.click('#pref-startup')
+        for _ in range(20):
+            if not api('startup')['on']: break
+            page.wait_for_timeout(400)
+        check('inicio: desligar remove o atalho', api('startup')['on'] is False and not os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
         # ---- /celular no chat ----
         page.click('[data-nav=room]'); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)

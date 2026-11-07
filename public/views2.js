@@ -481,11 +481,12 @@ export function usageCards(ctx) {
 
 // ---------- Limpeza de dados antigos (com prévia) ----------
 function powerCard(ctx) {
-  const w = ctx.power; if (!w) return '';
+  const w = ctx.power, s = ctx.startup || { supported: false, on: false }; if (!w) return '';
   const ls = w.lastSleep ? `<p class="small muted" style="margin:8px 0 0">Última suspensão registrada: ${esc(new Date(w.lastSleep.from).toLocaleString('pt-BR'))} até ${esc(new Date(w.lastSleep.to).toLocaleString('pt-BR'))}.</p>` : '';
   return `<section class="card" style="margin-top:14px" id="power-card"><h2>Energia do computador</h2>
     <p class="muted small">Se o computador dormir, o Code Room para: o acesso pelo celular, as rotinas e as tarefas em andamento ficam parados. Quando ele acorda, o app avisa quanto tempo ficou parado.</p>
     <div class="setting">${icon('clock', 24)}<span class="grow">Manter acordado enquanto houver tarefa rodando<br><small class="muted">${w.supported ? 'Pede ao Windows para não suspender só enquanto uma tarefa estiver em andamento; quando termina, o computador volta a dormir normalmente.' : 'Disponível só no Windows.'}${w.holding ? ' <b>Agora: segurando o computador acordado.</b>' : ''}</small></span>${toggle('pref-keepawake', !!w.keepAwake, 'Manter acordado')}</div>
+    <div class="setting">${icon('terminal', 24)}<span class="grow">Iniciar com o Windows<br><small class="muted">${s.supported ? 'Abre só o serviço e o ícone perto do relógio quando você entra no Windows, sem janela. Assim o acesso pelo celular já está pronto. Clique com o botão direito no ícone para fechar o Code Room.' : 'Disponível só no Windows.'}</small></span>${toggle('pref-startup', !!s.on, 'Iniciar com o Windows')}</div>
     ${ls}</section>`;
 }
 function retentionCard(ctx) {

@@ -27,6 +27,7 @@ import { removeWorktree } from './worktree.mjs';
 import { retentionPlan, retentionPurge } from './retention.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { Power } from './power.mjs';
+import { startupState, setStartup } from './startup.mjs';
 import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
@@ -243,6 +244,7 @@ const handle = async (req, res) => {
       tOk(ip);
       if (get && p === '/api/updates') return send(res, 200, updates.status());
       if (get && p === '/api/retention') { masterOnly(auth); const pl = retentionPlan(store, { days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 }); return send(res, 200, { days: pl.days, counts: pl.counts }); }
+      if (get && p === '/api/startup') { masterOnly(auth); return send(res, 200, startupState()); }
       if (get && p === '/api/power') { masterOnly(auth); return send(res, 200, power.status()); }
       if (get && p === '/api/mcp') { masterOnly(auth); return send(res, 200, mcpInfo(mcpCtx())); }
       if (get && p === '/api/network/diagnose') { masterOnly(auth); return send(res, 200, { checks: await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() }) }); }
@@ -317,6 +319,7 @@ const handle = async (req, res) => {
         if (p === '/api/updates/dismiss') { masterOnly(auth); return send(res, 200, updates.dismiss(b.version)); }
         if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
+        if (p === '/api/startup') { masterOnly(auth); return send(res, 200, await setStartup(b.on === true, { root })); }
         if (p === '/api/power') { masterOnly(auth); return send(res, 200, power.setKeepAwake(b.keepAwake === true)); }
         if (p === '/api/mcp/activate') { masterOnly(auth); return send(res, 200, mcpActivate(mcpCtx())); }
         if (p === '/api/mcp/deactivate') { masterOnly(auth); return send(res, 200, mcpDeactivate(mcpCtx())); }
