@@ -9,6 +9,23 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+- **Balão de conversa ao lado do agente:** clicar em um agente abre um balão colado nele, com estado, o que faz ao vivo e caixa de missão. **Fixar em janela** leva para uma janela lateral (até 3 agentes lado a lado).
+- **Sessão ao vivo no chat com o agente:** a linha do tempo da tarefa (ações, resposta chegando, estado) aparece no chat e atualiza sozinha.
+- **Servidor MCP** (`server/mcp.mjs`): o Claude Code, o Codex e outras ferramentas consultam o Code Room. Token próprio e revogável, somente leitura por padrão; aprovar e apagar nunca ficam disponíveis. Guia em [docs/MCP.md](docs/MCP.md).
+- **Navegador para agentes (opcional, desligado):** por agente, "navegador separado" (Playwright descartável, Claude Code e Codex) ou "o meu Chrome" (só Claude Code). Não vale para projetos Financeiro.
+- **Hermes na VPS configurável no app:** servidor, porta, caminho da chave e programa remoto, com teste de conexão e validação rigorosa.
+- **Energia:** aviso de quanto tempo o computador ficou em suspensão e opção de manter acordado enquanto há tarefa rodando.
+- **Ícone perto do relógio e "Iniciar com o Windows"**, com ícone próprio na janela de app.
+- **Limpeza ampliada, com prévia:** pacotes de atualização já baixados, cópia da versão anterior (depois de 7 dias) e avisos antigos; logs grandes giram no início.
+- **Teste do Canvas por toque** que mede a taxa de acerto (`scripts/ui_touch.py`); alvo maior do ponto de saída em telas de toque.
+
+### Corrigido
+- **`/celular` e o diagnóstico de acesso respondiam em cerca de 15 segundos** (a leitura do Firewall exigia administrador e terminava em "acesso negado"). Agora levam menos de 1 segundo e não precisam de administrador.
+- **"Iniciar com o Windows" desfazia o próprio clique** se você clicasse duas vezes rápido.
+- **Bandeja e atalhos não abriam em pastas com espaço no nome** (por exemplo `C:\Users\João Silva`): os caminhos agora vão entre aspas.
+- **Um `\v` mal escapado quebrava o caminho do PowerShell** no `start.ps1`; um teste agora impede caracteres de controle nos scripts.
+
 ## [0.2.2] - 2026-11-07
 
 ### Adicionado

@@ -13,6 +13,11 @@ If Code Room helps you, **[leave a star ⭐](https://github.com/Igorferreirax/co
 - **Approval before anything goes out.** The preview waits in `AGUARDANDO_APROVACAO/<CHANNEL>`. *Approve* delivers the package to `POSTAR_<CHANNEL>`. *Ask for changes* redoes only what you point out. *Reject* moves everything to `LIXEIRA` (trash; nothing is deleted for good). Nothing is published on its own.
 - **Routines.** By schedule, manual, or when a file appears.
 - **Honest usage.** Whatever the provider does not report shows as "unavailable" (`indisponível`), never as zero or invented.
+- **Talk to an agent right where it sits.** Click an agent (in the Room or on the Canvas) to open a small bubble next to it: status, what it is doing live, and a box to give it a mission on the spot. *Pin to window* moves the chat to a side window; up to 3 agents side by side.
+- **Connect other tools (MCP).** Claude Code, Codex and others can query Code Room (and, if you allow it, create tasks) with their own revocable token. Approving and deleting are never exposed. See [docs/MCP.md](docs/MCP.md).
+- **Browser for agents (optional, off).** Per agent: a separate throwaway browser (Claude Code and Codex) or your own Chrome (Claude Code only).
+- **Hermes on your own server (VPS).** Set server, port and key in Connections and test the connection; the key contents never leave your computer.
+- **Feels like a Windows app.** Its own window and icon, a tray icon, start with Windows, and an option to keep the PC awake while a task runs.
 - **On your phone.** QR pairing (one-time code, per-device token, revocable) over the local network or Tailscale. **Off** by default.
 - **Guided first run.** On a fresh install, a triage checks which AIs (Codex, Claude Code, Gemini) are installed and signed in, shows the exact command to install or log in, and creates starter agents in one click. A step-by-step tour then presents the 12 screens. You can **skip** at any time and replay it from the user menu › Guia de boas-vindas.
 - **Local and private.** The service only listens on `127.0.0.1`. It uses the CLIs you are already logged into; Code Room never stores or shows credentials.

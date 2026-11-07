@@ -29,6 +29,11 @@ Se o Code Room te ajudou, **[deixe uma estrela ⭐](https://github.com/Igorferre
 - **Assistente.** Conversas podem ser renomeadas; o contexto inclui o status atual das tarefas, equipes e pastas de entrada.
 - **Modelos e esforço.** Configure no agente ou temporariamente para uma missão individual, respeitando as opções aceitas por cada IA.
 - **No celular.** Pareamento por QR (código de uso único, token por aparelho, revogável) pela rede local ou pelo Tailscale. Vem **desligado** por padrão.
+- **Conversa direta com o agente.** Clique em um agente (na Sala ou no Canvas): abre um balão ali do lado dele, com o estado, o que ele está fazendo ao vivo e uma caixa para dar a missão na hora. **Fixar em janela** leva a conversa para uma janela lateral; até 3 agentes lado a lado.
+- **Conecte outras ferramentas (MCP).** O Claude Code, o Codex e outras ferramentas consultam o Code Room (e, se você liberar, criam tarefas) por um token próprio e revogável. Aprovar e apagar nunca ficam disponíveis. Veja [docs/MCP.md](docs/MCP.md).
+- **Navegador para agentes (opcional, desligado).** Por agente: um navegador separado e descartável (Claude Code e Codex) ou o seu Chrome (só Claude Code). O Code Room não tem navegador próprio: libera o que a IA já sabe usar.
+- **Hermes em um servidor seu (VPS).** Configure servidor, porta e chave em Conexões e teste a conexão; o conteúdo da chave nunca sai do seu computador.
+- **Fica no Windows como um app.** Janela própria com o ícone do Code Room, ícone perto do relógio, opção de iniciar com o Windows e, se quiser, manter o computador acordado enquanto há tarefa rodando. Se o computador dormir, o app avisa quanto tempo ficou parado.
 - **Primeiro uso guiado.** Em uma instalação nova, uma triagem confere quais IAs (Codex, Claude Code, Gemini) estão instaladas e conectadas, mostra o comando exato para instalar ou entrar, e cria agentes iniciais com um clique. Depois, um tutorial passo a passo apresenta as 12 telas. Dá para **pular** a qualquer momento e rever pelo menu do usuário › Guia de boas-vindas.
 - **Local e privado.** O serviço escuta só em `127.0.0.1`. Usa os CLIs que você já tem logados; o Code Room não guarda nem mostra credenciais.
 
@@ -70,7 +75,7 @@ Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais 
 - O teste de toque do Canvas no `test:ui` é intermitente.
 
 ## Documentação
-[docs/VISAO-PRODUTO.md](docs/VISAO-PRODUTO.md) · [docs/STATUS-2026-11-06.md](docs/STATUS-2026-11-06.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [docs/ASSINATURA.md](docs/ASSINATURA.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
+[docs/VISAO-PRODUTO.md](docs/VISAO-PRODUTO.md) · [docs/STATUS-2026-11-06.md](docs/STATUS-2026-11-06.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [docs/MCP.md](docs/MCP.md) · [docs/ASSINATURA.md](docs/ASSINATURA.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
 
 ## Problemas comuns
 - **O Windows avisou ao abrir o Setup.exe.** O instalador ainda não tem assinatura digital. Use o zip portátil ou confira o SHA-256 com o `SHA256SUMS.txt` da release.

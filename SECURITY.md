@@ -7,6 +7,10 @@
 - O Code Room usa os CLIs já logados no seu computador e **não guarda nem mostra credenciais**.
 - `npm run audit` roda 27 ataques reais contra um serviço isolado (chave errada, `Host`/`Origin` forjados, travessia de pasta, vazamento da chave, ids maliciosos, corpo gigante, escuta fora do 127.0.0.1).
 
+- **MCP:** usa um token de aparelho (nunca a chave principal), é somente leitura por padrão e jamais expõe aprovar, reprovar, apagar ou mudar configurações. Desativar revoga o token na hora ([docs/MCP.md](docs/MCP.md)).
+- **Navegador para agentes:** desligado por padrão e por agente. O modo separado usa um perfil descartável, sem as suas contas. O modo "seu Chrome" age onde você está logado, então use só com agentes e projetos de confiança; páginas maliciosas podem tentar dar ordens ao agente. Não vale para projetos Financeiro.
+- **Hermes remoto:** guarda só o caminho da chave privada (nunca o conteúdo), valida servidor, porta e programa remoto com rigor (sem espaços, aspas ou símbolos de shell) e, por padrão, exige conhecer a identidade do servidor.
+
 ## Reportar uma vulnerabilidade
 **Não abra uma issue pública.** Use o recurso de relatório privado de vulnerabilidades do GitHub (aba *Security › Report a vulnerability*) neste repositório. Descreva o que encontrou, como reproduzir e o impacto. Respondemos assim que possível.
 

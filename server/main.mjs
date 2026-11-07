@@ -82,7 +82,7 @@ const assistantWorld = async () => {
   const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, description: k.description, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
   const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => ({ id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', updatedAt: t.updatedAt, createdAt: t.createdAt, files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').length }));
   const focusInfo = id => { const pr = store.get('projects', id); return pr && !isInternal(pr) ? folderLine(describeFolder(pr.path)) : ''; };
-  return { focusInfo, runs, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+  return { focusInfo, runs, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
@@ -100,7 +100,7 @@ async function startAssistantTask({ projectId, teamId, agentId, objective }) {
   if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
   const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
 }
-const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
+const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -164,6 +164,11 @@ async function modelSuggestions(provider) {
 }
 function providersView() {
   return { max: MAX_CUSTOM, catalog: catalogView(), custom: customSpecs().map(s => { const f = findProgram(s.exe), l = f ? launcher(f) : null; return { ...s, installed: !!l, unsupported: f && !l ? 'atalho .cmd não suportado' : null, usedBy: store.list('agents').filter(a => a.provider === s.id).length }; }) };
+}
+function createChannel(b) {
+  const ch = saveChannel(store, b); let agent = null;
+  if (b.createPostador && !ch.postadorId) { agent = store.put('agents', { id: randomUUID(), ...postadorAgent(ch), revision: 1 }); ch.postadorId = agent.id; store.put('channels', ch); }
+  return { channel: ch, agent };
 }
 function saveLink(b) {
   const project = store.get('projects', b.projectId), from = store.get('agents', b.from), to = store.get('agents', b.to);
@@ -351,9 +356,7 @@ const handle = async (req, res) => {
         if (p === '/api/publish/google/disconnect') { masterOnly(auth); return send(res, 200, await publisher.disconnect()); }
         if (p === '/api/posts') { const bt = store.get('batches', b.batchId), pr = bt && store.get('projects', bt.projectId); if (!pr) throw new Error('Lote inexistente.'); return send(res, 201, await publisher.draft(b, { project: pr })); }
         if (p === '/api/channels') {
-          masterOnly(auth); const ch = saveChannel(store, b); let agent = null;
-          if (b.createPostador && !ch.postadorId) { agent = store.put('agents', { id: randomUUID(), ...postadorAgent(ch), revision: 1 }); ch.postadorId = agent.id; store.put('channels', ch); }
-          return send(res, 200, { channel: ch, agent });
+          masterOnly(auth); return send(res, 200, createChannel(b));
         }
         if ((m = p.match(/^\/api\/channels\/([a-zA-Z0-9-]+)\/delete$/))) { masterOnly(auth); return send(res, 200, removeChannel(store, m[1])); }
         if ((m = p.match(/^\/api\/posts\/([a-zA-Z0-9-]+)\/mark$/))) return send(res, 200, await publisher.markPosted(m[1], b, { by: auth }));

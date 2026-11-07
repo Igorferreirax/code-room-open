@@ -5,6 +5,9 @@ import { createTask } from './tasks.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { ROLES } from './orchestrator.mjs';
 import { cleanModel, cleanEffort } from './effort.mjs';
+import { cleanBrowser, BROWSER_LABEL } from './browseruse.mjs';
+import { validateRoutine } from './routines.mjs';
+import { STYLES } from './channels.mjs';
 
 // Assistente: a IA que a PESSOA conectou (Claude Code, Codex ou Gemini) vira o suporte dentro do Code Room.
 // 1) Briefing: na primeira conexão a IA lê o manual (docs/ASSISTENTE.md), diz o que entendeu e isso é GRAVADO na máquina da pessoa.
@@ -66,7 +69,8 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       const room = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
       if (world.agents.some(a => a.name.trim().toLowerCase() === nome.toLowerCase() && a.provider === raw.provedor)) return bad('criar_agente', `Já existe o agente “${nome}” nessa IA.`);
       let model = '', effort = ''; try { model = cleanModel(raw.modelo); effort = cleanEffort(raw.provedor, raw.esforco); } catch (e) { return bad('criar_agente', e.message); }
-      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}${model ? ` · modelo ${model}` : ''}${effort ? ` · esforço ${effort}` : ''}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model, effort, instructions: '', mode, skillIds: [], commands: [], capabilities: caps }, valid: true };
+      let browser = 'off'; try { browser = cleanBrowser(raw.navegador, raw.provedor); } catch (e) { return bad('criar_agente', e.message); }
+      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}${model ? ` · modelo ${model}` : ''}${effort ? ` · esforço ${effort}` : ''}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${browser !== 'off' ? ` · NAVEGADOR: ${BROWSER_LABEL[browser]}${browser === 'chrome' ? ' (age nas suas contas em que você está logado; só use com projetos de confiança)' : ''}` : ''}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model, effort, instructions: '', mode, skillIds: [], commands: [], browser, capabilities: caps }, valid: true };
     }
     case 'definir_skills': {
       const r = find(raw.agente); if (r.error) return bad('definir_skills', r.error);
@@ -127,6 +131,32 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       if ((world.projects || []).some(p => lc(p.name) === lc(nome)) || planned.projects.some(x => lc(x) === lc(nome))) return bad('importar_projeto', `Já existe um projeto chamado “${nome}”.`);
       const area = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
       return { type: 'importar_projeto', summary: `Importar a pasta existente “${pasta}” como o projeto “${nome}” (ambiente ${area}). Os agentes poderão ler essa pasta e, se tiverem permissão de escrita, editar os arquivos dela.`, payload: { name: nome, path: pasta, area }, valid: true };
+    }
+    case 'criar_canal': {
+      const nome = short(raw.nome, 60); if (!nome) return bad('criar_canal', 'O canal precisa de um nome.');
+      if ((world.channels || []).some(c => lc(c.name) === lc(nome))) return bad('criar_canal', `Já existe o canal “${nome}”.`);
+      const lim = (v, n, rot) => { const s = String(v ?? '').trim(); if (s.length > n) throw new Error(`${rot}: máximo de ${n} caracteres.`); return s; };
+      const hd = v => { const s = String(v ?? '').trim().replace(/^@/, ''); if (s && !/^[\w.\-]{1,60}$/.test(s)) throw new Error(`Usuário de rede inválido: “${short(s, 30)}”. Use só o @ público, sem links.`); return s; };
+      try {
+        const payload = { name: nome, niche: lim(raw.nicho, 200, 'Nicho'), style: STYLES.includes(raw.estilo) ? raw.estilo : 'outro', voice: lim(raw.voz, 100, 'Voz'), bio: lim(raw.bio, 300, 'Bio'), tone: lim(raw.tom, 300, 'Tom'), palette: lim(raw.paleta, 200, 'Paleta'), youtube: hd(raw.youtube), instagram: hd(raw.instagram), tiktok: hd(raw.tiktok), perDay: Math.min(4, Math.max(1, Math.trunc(Number(raw.por_dia)) || 2)), windows: lim(raw.horarios, 120, 'Horários'), createPostador: raw.criar_postador !== false };
+        const redes = ['youtube', 'instagram', 'tiktok'].filter(k => payload[k]).map(k => `${k} @${payload[k]}`);
+        return { type: 'criar_canal', summary: `Criar o canal “${nome}”${payload.niche ? ` (nicho: ${payload.niche})` : ''}${redes.length ? ` com ${redes.join(', ')}` : ''}, até ${payload.perDay} post${payload.perDay > 1 ? 's' : ''} por dia${payload.createPostador ? ', com um agente Postador que só prepara os textos' : ''}. Não conecta contas nem publica nada: a conexão e cada post continuam com a sua confirmação.`, payload, valid: true };
+      } catch (e) { return bad('criar_canal', e.message); }
+    }
+    case 'criar_rotina': {
+      const nome = short(raw.nome, 120), objetivo = String(raw.objetivo ?? '').trim(); if (!nome || !objetivo) return bad('criar_rotina', 'A rotina precisa de nome e objetivo.');
+      const pr = findProject(raw.projeto); if (pr.error) return bad('criar_rotina', pr.error);
+      if (!!raw.equipe === !!raw.agente) return bad('criar_rotina', 'Informe a equipe OU o agente que executa, não os dois.');
+      const q = raw.quando || {}; let trigger, quando;
+      if (q.tipo === 'manual') { trigger = { type: 'manual' }; quando = 'só quando a pessoa mandar rodar'; }
+      else if (q.tipo === 'diario') { trigger = { type: 'time', freq: 'daily', time: String(q.hora ?? '') }; quando = `todo dia às ${trigger.time}`; }
+      else if (q.tipo === 'semanal') { trigger = { type: 'time', freq: 'weekly', time: String(q.hora ?? ''), day: Number(q.dia) }; quando = `toda semana (dia ${trigger.day}, 0 = domingo) às ${trigger.time}`; }
+      else return bad('criar_rotina', 'Informe quando: manual, diario (com hora HH:MM) ou semanal (com hora e dia de 0 a 6, domingo = 0).');
+      let target, who;
+      if (raw.equipe) { const tm = findTeam(raw.equipe); if (tm.error) return bad('criar_rotina', tm.error); target = { type: 'team', id: tm.team.id }; who = `a equipe “${tm.team.name}”`; }
+      else { const a = find(raw.agente); if (a.error) return bad('criar_rotina', a.error); target = { type: 'agent', id: a.agent.id }; who = `o agente “${a.agent.name}”`; }
+      try { validateRoutine({ name: nome, objective: objetivo, projectId: pr.project.id || 'planejado', trigger, target: { ...target, id: target.id || 'planejado' } }); } catch (e) { return bad('criar_rotina', e.message); }
+      return { type: 'criar_rotina', summary: `Criar a rotina “${nome}” no projeto “${pr.project.name}”: ${who} executa ${quando}. ${short(objetivo, 140)}. Cada execução usa a cota da sua IA; você pode pausar ou apagar a rotina quando quiser.`, payload: { name: nome, objective: objetivo, projectId: pr.project.id, trigger, target }, valid: true };
     }
     case 'abrir_tela': { const v = VIEWS[raw.tela]; return v ? { type: 'abrir_tela', summary: `Abrir a tela ${raw.tela}`, payload: { view: v }, valid: true } : bad('abrir_tela', 'Tela desconhecida.'); }
     default: return null;   // ação desconhecida é ignorada
@@ -197,7 +227,9 @@ export function stateSummary(world, projects = [], question = '', focus = '', fo
   const top = scored.map(x => `- ${x.s.name}: ${short(x.s.description, 110)}`).join('\n'), rest = usable.filter(s => !scored.some(x => x.s === s)).map(s => s.name).slice(0, 60).join(', ');
   const sk = `${usable.length} no total.${top ? `\nMais ligadas ao pedido da pessoa:\n${top}` : '\nNenhuma parece ligada ao pedido atual (se for sobre skills, diga isso e ofereça criar uma com criar_skill ou importar uma pasta).'}\nOutras (só nomes): ${rest || '(nenhuma)'}`;
   const ln = (world.links || []).map(l => `${world.agents.find(a => a.id === l.from)?.name || '?'} → ${world.agents.find(a => a.id === l.to)?.name || '?'}`).slice(0, 20).join('; ') || '(nenhuma)';
-  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n${focusInfo ? focusInfo + '\n' : ''}` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
+  const ch = (world.channels || []).slice(0, 15).map(c => `- ${c.name}${c.niche ? ` (nicho: ${short(c.niche, 60)})` : ''}${c.networks ? ` · ${c.networks}` : ''}${c.postador ? ' · tem Postador' : ''}`).join('\n') || '(nenhum canal ainda)';
+  const rt = (world.routines || []).slice(0, 15).map(r => `- ${r.name} (${r.when}${r.status === 'paused' ? ', pausada' : ''})`).join('\n') || '(nenhuma rotina ainda)';
+  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nCanais:\n${ch}\nRotinas:\n${rt}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n${focusInfo ? focusInfo + '\n' : ''}` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
 }
 const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Se não souber, diga que não sabe. Para perguntas de status (“qual o status?”, “como está o projeto X / a equipe Y?”), responda SÓ com a seção STATUS AO VIVO do estado atual, em linguagem simples e curta: o que roda, o que espera, o que terminou, o que falhou e por quê; se o item citado não aparecer, diga que não há registro dele.`;
 // Memória da conversa (sem gastar cota): o que a pessoa pediu e o que foi feito DEPOIS das mensagens recentes, em linhas curtas.
@@ -236,8 +268,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp }) {
-    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp });
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine }) {
+    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine });
     this.dir = join(dataDir, 'assistente');
   }
   get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], thread: { id: 't1', title: 'Conversa 1' }, others: [], order: ['t1'], pending: null, briefing: null, error: null }; }
@@ -383,6 +415,8 @@ export class Assistant {
     else if (r.type === 'importar_projeto') { const pr = await this.importProject(r.payload); result = `Projeto “${pr.name}” importado.`; projectId = pr.id; }
     else if (r.type === 'criar_skill') { await this.saveSkill(r.payload); result = `Skill “${r.payload.name}” criada. Já aparece em Skills.`; }
     else if (r.type === 'iniciar_tarefa') { const o = await this.startTask(r.payload); result = r.payload.teamId ? 'Fluxo da equipe iniciado. Acompanhe em Tarefas.' : 'Tarefa iniciada. Acompanhe em Tarefas.'; projectId = r.payload.projectId; taskView = o?.id ? 'tasks' : null; }
+    else if (r.type === 'criar_canal') { const o = await this.saveChannel(r.payload); result = `Canal “${o.channel.name}” criado${o.agent ? ' com o agente Postador' : ''}. Está em Conexões. Para publicar no YouTube, conecte a conta lá; cada post continua pedindo a sua confirmação.`; taskView = 'connections'; }
+    else if (r.type === 'criar_rotina') { const ro = await this.saveRoutine(r.payload); result = `Rotina “${ro.name}” criada. Está em Rotinas.`; projectId = r.payload.projectId; taskView = 'routines'; }
     else if (r.type === 'abrir_tela') result = 'Tela aberta.';
     a.status = 'applied'; a.result = result; this.#save({ messages: msgs }); return { result, view: r.type === 'abrir_tela' ? r.payload.view : taskView, projectId, status: await this.status() };
   }
