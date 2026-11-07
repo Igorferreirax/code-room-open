@@ -25,6 +25,7 @@ import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
 import { retentionPlan, retentionPurge } from './retention.mjs';
+import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
@@ -123,6 +124,7 @@ const routines = new Routines(store, (r, slot) => {
 function okKey(value) { const a = Buffer.from(value || ''), b = Buffer.from(key); return a.length === b.length && timingSafeEqual(a, b); }
 // 'master' = chave do PC; 'device' = token de um celular pareado (revogável, sem acesso a rede, aparelhos e registro de projetos).
 function authLevel(req) { const v = req.headers['x-code-room-key']; if (okKey(v)) return 'master'; return devices.verify(v, req.socket.remoteAddress) ? 'device' : null; }
+const mcpCtx = () => ({ dataDir: data, devices, node: process.execPath, script: join(root, 'server', 'mcp.mjs') });
 const masterOnly = auth => { if (auth !== 'master') throw Object.assign(new Error('Esta ação só pode ser feita no computador (chave principal).'), { status: 403 }); };
 function text(value, max = 200) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`Texto obrigatório (até ${max} caracteres).`); return value.trim(); }
 function optional(value, max = 10000) { if (value == null) return ''; if (typeof value !== 'string' || value.length > max) throw new Error('Texto inválido ou muito longo.'); return value.trim(); }
@@ -238,6 +240,7 @@ const handle = async (req, res) => {
       tOk(ip);
       if (get && p === '/api/updates') return send(res, 200, updates.status());
       if (get && p === '/api/retention') { masterOnly(auth); const pl = retentionPlan(store, { days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 }); return send(res, 200, { days: pl.days, counts: pl.counts }); }
+      if (get && p === '/api/mcp') { masterOnly(auth); return send(res, 200, mcpInfo(mcpCtx())); }
       if (get && p === '/api/network/diagnose') { masterOnly(auth); return send(res, 200, { checks: await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() }) }); }
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
       if (get && p === '/api/devices') { masterOnly(auth); return send(res, 200, devices.list().map(d => devices.view(d))); }
@@ -310,6 +313,8 @@ const handle = async (req, res) => {
         if (p === '/api/updates/dismiss') { masterOnly(auth); return send(res, 200, updates.dismiss(b.version)); }
         if (p === '/api/updates/download') { masterOnly(auth); return send(res, 200, await updates.download()); }
         if (p === '/api/updates/install') { masterOnly(auth); return send(res, 202, updates.install()); }
+        if (p === '/api/mcp/activate') { masterOnly(auth); return send(res, 200, mcpActivate(mcpCtx())); }
+        if (p === '/api/mcp/deactivate') { masterOnly(auth); return send(res, 200, mcpDeactivate(mcpCtx())); }
         if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, { removed: retentionPurge(store, { days: Number(b.days) || 7 }) }); }
         if (p === '/api/network/firewall') { masterOnly(auth); const r = await changeFirewall(b.remove === true ? 'remove' : 'add', process.execPath, port); return send(res, r.ok ? 200 : 502, r.ok ? { ok: true } : { error: r.error }); }
         if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale === true }); await syncListeners(); return send(res, 200, await networkView()); }

@@ -80,6 +80,18 @@ try:
         check('acesso: botões Diagnosticar e Liberar no firewall', page.locator('[data-act=net-diagnose]').count() == 1 and page.locator('[data-act=net-firewall]').count() == 1)
         page.click('[data-act=net-diagnose]'); page.wait_for_selector('.diag-list', timeout=15000)
         check('acesso: o diagnóstico lista os itens', page.locator('.diag-list li').count() >= 1)
+        # ---- Cartão do MCP ----
+        page.on('dialog', lambda d: d.accept())
+        check('mcp: o cartão aparece em Acesso com o botão Ativar', page.locator('#mcp-card [data-act=mcp-activate]').count() == 1)
+        page.click('[data-act=mcp-activate]'); page.wait_for_selector('#mcp-card [data-act=mcp-deactivate]', timeout=8000)
+        txt = page.inner_text('#mcp-card')
+        check('mcp: depois de ativar mostra o comando do Claude Code e o modo somente leitura', 'claude mcp add code-room' in txt and 'somente leitura' in txt and '--escrever' not in txt)
+        page.click('[data-act=mcp-write]'); page.wait_for_timeout(300); txt = page.inner_text('#mcp-card')
+        check('mcp: permitir escrita troca o comando e avisa da cota', '--escrever' in txt and 'cota' in txt)
+        check('mcp: o token não aparece na tela', len(__import__('re').findall(r'[0-9a-f]{64}', page.inner_text('#view'))) == 0)
+        page.click('[data-act=mcp-write]'); page.wait_for_timeout(200)
+        page.click('[data-act=mcp-deactivate]'); page.wait_for_selector('#mcp-card [data-act=mcp-activate]', timeout=8000)
+        check('mcp: desativar volta para o botão Ativar', page.locator('#mcp-card [data-act=mcp-activate]').count() == 1)
         # ---- Limpeza de dados antigos (prévia, sem apagar) ----
         page.click('[data-act=settings-tab][data-id=execucao]'); page.wait_for_selector('[data-act=retention-preview]', timeout=8000)
         page.click('[data-act=retention-preview]')

@@ -322,7 +322,7 @@ async function loadModules() { try { ctx.modules = await api('modules'); render(
 async function loadPublish() { try { ctx.publish = await api('publish/status'); if (['connections', 'routines'].includes(ctx.view)) render(); } catch {} }
 async function loadLimits() { try { ctx.limits = await api('usage/limits'); if (ctx.view === 'usage') render(); } catch {} }
 async function loadRemote() {
-  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); } } catch (e) { notify(e.message, true); }
+  try { ctx.whoami = (await api('whoami')).level; if (ctx.whoami === 'master') { ctx.net = await api('network'); ctx.devices = await api('devices'); try { ctx.mcp = await api('mcp'); } catch {} } } catch (e) { notify(e.message, true); }
   render();
 }
 const deviceName = () => { const ua = navigator.userAgent; return /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Celular Android' : /Windows/.test(ua) ? 'Computador Windows' : /Mac/.test(ua) ? 'Mac' : 'Aparelho'; };
@@ -542,6 +542,10 @@ const actions = {
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
   'net-diagnose': async () => { ctx.netDiag = 'busy'; render(); try { ctx.netDiag = (await api('network/diagnose')).checks; } catch (e) { ctx.netDiag = null; notify(e.message, true); } render(); },
   'net-firewall': async () => { if (!confirm('Criar uma regra no Firewall do Windows só para o Code Room (esta porta, e só para a rede local e o Tailscale)? O Windows vai pedir a sua permissão.')) return; try { await api('network/firewall', {}); notify('Firewall liberado para o Code Room. Se o celular ainda não abrir, rode o diagnóstico.'); } catch (e) { notify(e.message, true); } },
+  'mcp-activate': async () => { try { ctx.mcp = await api('mcp/activate', {}); ctx.devices = await api('devices'); notify('MCP ativado. Copie o comando abaixo.'); } catch (e) { notify(e.message, true); } render(); },
+  'mcp-deactivate': async () => { if (!confirm('Desativar o MCP e revogar o token? As ferramentas conectadas perdem o acesso.')) return; try { ctx.mcp = await api('mcp/deactivate', {}); ctx.devices = await api('devices'); ctx.mcpWrite = false; notify('MCP desativado.'); } catch (e) { notify(e.message, true); } render(); },
+  'mcp-write': () => { ctx.mcpWrite = ctx.mcpWrite !== true; render(); },
+  'mcp-copy': async key => { const set = ctx.mcpWrite ? ctx.mcp.escrita : ctx.mcp.leitura; try { await navigator.clipboard.writeText(set[key]); notify('Copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   'pair-new': async () => { ctx.pairing = await api('devices/pair-code', {}); render(); },
   'revoke-device': async id => { await api(`devices/${id}/revoke`, {}); notify('Aparelho revogado.'); ctx.devices = await api('devices'); render(); },
   'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },

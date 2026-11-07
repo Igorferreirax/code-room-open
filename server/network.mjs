@@ -81,7 +81,7 @@ export async function diagnoseNetwork({ cfg, port, bound, tailscale, probe = def
     out.push({ id: `probe-${b.ip}`, ok: r.ok, label: `${b.kind === 'tailscale' ? 'Tailscale' : 'Rede local'} (${b.ip}): ${r.ok ? 'o serviço responde' : 'o serviço não respondeu'}`, hint: r.ok ? `No celular, abra http://${b.ip}:${port}/ ou escaneie o QR.` : `O serviço não atendeu em ${b.ip}:${port} (${r.error || 'sem resposta'}). Reinicie o Code Room.` });
   }
   if (process.platform === 'win32' && bound.length) {
-    const fw = await firewall(process.execPath, port);
+    const fw = await firewall(process.execPath, port, { profile: !!cfg.lan });
     if (fw) {
       if (fw.error) out.push({ id: 'fw', ok: null, label: 'Não consegui ler o Firewall do Windows', hint: 'Sem problema: se o celular não abrir a página, libere o Node.js no Firewall do Windows.' });
       else if (!fw.anyEnabled) out.push({ id: 'fw', ok: true, label: 'Firewall do Windows desligado', hint: 'Ele não bloqueia a conexão do celular.' });
@@ -96,18 +96,33 @@ export async function diagnoseNetwork({ cfg, port, bound, tailscale, probe = def
 function defaultProbe(ip, port) {
   return new Promise(resolve => { const r = httpGet({ host: ip, port, path: '/', timeout: 2500, agent: false, headers: { Host: `${ip}:${port}` } }, x => { x.resume(); resolve({ ok: x.statusCode === 200 }); }); r.on('error', e => resolve({ ok: false, error: e.code || e.message })); r.on('timeout', () => { r.destroy(); resolve({ ok: false, error: 'tempo esgotado' }); }); });
 }
-export function windowsFirewall(exe, port) {
-  // Consulta em lote (rápido): filtros por programa e por porta, depois só as regras de entrada, permitir e ligadas. O caminho vai por variável de ambiente (sem aspas).
-  const ps = "$ErrorActionPreference='Stop';try{$ex=$env:CR_EXE;$pt=$env:CR_PORT;$any=[bool](Get-NetFirewallProfile|Where-Object Enabled);$ok=$false;"
-    + "$byApp=@(Get-NetFirewallApplicationFilter|Where-Object{$_.Program -ieq $ex});$byPort=@(Get-NetFirewallPortFilter|Where-Object{$_.LocalPort -contains $pt -and $_.Protocol -eq 'TCP'});"
-    + "foreach($f in ($byApp+$byPort)){$r=$f|Get-NetFirewallRule;if($r.Direction -eq 'Inbound' -and $r.Action -eq 'Allow' -and $r.Enabled -eq 'True'){$ok=$true;break}};"
-    + "$pub=[bool](Get-NetConnectionProfile|Where-Object NetworkCategory -eq 'Public');@{anyEnabled=$any;allowed=$ok;publicLan=$pub}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}";
-  return new Promise(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], { timeout: 20000, windowsHide: true, env: { ...process.env, CR_EXE: exe, CR_PORT: String(port) } }, (err, stdout) => { try { resolve(JSON.parse(stdout)); } catch { resolve({ error: err?.message || 'sem resposta' }); } }));
-}
-
-// Regra de entrada do Firewall do Windows só para o Code Room: este programa e esta porta, e só de quem está na mesma rede local ou no Tailscale (100.64.0.0/10).
-// Criar a regra exige administrador: o Windows mostra o pedido de permissão (UAC) e a pessoa precisa clicar em "Sim".
 export const FIREWALL_RULE = 'Code Room (celular)';
+// Consulta o Firewall do Windows de forma rápida e SEM exigir administrador:
+// 1) a regra do próprio Code Room (netsh: código de saída 0 = existe; não depende do idioma do Windows);
+// 2) se a rede está marcada como Pública e se somos administrador (um PowerShell só);
+// 3) só como administrador, a leitura detalhada de todas as regras. Sem permissão, devolve { error } e o diagnóstico mostra um aviso informativo.
+export function windowsFirewall(exe, port, { profile = true, run = execFile } = {}) {
+  const cmd = (file, args, timeout, extraEnv = {}) => new Promise(resolve => run(file, args, { timeout, windowsHide: true, env: { ...process.env, ...extraEnv } }, (err, stdout) => resolve({ err, out: String(stdout || '') })));
+  // Perfil de rede Público só importa para o Wi-Fi (rede local) e o PowerShell leva ~2 s, então só consulta quando pedido.
+  const profilePs = "[bool](Get-NetConnectionProfile -ErrorAction SilentlyContinue|Where-Object NetworkCategory -eq 'Public')";
+  return (async () => {
+    const [rule, adm, prof] = await Promise.all([
+      cmd('netsh', ['advfirewall', 'firewall', 'show', 'rule', `name=${FIREWALL_RULE}`], 4000),
+      cmd('fltmc', [], 3000), // só administrador consegue (código de saída 0); rápido e não depende do idioma
+      profile ? cmd('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', profilePs], 8000) : Promise.resolve({ err: null, out: '' })
+    ]);
+    const publicLan = /true/i.test(prof.out);
+    if (!rule.err) return { anyEnabled: true, allowed: true, publicLan, ours: true };
+    if (adm.err) return { error: 'Sem permissão de administrador para ler todas as regras do Firewall.', publicLan, ours: false };
+    // Administrador: leitura detalhada (filtros por programa e por porta, depois só regras de entrada, permitir e ligadas).
+    const ps = "$ErrorActionPreference='Stop';try{$ex=$env:CR_EXE;$pt=$env:CR_PORT;$any=[bool](Get-NetFirewallProfile|Where-Object Enabled);$ok=$false;"
+      + "$byApp=@(Get-NetFirewallApplicationFilter|Where-Object{$_.Program -ieq $ex});$byPort=@(Get-NetFirewallPortFilter|Where-Object{$_.LocalPort -contains $pt -and $_.Protocol -eq 'TCP'});"
+      + "foreach($f in ($byApp+$byPort)){$r=$f|Get-NetFirewallRule;if($r.Direction -eq 'Inbound' -and $r.Action -eq 'Allow' -and $r.Enabled -eq 'True'){$ok=$true;break}};"
+      + "@{anyEnabled=$any;allowed=$ok}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}";
+    const det = await cmd('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], 20000, { CR_EXE: exe, CR_PORT: String(port) });
+    try { return { ...JSON.parse(det.out), publicLan, ours: false }; } catch { return { error: det.err?.message || 'sem resposta', publicLan, ours: false }; }
+  })();
+}
 export function firewallScript(action, exe, port) {
   const q = v => "'" + String(v).replace(/'/g, "''") + "'";
   if (action === 'remove') return `Remove-NetFirewallRule -DisplayName ${q(FIREWALL_RULE)} -ErrorAction SilentlyContinue`;
