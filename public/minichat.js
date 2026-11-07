@@ -2,7 +2,7 @@
 // O chat principal (Assistente, equipes, supervisor) continua como está. Funções puras: devolvem HTML; quem ouve os cliques é o app.js.
 import { esc, idx } from './views.js';
 import { agentAv } from './art.js';
-import { liveHtml } from './live-ui.js';
+import { liveHtml, liveRows, stateLabel, ACTIVE } from './live-ui.js';
 
 export const MAX_MINI = 3;
 
@@ -24,4 +24,16 @@ export function miniShellHtml(ctx, agent) {
 
 export function miniBodyHtml(task) {
   return task ? liveHtml(task) : '<p class="small muted">Sem atividade ainda. Escreva uma missão abaixo.</p>';
+}
+
+// Balão do agente (clicou no agente, a conversa abre ali do lado): estado, as últimas ações e, ao terminar, o começo da resposta. Compacto de propósito.
+export function bubbleLiveHtml(task) {
+  if (!task) return '<p class="small muted am-empty">Sem atividade ainda. Escreva uma missão abaixo.</p>';
+  const [dot, label] = stateLabel(task.status), active = ACTIVE.has(task.status), rows = liveRows(task.events, 3);
+  const ans = String(task.answer || '').trim().replace(/\s+/g, ' ');
+  return `<div class="am-state"><span class="dot d-${dot}"></span> <b>${active ? 'Ao vivo' : 'Última tarefa'}</b> <span class="muted">${esc(label)}</span></div>
+    ${rows.length ? `<ul class="am-rows">${rows.map(r => `<li class="lv-${r.kind}"><span aria-hidden="true">${r.icon}</span> ${esc(r.text.length > 90 ? r.text.slice(0, 89) + '…' : r.text)}</li>`).join('')}</ul>` : ''}
+    ${!active && ans ? `<p class="small am-answer">${esc(ans.length > 200 ? ans.slice(0, 199) + '…' : ans)}</p>` : ''}
+    ${!active && task.reason ? `<p class="upd-err small" role="alert">${esc(String(task.reason).slice(0, 140))}</p>` : ''}
+    <div class="am-links"><button type="button" class="linkbtn" data-act="task" data-id="${esc(task.id)}">Ver tudo</button>${active ? `<button type="button" class="linkbtn" data-act="cancel" data-id="${esc(task.id)}">Parar</button>` : ''}</div>`;
 }

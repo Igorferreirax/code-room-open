@@ -530,3 +530,12 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 
 /* Toque: alvo maior para pegar o ponto de saída do Canvas com o dedo (o recomendado é 44 px ou mais) */
 @media (pointer:coarse){.cv-port.out{width:18px;height:18px;margin-top:-9px;right:-10px}.cv-port.out::after{inset:-18px}}
+
+/* Balão do agente: conversa rápida colada nele */
+.agent-menu{min-width:240px;max-width:320px}
+.agent-menu .am-status{margin:-4px 0 2px}.agent-menu .am-live{font-size:.84rem;max-height:200px;overflow:auto}
+.am-state{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0}.am-rows{list-style:none;margin:4px 0;padding:0}.am-rows li{padding:2px 0;overflow-wrap:anywhere}
+.am-rows .lv-error{color:var(--bad)}.am-rows .lv-diag,.am-rows .lv-status{color:var(--muted)}.am-answer{margin:4px 0;overflow-wrap:anywhere}
+.agent-menu .am-links{display:flex;gap:12px}.agent-menu .am-links button.linkbtn{background:none;border:0;padding:2px 0;color:var(--accent-h,#6aa5ff);font-weight:600;text-decoration:underline}
+.agent-menu .am-form{display:flex;gap:6px;margin-top:4px}.agent-menu .am-form textarea{flex:1;min-width:0;resize:none}
+.agent-menu .am-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.agent-menu .am-actions button{padding:6px 10px;font-size:.84rem}

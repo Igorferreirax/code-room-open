@@ -3,6 +3,7 @@
 import { esc } from './views.js';
 
 const STATE = { queued: ['warn', 'na fila'], waiting_dependency: ['warn', 'esperando a vez'], starting: ['run', 'iniciando'], running: ['run', 'trabalhando'], cancelling: ['warn', 'cancelando'], completed: ['ok', 'concluída'], failed: ['bad', 'falhou'], timeout: ['bad', 'tempo esgotado'], blocked: ['bad', 'bloqueada'], cancelled: ['idle', 'cancelada'], interrupted: ['idle', 'interrompida'] };
+export const stateLabel = s => STATE[s] || ['idle', String(s || '')];
 export const ACTIVE = new Set(['queued', 'waiting_dependency', 'starting', 'running', 'cancelling']);
 const SKIP = new Set(['usage', 'session', 'result', 'context']);
 const first = (t, n = 140) => { const s = String(t || '').split('\n').find(l => l.trim()) || ''; const c = s.replace(/\s+/g, ' ').trim(); return c.length > n ? c.slice(0, n - 1) + '…' : c; };

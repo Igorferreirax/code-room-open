@@ -9,7 +9,7 @@ import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { liveTaskOf } from './live-ui.js';
-import { cleanMini, addMini, miniShellHtml, miniBodyHtml } from './minichat.js';
+import { cleanMini, addMini, miniShellHtml, miniBodyHtml, bubbleLiveHtml } from './minichat.js';
 import { sayOf } from './mascot.js';
 import { extractProject, projectToken } from './mentions.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
@@ -130,6 +130,7 @@ async function refreshLive() {
   ctx.ui.mini = cleanMini(ctx.ui.mini ?? store.get('cr.mini', []), ctx.state?.agents); ctx.liveMini = ctx.liveMini || {};
   await Promise.all(ctx.ui.mini.map(async id => { const t = liveTaskOf(ctx.state?.runs, id); if (!t) { delete ctx.liveMini[id]; return; } ctx.liveMini[id] = await api('tasks/' + t.id).catch(() => ctx.liveMini[id] || null); }));
   for (const id of Object.keys(ctx.liveMini)) if (!ctx.ui.mini.includes(id)) delete ctx.liveMini[id];
+  if (ctx.ui.bubble) { const t = liveTaskOf(ctx.state?.runs, ctx.ui.bubble); ctx.liveBubble = t ? await api('tasks/' + t.id).catch(() => ctx.liveBubble || null) : null; } else ctx.liveBubble = null;
 }
 // Desenha as janelas extras: cria a casca uma vez e só troca o corpo e o estado (não mexe no que está sendo digitado).
 function renderMinis() {
@@ -220,7 +221,7 @@ function render() {
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
   $('update-bar').innerHTML = U.updateBarHtml(ctx) + noticesBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
-  applyPrefs(); renderAsst(); renderMinis();
+  applyPrefs(); renderAsst(); renderMinis(); renderBubble();
 }
 function drawOffice() {
   const model = a => { const s = ctx.agentStatus(a); return { agent: a, status: s.status === 'queued' ? 'waiting' : s.status, label: `${a.name}, ${a.role}. ${s.label}${s.task ? '. Tarefa: ' + s.task.prompt.slice(0, 60) : ''}` }; };
@@ -378,16 +379,31 @@ async function selectDelivery(k, silent) {
   if (!silent) render(); else render();
 }
 // Clicar em um agente (sem arrastar) abre um menu pequeno: mencionar no chat (@Nome) ou ver os detalhes.
-function closeAgentMenu() { const m = $('agent-menu'); if (m) m.remove(); }
+function closeAgentMenu() { const m = $('agent-menu'); if (m) m.remove(); ctx.ui.bubble = null; ctx.liveBubble = null; }
+function placeAgentMenu(m) {
+  const r = m._r, w = m.offsetWidth, h = m.offsetHeight; let x = Math.round((r.left + r.right) / 2 - w / 2), y = Math.round(r.bottom + 8);
+  if (y + h > innerHeight - 8) y = Math.max(8, Math.round(r.top - h - 8)); x = Math.min(innerWidth - w - 8, Math.max(8, x));
+  m.style.left = x + 'px'; m.style.top = y + 'px';
+}
+// Clicou no agente: abre um balão ali do lado dele, com o estado, o que ele faz agora e uma caixa para dar a missão na hora.
 function openAgentMenu(id) {
   const a = ctx.state.agents.find(x => x.id === id); if (!a) return; closeAgentMenu();
   const el = [...document.querySelectorAll('[data-agent]')].find(n => n.dataset.agent === id && n.offsetParent !== null) || null, r = el?.getBoundingClientRect() || { left: innerWidth / 2 - 90, right: innerWidth / 2 + 90, bottom: 120, top: 80 };
-  const m = document.createElement('div'); m.id = 'agent-menu'; m.className = 'agent-menu'; m.setAttribute('role', 'menu');
-  m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><button type="button" role="menuitem" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar no chat</button><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Abrir em janela própria</button><button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button>`;
-  document.body.appendChild(m);
-  const w = m.offsetWidth, h = m.offsetHeight; let x = Math.round((r.left + r.right) / 2 - w / 2), y = Math.round(r.bottom + 8);
-  if (y + h > innerHeight - 8) y = Math.max(8, Math.round(r.top - h - 8)); x = Math.min(innerWidth - w - 8, Math.max(8, x));
-  m.style.left = x + 'px'; m.style.top = y + 'px'; m.querySelector('button')?.focus();
+  const m = document.createElement('div'); m.id = 'agent-menu'; m.className = 'agent-menu'; m.setAttribute('role', 'menu'); m._r = r;
+  m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><span class="am-status small muted" data-am-status></span>
+    <div class="am-live" data-am-live aria-live="polite"></div>
+    <form class="am-form" data-id="${V.esc(a.id)}"><label class="sr-only" for="am-t-${V.esc(a.id)}">Missão para ${V.esc(a.name)}</label><textarea id="am-t-${V.esc(a.id)}" rows="2" maxlength="8000" placeholder="Missão para ${V.esc(a.name)}… (Enter envia)"></textarea><button type="submit" class="btn sm">Enviar</button></form>
+    <div class="am-actions"><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Fixar em janela</button><button type="button" role="menuitem" class="ghost" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar</button><button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button></div>`;
+  document.body.appendChild(m); ctx.ui.bubble = id; renderBubble(); placeAgentMenu(m); refreshLive().then(renderBubble);
+  m.querySelector('textarea')?.focus();
+}
+// Atualiza só o conteúdo do balão (nunca a caixa de texto, para não perder o que está sendo digitado).
+function renderBubble() {
+  const m = $('agent-menu'); if (!m || !ctx.ui.bubble) return;
+  const a = ctx.state.agents.find(x => x.id === ctx.ui.bubble); if (!a) { closeAgentMenu(); return; }
+  const st = m.querySelector('[data-am-status]'), label = ctx.agentStatus(a).label; if (st.textContent !== label) st.textContent = label;
+  const html = bubbleLiveHtml(ctx.liveBubble || null);
+  if (m._html !== html) { m.querySelector('[data-am-live]').innerHTML = html; m._html = html; placeAgentMenu(m); }
 }
 // "@Nome " vai para a barra do chat; ao enviar, a mensagem segue direto para esse agente (o "@" no começo escolhe quem executa).
 function mentionAgent(id) {
@@ -658,7 +674,7 @@ document.addEventListener('input', e => {
   if (m) { ctx.ui[m] = t.value; if (t.id !== 'review-note') render(); else { const c = t.parentElement.querySelector('.muted.small'); if (c) c.textContent = `${t.value.length}/500`; } }
 });
 
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.matches?.('.mini-form textarea')) { e.preventDefault(); e.target.form.requestSubmit(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.matches?.('.mini-form textarea, .am-form textarea')) { e.preventDefault(); e.target.form.requestSubmit(); } });
 
 // ---------- Formulários ----------
 document.addEventListener('submit', async e => {
@@ -668,7 +684,7 @@ document.addEventListener('submit', async e => {
       ctx.hermes = await api('hermes', { host: $('hermes-host').value, port: $('hermes-port').value, key: $('hermes-key').value, bin: $('hermes-bin').value, trustNew: $('hermes-trust').checked });
       ctx.hermesTest = null; await refresh(); loadChecks(true); notify('Servidor do Hermes salvo. Clique em “Testar a conexão”.'); render(); return;
     }
-    if (f.classList.contains('mini-form')) {   // janela de chat extra: missão direta ao agente daquela janela
+    if (f.classList.contains('mini-form') || f.classList.contains('am-form')) {   // janela de chat extra: missão direta ao agente daquela janela
       const ta = f.querySelector('textarea'), text = ta.value.trim(); if (!text) return;
       if (!ctx.project) throw new Error('Escolha ou cadastre um projeto.');
       ta.disabled = true;

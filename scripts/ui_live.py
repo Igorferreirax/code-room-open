@@ -68,7 +68,10 @@ try:
             if 'Ao vivo' in page.inner_text('#live-box'): break
             page.wait_for_timeout(300)
         check('ao vivo: uma tarefa nova aparece sozinha, sem recarregar', 'Ao vivo' in page.inner_text('#live-box'))
-        page.click('#live-box [data-act=cancel]'); page.wait_for_timeout(3500)
+        page.click('#live-box [data-act=cancel]')
+        for _ in range(60):   # cancelar encerra a árvore de processos: pode levar alguns segundos
+            if 'Ao vivo' not in page.inner_text('#live-box'): break
+            page.wait_for_timeout(500)
         check('ao vivo: Parar cancela a tarefa', 'cancelada' in page.inner_text('#live-box') or 'Cancelad' in page.inner_text('#live-box') or 'Última tarefa' in page.inner_text('#live-box'))
         # ---- várias janelas de chat ao mesmo tempo ----
         beto = api('agents', {'name': 'Beto Ao Vivo', 'role': 'segunda janela', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})
@@ -100,6 +103,29 @@ try:
         page.set_viewport_size({'width': 1440, 'height': 900}); page.wait_for_timeout(300)
         page.click(f"[data-act=mini-close][data-id='{beto['id']}']"); page.wait_for_timeout(300)
         check('janelas: todas fechadas', page.locator('.mini').count() == 0)
+        # ---- balão do agente: clicou no agente, a conversa abre ali do lado ----
+        page.click('[data-nav=room]'); page.wait_for_selector('.ps-station', timeout=8000); page.wait_for_timeout(600)
+        page.locator('.ps-station').first.click(); page.wait_for_selector('#agent-menu .am-form textarea', timeout=5000)
+        check('balão: clicar no agente abre o balão com caixa de missão e as ações', page.locator('#agent-menu [data-act=mini-open]').count() == 1 and page.locator('#agent-menu [data-act=mention-agent]').count() == 1 and page.locator('#agent-menu [data-act=agent]').count() == 1)
+        check('balão: o foco já está na caixa de missão (dá para digitar na hora)', page.evaluate("document.activeElement && document.activeElement.closest('.am-form') !== null"))
+        for _ in range(60):   # garante que nenhuma tarefa antiga está ao vivo para este agente antes de começar
+            if 'Ao vivo' not in page.inner_text('#agent-menu [data-am-live]'): break
+            page.wait_for_timeout(500)
+        ta = page.locator('#agent-menu .am-form textarea'); ta.fill('Missão do balão [[fake echo=1 sleep=7000 answer=Balao_ok]]'); ta.press('Enter')
+        for _ in range(60):
+            if 'Ao vivo' in page.inner_text('#agent-menu [data-am-live]') and ta.input_value() == '': break
+            page.wait_for_timeout(300)
+        check('balão: Enter envia e o balão mostra a tarefa ao vivo', 'Ao vivo' in page.inner_text('#agent-menu [data-am-live]'))
+        check('balão: continua aberto e a caixa volta vazia', page.locator('#agent-menu').count() == 1 and ta.input_value() == '')
+        ta.fill('rascunho do balão'); page.wait_for_timeout(2000)
+        check('balão: o que está sendo digitado sobrevive às atualizações em tempo real', page.locator('#agent-menu .am-form textarea').input_value() == 'rascunho do balão')
+        box = page.locator('#agent-menu').bounding_box()
+        check('balão: cabe inteiro na tela', box and box['x'] >= 0 and box['y'] >= 0 and box['x'] + box['width'] <= 1440 and box['y'] + box['height'] <= 900, box)
+        page.click('#agent-menu [data-act=mini-open]'); page.wait_for_timeout(700)
+        check('balão: "Fixar em janela" fecha o balão e abre a janela lateral', page.locator('#agent-menu').count() == 0 and page.locator('.mini').count() == 1)
+        page.click('.mini [data-act=mini-close]'); page.wait_for_timeout(300)
+        page.locator('.ps-station').first.click(); page.wait_for_selector('#agent-menu', timeout=5000); page.keyboard.press('Escape'); page.wait_for_timeout(300)
+        check('balão: Esc fecha o balão', page.locator('#agent-menu').count() == 0)
         # fechar o chat para de acompanhar
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(400)
         check('ao vivo: sem erro de console', not errors, errors[:3])
