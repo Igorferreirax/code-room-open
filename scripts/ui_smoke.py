@@ -152,7 +152,9 @@ try:
                 page.fill('#prices-form [name=cin]', '1.5'); page.fill('#prices-form [name=cout]', '6'); page.click('#prices-form button'); time.sleep(0.8)
                 check('consumo: preços salvos no servidor', api('state')['prices'].get('codex', {}).get('in') == 1.5)
                 page.click('[data-nav=settings]'); time.sleep(0.4)
-                page.click('[data-act=settings-tab][data-id=acesso]'); time.sleep(1.6)
+                page.click('[data-act=settings-tab][data-id=acesso]')
+                try: page.wait_for_selector('#pref-net-lan', timeout=12000)
+                except Exception: pass
                 check('acesso: cartão de acesso remoto com Tailscale e rede local', 'Tailscale' in page.inner_text('#view') and page.locator('#pref-net-lan').count() == 1)
                 page.click('#pref-net-lan'); time.sleep(1.2)
                 if page.locator('[data-act=pair-new]:not([disabled])').count():

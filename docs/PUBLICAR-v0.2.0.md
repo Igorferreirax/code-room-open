@@ -10,8 +10,8 @@ Tudo abaixo já está preparado e conferido. Os três passos que **tornam algo p
 - Histórico do Git: 17 commits, um único autor (e-mail `noreply` do GitHub), nenhum segredo, chave, e-mail pessoal ou caminho do seu computador. Único dado pessoal no repositório: o nome no `LICENSE`.
 - O Pix existe só na landing, nunca no app nem no repositório.
 - Pacote final reconstruído e testado (`scripts/smoke-package.ps1`: OK). Arquivos em `dist\`:
-  - `Code-Room-0.2.0-portatil-win-x64.zip` — SHA-256 `d77a3d7a52d34fde5d2807791421f423859c95d37bc5ec8e9fb6f2474190e9c8`
-  - `Code-Room-0.2.0-Setup.exe` — SHA-256 `5e4cff5aa422f1d8902b927a4ddb1e1d38198a885c18928a74039d8d7b943f7c`
+  - `Code-Room-0.2.0-portatil-win-x64.zip` — SHA-256 `9b33d482bceb07df9189543c76e71b5bd2c0bf378714562a169bf083e7724847`
+  - `Code-Room-0.2.0-Setup.exe` — SHA-256 `c7c5b20b4320d44d664f7e391778baacf334dbeaae7d23bf2f138e6876ae9d56`
   - `SHA256SUMS.txt`
 - A landing já está com os links e os SHA-256 acima (`Code Room Landing\js\config.js`).
 
