@@ -17,7 +17,8 @@ $dataDir = if ($env:CODE_ROOM_DATA) { $env:CODE_ROOM_DATA } elseif ($packaged) {
 # Porta: CODE_ROOM_PORT manda. Sem ela, usa 4780 (ou a última escolhida, guardada em port.txt). Se a porta estiver
 # ocupada por outro programa (inclusive outro Code Room), escolhe a próxima livre entre 4781 e 4799.
 function Test-PortaEmUso([int]$p) { try { $c = New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1', $p); $c.Close(); $true } catch { $false } }
-function Show-Erro([string]$msg) { try { Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show($msg, 'Code Room', 'OK', 'Error') } catch {}; Write-Host $msg }
+# A caixa de erro só aparece quando há uma pessoa para ver (CODE_ROOM_NO_PROMPT=1, usado nos testes, na atualização e no início silencioso, só escreve o erro: uma caixa invisível travaria o processo para sempre).
+function Show-Erro([string]$msg) { Write-Host $msg; if ($dataDir) { try { Add-Content -LiteralPath (Join-Path $dataDir 'start-error.log') -Value ('{0:s} {1}' -f (Get-Date), $msg) } catch {} }; if ($env:CODE_ROOM_NO_PROMPT -ne '1') { try { Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show($msg, 'Code Room', 'OK', 'Error') } catch {} } }
 trap { Show-Erro ("O Code Room não abriu.`n`n" + $_.Exception.Message); exit 1 }
 $portFile = Join-Path $dataDir 'port.txt'
 $portaExplicita = [bool]$env:CODE_ROOM_PORT

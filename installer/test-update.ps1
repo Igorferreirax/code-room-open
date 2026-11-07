@@ -10,6 +10,8 @@ if (-not $zip) { throw 'Rode installer\build.ps1 antes.' }
 $old = (Get-Content (Join-Path $repo 'package.json') -Raw | ConvertFrom-Json).version; $new = '0.99.0'
 $work = Join-Path $env:TEMP ('cr-upd-e2e-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); New-Item -ItemType Directory $work | Out-Null
 $PORT = 4799; $RPORT = 4798; $script:fails = 0
+# Sobras de uma rodada interrompida (servidor de releases falso ou serviço de teste ainda de pé) fariam o teste baixar o pacote ERRADO: limpa só o que é deste teste.
+Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'node|powershell' -and $_.CommandLine -match 'fake-releases\.mjs|cr-upd-e2e-' -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 function Check($name, $ok, $extra = '') { if ($ok) { Write-Host "OK    $name" } else { $script:fails++; Write-Host "FALHA $name $extra" } }
 function Open-Port($p) { try { $c = New-Object Net.Sockets.TcpClient; $r = $c.BeginConnect('127.0.0.1', $p, $null, $null); $ok = $r.AsyncWaitHandle.WaitOne(400) -and $c.Connected; $c.Close(); $ok } catch { $false } }
 function Wait-Until($cond, $sec) { for ($i = 0; $i -lt $sec * 2; $i++) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 500 }; $false }
@@ -30,6 +32,9 @@ $relC = Make-Release 'quebrada' { param($d) Set-Content (Join-Path $d 'server\ma
 
 function Run-Scenario($label, $rel) {
   Write-Host "`n=== $label ==="
+  # Um serviço do cenário anterior ainda de pé (por exemplo, iniciado pelo retorno do atualizador depois da limpeza) responderia com OUTRA chave (401): limpa as sobras deste teste e espera a porta ficar livre.
+  Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'cr-upd-e2e-' -and $_.CommandLine -notmatch 'fake-releases' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  $null = Wait-Until { -not (Open-Port $PORT) } 20
   $inst = Join-Path $work ('inst-' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory $inst | Out-Null
   Copy-Item (Join-Path $src 'CodeRoom') $inst -Recurse; $app = Join-Path $inst 'CodeRoom'; $data = Join-Path $inst 'data'
   $fake = Start-Process node -ArgumentList ('"' + (Join-Path $PSScriptRoot 'fake-releases.mjs') + '" ' + $RPORT + ' "' + $rel + '" ' + $new) -WindowStyle Hidden -PassThru

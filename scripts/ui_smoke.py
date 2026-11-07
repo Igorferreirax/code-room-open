@@ -197,10 +197,17 @@ try:
         o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); tp.evaluate("document.querySelector('#cv').scrollLeft = 120"); time.sleep(1.0); o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); d = next(b for b in (tp.locator('.cv-node', has_text=nm).bounding_box() for nm in ('Duda', 'Beto', 'Caio')) if b['x'] + b['width'] / 2 < 380 and b['y'] + b['height'] / 2 < 830)
         for _try in range(4):
             time.sleep(1.2)   # deixa a tela terminar de atualizar (renovação de estado) antes de mexer
-            tp.locator('.cv-node', has_text='Ana').scroll_into_view_if_needed(); tp.evaluate("document.querySelector('#cv').scrollLeft = 120"); time.sleep(0.6)
-            o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); d = next((b for b in (tp.locator('.cv-node', has_text=nm).bounding_box() for nm in ('Duda', 'Beto', 'Caio')) if b and 20 < b['x'] + b['width'] / 2 < 370 and b['y'] + b['height'] / 2 < 640), None)
-            if not (o and d): continue
-            swipe(o['x'] + 7, o['y'] + 7, d['x'] + d['width'] / 2, d['y'] + d['height'] / 2, 14); time.sleep(0.6)
+            tp.evaluate("document.querySelector('#cv').scrollLeft = 0"); time.sleep(0.3)
+            pair = tp.evaluate("""() => { const cv = document.querySelector('#cv'); const ns = [...document.querySelectorAll('.cv-node')].map(e => { const r = e.getBoundingClientRect(), p = e.querySelector('.cv-port.out').getBoundingClientRect(); return { name: e.textContent.trim().split(' ')[0], px: p.x + cv.scrollLeft, cx: r.x + r.width / 2 + cv.scrollLeft, y: r.y }; });
+                  let best = null; for (const a of ns) for (const b of ns) if (a !== b && b.cx > a.px && (!best || b.cx - a.px < best[2])) best = [a, b, b.cx - a.px]; return best && { from: best[0].name, to: best[1].name, mid: (best[0].px + best[1].cx) / 2 }; }""")   # escolhe dois cartões vizinhos (o Canvas rola para os lados), como em scripts/ui_touch.py
+            if not pair: continue
+            try:
+                tp.locator('.cv-node', has_text=pair['from']).scroll_into_view_if_needed(timeout=5000); time.sleep(0.2)
+                tp.evaluate("(mid) => { document.querySelector('#cv').scrollLeft = mid - 195; }", pair['mid']); time.sleep(0.5)
+                o = tp.locator('.cv-node', has_text=pair['from']).locator('.cv-port.out').bounding_box(); d = tp.locator('.cv-node', has_text=pair['to']).bounding_box()
+            except Exception: continue
+            if not (o and d and 10 < o['x'] < 370 and d['x'] < 330 and o['y'] < 700): continue
+            swipe(o['x'] + o['width'] / 2, o['y'] + o['height'] / 2, min(d['x'] + d['width'] / 2, (d['x'] + 372) / 2), d['y'] + d['height'] / 2, 14); time.sleep(0.6)
             if api('state')['links']: break
         check('toque: arrastar do ponto de saída com o dedo cria a ligação', len(api('state')['links']) == 1, api('state')['links'])
         for l in api('state')['links']: api(f"links/{l['id']}/delete", {})

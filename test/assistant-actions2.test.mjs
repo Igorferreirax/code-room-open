@@ -91,3 +91,16 @@ test('manual do Assistente: descreve as novas ações e continua dentro do limit
   for (const k of ['criar_canal', 'criar_rotina', '`navegador`', 'Orquestração', 'Agentes não criam tarefas para outros agentes por conta própria']) assert.ok(m.includes(k), `falta: ${k}`);
   assert.ok(Buffer.byteLength(m) <= 20000, `manual com ${Buffer.byteLength(m)} bytes (limite 20000)`);
 });
+
+test('agente com programas liberados: só Claude, nomes simples e no máximo 10; aparece no cartão', () => {
+  const base = { acao: 'criar_agente', nome: 'Produtor', funcao: 'renderiza vídeo', provedor: 'claude', permissao: 'write' };
+  const r = ok(normalizeAction({ ...base, programas: ['ffmpeg', 'node', 'ffmpeg'] }, world()));
+  assert.deepEqual(r.payload.commands, ['ffmpeg', 'node'], 'sem repetir'); assert.match(r.summary, /PODE RODAR no terminal: ffmpeg, node/);
+  assert.deepEqual(ok(normalizeAction(base, world())).payload.commands, [], 'sem pedir, nenhum programa liberado');
+  no(normalizeAction({ ...base, programas: ['C:/Windows/system32/cmd.exe'] }, world()), /nomes simples/);
+  no(normalizeAction({ ...base, programas: ['ffmpeg; calc'] }, world()), /nomes simples/);
+  no(normalizeAction({ ...base, programas: Array.from({ length: 11 }, (_, i) => 'p' + i) }, world()), /até 10 nomes/);
+  no(normalizeAction({ ...base, programas: 'ffmpeg' }, world()), /lista de nomes/);
+  no(normalizeAction({ ...base, provedor: 'codex', programas: ['ffmpeg'] }, world()), /só vale para o Claude Code/);
+  assert.ok(readFileSync(new URL('../docs/ASSISTENTE.md', import.meta.url), 'utf8').includes('`programas`'), 'manual explica');
+});
