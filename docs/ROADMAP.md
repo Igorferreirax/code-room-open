@@ -10,6 +10,7 @@ Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.m
 - ✅ **Assistente × Antigravity**: o "prompt grande demais" vinha das respostas do Assistente gravadas como "entregas" do projeto interno e reinseridas em todo prompt; agora ficam de fora, e o orçamento do prompt do Antigravity é 24 mil caracteres.
 - ✅ **Acesso remoto, passo a passo**: botão **Diagnosticar o acesso**, botão **Liberar no firewall do Windows** (regra só para este programa e porta, só para rede local e Tailscale; o Windows pede a permissão), comando **/celular** no Assistente e prompt para Claude Code/Codex em [CELULAR-PROMPT.md](CELULAR-PROMPT.md). O QR prefere o IP do Tailscale. ⚠️ Ainda falta testar com um celular de verdade.
 - ✅ Canvas: a tela não é atualizada no meio do toque no cartão. ⚠️ O teste de toque do ponto de saída ainda falha de vez em quando.
+- ✅ **Mencionar agente por clique**: clicar em um agente (Sala, Canvas ou gaveta) abre um menu com "@ Mencionar no chat" e "Ver detalhes"; o `@Nome` vai para a barra do chat. Comandos locais (`/status`, `/celular`…) agora funcionam e aparecem antes da apresentação do Assistente. Teste: `scripts/ui_mention.py`.
 - ⬜ Pendentes: assinatura digital do Setup.exe (SignPath), domínio da Bytelab na landing (trocar o endereço no SEO), retenção/limpeza de dados antigos, sessão ao vivo por tarefa no chat.
 
 ## Estado confirmado nesta atualização

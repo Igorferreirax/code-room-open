@@ -177,7 +177,7 @@ function render() {
   panel.hidden = !content; if (content) panel.innerHTML = content;
   $('shell').classList.toggle('panel-open', !!content);
   restoreForm(snap);
-  if (ctx.view === 'room' && ctx.viewMode() === 'canvas') { const slot = $('canvas-slot'); if (slot) { slot.innerHTML = canvasHtml(ctx); bindCanvas(slot, ctx, { onOpen: openDrawer, onLink: linkAgents, onUnlink: unlinkAgents, onEnd: () => { if (renderQueued) { renderQueued = false; render(); } } }); } }
+  if (ctx.view === 'room' && ctx.viewMode() === 'canvas') { const slot = $('canvas-slot'); if (slot) { slot.innerHTML = canvasHtml(ctx); bindCanvas(slot, ctx, { onOpen: openAgentMenu, onLink: linkAgents, onUnlink: unlinkAgents, onEnd: () => { if (renderQueued) { renderQueued = false; render(); } } }); } }
   if (ctx.view === 'room' && ctx.viewMode() === 'scene') { const slot = $('office'); if (slot) { officeHost ||= document.createElement('div'); officeHost.id = 'office'; officeHost.className = 'office-host'; slot.replaceWith(officeHost); drawOffice(); } }
   document.querySelectorAll('.barchart i[data-h]').forEach(i => i.style.height = i.dataset.h + '%');
   const rt = ctx.state.runtime; $('runtime-foot').textContent = rt.version ? `v${rt.version} · serviço ${rt.memoryMB} MB${rt.paused ? ' · novas tarefas pausadas' : ''}` : '';
@@ -190,7 +190,7 @@ function render() {
 function drawOffice() {
   const model = a => { const s = ctx.agentStatus(a); return { agent: a, status: s.status === 'queued' ? 'waiting' : s.status, label: `${a.name}, ${a.role}. ${s.label}${s.task ? '. Tarefa: ' + s.task.prompt.slice(0, 60) : ''}` }; };
   const sup = ctx.supervisorAgent();
-  renderPhotoOffice(officeHost, { stations: ctx.roomAgents().slice(0, ctx.maxStations).map(model), supervisor: sup ? model(sup) : null, onSelect: openDrawer });
+  renderPhotoOffice(officeHost, { stations: ctx.roomAgents().slice(0, ctx.maxStations).map(model), supervisor: sup ? model(sup) : null, onSelect: openAgentMenu });
 }
 const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach(el => el.textContent = V.dur(Date.now() - Date.parse(el.dataset.since)));
 
@@ -264,7 +264,8 @@ async function askAssistant(text) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
-  if (!ctx.asst?.briefed) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
+  const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
+  if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
   ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text, projectId: ctx.project || undefined }); return true;
 }
 async function applyAsst(id) {
@@ -337,7 +338,26 @@ async function selectDelivery(k, silent) {
   try { ctx.ui.delDetail = await api('tasks/' + id); const f = ctx.ui.delDetail.deliverables.files.find(x => x.path === path); if (f?.url && ['md', 'txt', 'css', 'js', 'json', 'csv', 'mjs'].includes(path.split('.').pop().toLowerCase())) fetch(f.url).then(r => r.text()).then(t => { ctx.ui.delText = t.slice(0, 60000); render(); }).catch(() => {}); } catch {}
   if (!silent) render(); else render();
 }
-function openDrawer(id) { lastFocus = document.activeElement; selectedAgent = id; const a = ctx.state.agents.find(x => x.id === id); if (!a) return; const d = $('drawer'); d.innerHTML = V.drawer(ctx, a); d.hidden = false; d.querySelector('button')?.focus(); }
+// Clicar em um agente (sem arrastar) abre um menu pequeno: mencionar no chat (@Nome) ou ver os detalhes.
+function closeAgentMenu() { const m = $('agent-menu'); if (m) m.remove(); }
+function openAgentMenu(id) {
+  const a = ctx.state.agents.find(x => x.id === id); if (!a) return; closeAgentMenu();
+  const el = [...document.querySelectorAll('[data-agent]')].find(n => n.dataset.agent === id && n.offsetParent !== null) || null, r = el?.getBoundingClientRect() || { left: innerWidth / 2 - 90, right: innerWidth / 2 + 90, bottom: 120, top: 80 };
+  const m = document.createElement('div'); m.id = 'agent-menu'; m.className = 'agent-menu'; m.setAttribute('role', 'menu');
+  m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><button type="button" role="menuitem" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar no chat</button><button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button>`;
+  document.body.appendChild(m);
+  const w = m.offsetWidth, h = m.offsetHeight; let x = Math.round((r.left + r.right) / 2 - w / 2), y = Math.round(r.bottom + 8);
+  if (y + h > innerHeight - 8) y = Math.max(8, Math.round(r.top - h - 8)); x = Math.min(innerWidth - w - 8, Math.max(8, x));
+  m.style.left = x + 'px'; m.style.top = y + 'px'; m.querySelector('button')?.focus();
+}
+// "@Nome " vai para a barra do chat; ao enviar, a mensagem segue direto para esse agente (o "@" no começo escolhe quem executa).
+function mentionAgent(id) {
+  const a = ctx.state.agents.find(x => x.id === id); if (!a) return; closeAgentMenu(); closeDrawer();
+  const token = '@' + a.name.trim().replace(/\s+/g, '_') + ' ';
+  const put = () => { const ta = $('mission'); if (!ta) return; const rest = ta.value.replace(/^@[^\s]+\s*/, ''); ta.value = token + rest; ta.focus(); ta.setSelectionRange(token.length, token.length); };
+  go('room').then(() => { setChatOpen(true); setTimeout(put, 120); });
+}
+function openDrawer(id) { closeAgentMenu(); lastFocus = document.activeElement; selectedAgent = id; const a = ctx.state.agents.find(x => x.id === id); if (!a) return; const d = $('drawer'); d.innerHTML = V.drawer(ctx, a); d.hidden = false; d.querySelector('button')?.focus(); }
 function closeDrawer() { const was = selectedAgent; selectedAgent = null; $('drawer').hidden = true; if (was && lastFocus?.isConnected) lastFocus.focus(); else if (was) document.querySelector(`[data-agent="${was}"]`)?.focus(); }
 const lines = v => String(v || '').split('\n').map(s => s.trim()).filter(Boolean);
 const concPost = async patch => { const c = ctx.state.runtime.concurrency || { global: 1, provider: {}, video: 1 }; await api('settings/concurrency', { global: c.global, provider: { codex: c.provider?.codex ?? 1, claude: c.provider?.claude ?? 1 }, video: c.video, ...patch }); };
@@ -361,6 +381,7 @@ const actions = {
   'proj-context': async id => { ctx.ui.panel = 'context'; ctx.ui.panelId = id; ctx.projectContext = null; render(); await loadContext(id); },
   'close-panel': () => { ctx.ui.panel = null; render(); },
   'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } render(); },
+  'mention-agent': id => mentionAgent(id),
   'ask-agent': id => { ctx.ui.target = 'a:' + id; ctx.ui.asstOpen = true; store.set('cr.chat', { open: true }); closeDrawer(); go('room').then(() => { renderAsst(); $('mission')?.focus(); }); },
   'add-member': () => { ctx.teamDraft.members.push({ role: ctx.teamDraft.members.length ? 'revisor' : 'desenvolvedor', agentId: ctx.state.agents[0]?.id }); render(); },
   'del-member': i => { ctx.teamDraft.members.splice(Number(i), 1); render(); },
@@ -725,3 +746,6 @@ async function start() {
 applyPrefs();
 if (pairFromHash) pairWith(pairFromHash).catch(e => { ctx.ui.loginError = e.message; $('login').hidden = false; renderLogin(); });
 else if (key) start(); else { $('login').hidden = false; renderLogin(); }
+
+document.addEventListener('pointerdown', e => { const m = $('agent-menu'); if (m && !m.contains(e.target)) closeAgentMenu(); }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('agent-menu')) { const id = $('agent-menu').querySelector('[data-id]')?.dataset.id; closeAgentMenu(); document.querySelector(`[data-agent="${id}"]`)?.focus(); } });

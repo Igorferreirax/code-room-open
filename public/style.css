@@ -466,3 +466,7 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cw-face:has(.mascot){border:0;border-radius:0;overflow:visible;background:transparent;width:46px;height:46px}.as-face:has(.mascot){border:0;background:transparent;overflow:visible;width:32px;height:32px}
 .cb-say{width:max-content}
 .cw-prov{width:auto;max-width:118px;font-size:.74rem;padding:.25em 1.6em .25em .5em;border-radius:8px}
+.agent-menu{position:fixed;z-index:80;display:flex;flex-direction:column;gap:6px;min-width:190px;max-width:260px;padding:10px;border-radius:14px;background:var(--panel2,#12213d);border:1px solid var(--line,#1d3055);box-shadow:0 18px 50px #000a}
+.agent-menu .am-name{font-size:1rem}.agent-menu .am-role{font-size:.8rem;color:var(--muted,#8fa3c7);margin:-4px 0 4px}
+.agent-menu button{cursor:pointer;border:1px solid var(--line,#1d3055);border-radius:10px;padding:9px 12px;background:var(--accent,#2b7bff);color:#fff;font:inherit;font-weight:600;text-align:left}
+.agent-menu button.ghost{background:transparent;color:inherit}.agent-menu button:hover,.agent-menu button:focus-visible{outline:2px solid #6aa5ff;outline-offset:1px}

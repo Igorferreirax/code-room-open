@@ -47,7 +47,8 @@ export function assistantHtml(a) {
   const err = a.error ? `<p class="upd-err" role="alert">${esc(a.error)}</p>` : '';
   if (a.briefing) return `<p role="status"><b>Sua IA está lendo o manual…</b></p><p class="small muted">Ela vai escrever o que entendeu e isso fica gravado só neste computador. Pode levar alguns instantes.</p><progress></progress>${err}`;
   if (!a.briefed) {
-    return `<p>Para ajudar você, a sua IA precisa <b>ler o manual do Code Room</b> uma vez.</p>
+    const early = (a.messages || []).length ? `<div class="as-log" id="asst-log" role="log" aria-live="polite">${a.messages.map(message).join('')}</div>` : '';   // respostas dos comandos locais (/celular, /status) aparecem mesmo antes da apresentação
+    return `${early}<p>Para ajudar você, a sua IA precisa <b>ler o manual do Code Room</b> uma vez.</p>
     <ul class="small muted"><li>O que ela entender fica gravado <b>neste computador</b>.</li><li>O Assistente <b>não altera nada</b> na ferramenta: ele só conversa e propõe. Você aprova cada coisa com um clique.</li><li>Isso usa um pouco da cota da sua própria IA.</li></ul>
     ${err}${provSel}<div class="btn-row"><button type="button" class="btn" data-act="asst-brief">Apresentar o Code Room à minha IA</button></div>`;
   }
