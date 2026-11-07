@@ -87,3 +87,12 @@ test('projeto em foco: o resumo diz qual projeto está aberto quando a pessoa fa
   const w = { agents, teams: [], projects: [{ id: 'p1', name: 'Canal' }], connected: new Set(['codex']), skills: [], runs: [] };
   assert.match(stateSummary(w, w.projects, 'traga ideias', 'Canal YouTube'), /Projeto em foco[^\n]*: Canal YouTube/); assert.ok(!stateSummary(w, w.projects, 'x', '').includes('Projeto em foco'));
 });
+
+import { memoryOf, buildPrompt as promptOf } from '../server/assistant.mjs';
+test('memória da conversa: só o que veio antes das últimas 8 mensagens, como "pediu" e "feito"; entra no prompt e é cortada antes da pergunta', () => {
+  const msgs = []; for (let i = 0; i < 12; i++) { msgs.push({ role: 'user', text: `pedido número ${i}` }); msgs.push({ role: 'assistant', text: 'ok', actions: i === 1 ? [{ status: 'applied', result: 'Equipe “Doc” criada.' }, { status: 'dismissed', summary: 'Criar agente X' }, { status: 'pending', summary: 'não conta' }] : [] }); }
+  const m = memoryOf(msgs); assert.match(m, /- Pessoa pediu: pedido número 0/); assert.match(m, /- Feito: Equipe “Doc” criada\./); assert.match(m, /- Descartado: Criar agente X/); assert.ok(!m.includes('não conta')); assert.ok(!m.includes('pedido número 11'), 'o recente vai inteiro no histórico, não na memória'); assert.equal(memoryOf(msgs.slice(-6)), '', 'conversa curta não tem memória');
+  const p = promptOf({ manual: 'M', knowledge: 'K', summary: 'S', history: [{ role: 'user', text: 'oi' }], memory: m, question: 'Q' }); assert.match(p, /MEMÓRIA DA CONVERSA[\s\S]*Pessoa pediu: pedido número 0[\s\S]*CONVERSA ATÉ AGORA[\s\S]*Pessoa: oi/); assert.ok(p.endsWith('Q'));
+  assert.match(promptOf({ manual: 'M', knowledge: '', summary: 'S', question: 'Q' }), /\(nada antes\)/);
+  const tight = promptOf({ manual: 'M'.repeat(6000), knowledge: '', summary: 'S'.repeat(3000), history: [], memory: 'x'.repeat(2400), question: 'Q', max: 8000 }); assert.ok(tight.length <= 8000 + 400, `${tight.length}`); assert.ok(tight.endsWith('Q'));
+});

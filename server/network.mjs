@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { get as httpGet } from 'node:http';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -61,4 +62,45 @@ export class Throttle {
     if (this.map.size > 500) for (const [k, v] of this.map) if (v.until < now && now - v.first > this.windowMs) this.map.delete(k);
   }
   ok(ip) { this.map.delete(ip); }
+}
+
+// Diagnóstico do acesso remoto: lê o estado real (só leitura, nada é alterado) e diz, em frases simples, o que impediria o celular de conectar.
+// Cada item: { id, ok: true|false|null (informativo), label, hint }.
+export async function diagnoseNetwork({ cfg, port, bound, tailscale, probe = defaultProbe, firewall = windowsFirewall }) {
+  const out = [];
+  if (!cfg.lan && !cfg.tailscale) out.push({ id: 'off', ok: false, label: 'O acesso remoto está desligado', hint: 'Ligue o Tailscale (recomendado) ou a rede local abaixo; sem isso o serviço só atende neste computador.' });
+  if (cfg.tailscale) {
+    if (!tailscale.installed) out.push({ id: 'ts-install', ok: false, label: 'O Tailscale não está instalado neste computador', hint: 'Instale o Tailscale no computador e no celular e entre com a mesma conta nos dois.' });
+    else if (tailscale.state !== 'Running') out.push({ id: 'ts-run', ok: false, label: `O Tailscale está “${tailscale.state}” neste computador`, hint: 'Abra o Tailscale na bandeja do Windows e entre com a sua conta (ou conecte).' });
+    else out.push({ id: 'ts-ok', ok: true, label: `Tailscale conectado${tailscale.name ? ` como ${tailscale.name}` : ''}`, hint: 'No celular, o app do Tailscale também precisa estar ligado, com a mesma conta.' });
+    if (tailscale.installed && tailscale.state === 'Running' && !bound.some(b => b.kind === 'tailscale')) out.push({ id: 'ts-bind', ok: false, label: 'O Code Room ainda não escuta no endereço do Tailscale', hint: 'Desligue e ligue de novo a chave do Tailscale aqui, ou reinicie o Code Room.' });
+  }
+  if (!cfg.lan) out.push({ id: 'lan-off', ok: null, label: 'Rede local (Wi-Fi) desligada', hint: 'Normal. Se o celular e o computador estão no mesmo Wi-Fi e você quer usar sem o Tailscale, ligue “Rede local”.' });
+  for (const b of bound) {
+    const r = await probe(b.ip, port);
+    out.push({ id: `probe-${b.ip}`, ok: r.ok, label: `${b.kind === 'tailscale' ? 'Tailscale' : 'Rede local'} (${b.ip}): ${r.ok ? 'o serviço responde' : 'o serviço não respondeu'}`, hint: r.ok ? `No celular, abra http://${b.ip}:${port}/ ou escaneie o QR.` : `O serviço não atendeu em ${b.ip}:${port} (${r.error || 'sem resposta'}). Reinicie o Code Room.` });
+  }
+  if (process.platform === 'win32' && bound.length) {
+    const fw = await firewall(process.execPath, port);
+    if (fw) {
+      if (fw.error) out.push({ id: 'fw', ok: null, label: 'Não consegui ler o Firewall do Windows', hint: 'Sem problema: se o celular não abrir a página, libere o Node.js no Firewall do Windows.' });
+      else if (!fw.anyEnabled) out.push({ id: 'fw', ok: true, label: 'Firewall do Windows desligado', hint: 'Ele não bloqueia a conexão do celular.' });
+      else if (fw.allowed) out.push({ id: 'fw', ok: true, label: 'O Firewall do Windows tem uma regra liberando o Node.js', hint: '' });
+      else out.push({ id: 'fw', ok: false, label: 'O Firewall do Windows pode estar bloqueando o celular', hint: `Não achei regra liberando este programa. Em um PowerShell como administrador: New-NetFirewallRule -DisplayName "Code Room" -Direction Inbound -Protocol TCP -LocalPort ${port} -Action Allow` });
+      if (cfg.lan && fw.publicLan) out.push({ id: 'profile', ok: false, label: 'A rede Wi-Fi está marcada como “Pública” no Windows', hint: 'Em Configurações › Rede e Internet › Wi-Fi › propriedades, troque para “Rede particular”. Redes públicas costumam bloquear conexões de outros aparelhos.' });
+    }
+  }
+  if (!out.some(x => x.ok === false)) out.push({ id: 'summary', ok: true, label: 'Tudo certo deste lado', hint: 'Se o celular ainda não abrir: confirme que ele usa o mesmo Wi-Fi (rede local) ou o Tailscale ligado com a mesma conta, e gere um código novo (vale poucos minutos).' });
+  return out;
+}
+function defaultProbe(ip, port) {
+  return new Promise(resolve => { const r = httpGet({ host: ip, port, path: '/', timeout: 2500, agent: false, headers: { Host: `${ip}:${port}` } }, x => { x.resume(); resolve({ ok: x.statusCode === 200 }); }); r.on('error', e => resolve({ ok: false, error: e.code || e.message })); r.on('timeout', () => { r.destroy(); resolve({ ok: false, error: 'tempo esgotado' }); }); });
+}
+export function windowsFirewall(exe, port) {
+  // Consulta em lote (rápido): filtros por programa e por porta, depois só as regras de entrada, permitir e ligadas. O caminho vai por variável de ambiente (sem aspas).
+  const ps = "$ErrorActionPreference='Stop';try{$ex=$env:CR_EXE;$pt=$env:CR_PORT;$any=[bool](Get-NetFirewallProfile|Where-Object Enabled);$ok=$false;"
+    + "$byApp=@(Get-NetFirewallApplicationFilter|Where-Object{$_.Program -ieq $ex});$byPort=@(Get-NetFirewallPortFilter|Where-Object{$_.LocalPort -contains $pt -and $_.Protocol -eq 'TCP'});"
+    + "foreach($f in ($byApp+$byPort)){$r=$f|Get-NetFirewallRule;if($r.Direction -eq 'Inbound' -and $r.Action -eq 'Allow' -and $r.Enabled -eq 'True'){$ok=$true;break}};"
+    + "$pub=[bool](Get-NetConnectionProfile|Where-Object NetworkCategory -eq 'Public');@{anyEnabled=$any;allowed=$ok;publicLan=$pub}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}";
+  return new Promise(resolve => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], { timeout: 20000, windowsHide: true, env: { ...process.env, CR_EXE: exe, CR_PORT: String(port) } }, (err, stdout) => { try { resolve(JSON.parse(stdout)); } catch { resolve({ error: err?.message || 'sem resposta' }); } }));
 }

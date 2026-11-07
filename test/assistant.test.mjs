@@ -159,7 +159,7 @@ test('manual real do projeto: existe, cabe no limite e documenta exatamente os p
   const { ROLES } = await import('../server/orchestrator.mjs'), { KNOWN_CAPABILITIES } = await import('../server/supervisor.mjs'), m = loadManual(process.cwd());
   assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 20000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
   for (const r of ROLES) assert.ok(m.text.includes('`' + r + '`'), `papel ${r}`); for (const c of KNOWN_CAPABILITIES) assert.ok(m.text.includes('`' + c + '`'), `capacidade ${c}`);
-  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill', 'criar_pasta_entrada']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
+  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill', 'criar_pasta_entrada', 'importar_projeto']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
   assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
 });
 
@@ -240,4 +240,12 @@ test('fluxo: /status responde na hora, sem apresentação e sem tarefa; avisos a
   s = await asst.ask('/status'); assert.equal(s.messages.length, 2); assert.equal(s.messages.at(-1).local, true); assert.match(s.messages.at(-1).text, /Status agora/); assert.equal(s.pending, null); assert.equal(store.list('tasks').length, before, 'nenhuma tarefa de IA foi criada');
   s = await asst.ask('/ajuda'); assert.match(s.messages.at(-1).text, /Comandos rápidos/);
   const s2 = await asst.status(); assert.ok(Array.isArray(s2.alerts)); const id = 'start'; s = await asst.dismissAlert(id); assert.ok(!s.alerts.some(a => a.id === id)); await asst.dismissAlert(id); assert.equal((await asst.status()).alerts.filter(a => a.id === id).length, 0);
+});
+
+test('Antigravity: o pedido do Assistente nunca passa do limite da linha de comando, mesmo com manual, estado e histórico enormes', async () => {
+  const { AGY_BUDGET } = await import('../server/assistant.mjs'); const { buildPrompt: runnerPrompt, emptyContext } = await import('../server/context.mjs');
+  const q = 'P'.repeat(2000), p = buildPrompt({ manual: 'M'.repeat(20000), knowledge: 'K'.repeat(6000), summary: 'S'.repeat(12000), history: Array.from({ length: 8 }, () => ({ role: 'user', text: 'h'.repeat(1200) })), question: q, max: AGY_BUDGET });
+  assert.ok(p.length <= AGY_BUDGET, `${p.length}`); assert.ok(p.endsWith(q), 'a pergunta continua inteira no fim');
+  const task = { objective: p, criteria: [], inputs: [], project: { id: 'assistant-internal', name: 'Assistente (interno)', path: process.cwd(), area: 'Geral' }, agent: { name: 'Assistente', role: 'Ajuda', instructions: '', mode: 'read', commands: [], skillIds: [] }, dependsOn: [] };
+  const final = await runnerPrompt({ task, agent: task.agent, projectContext: emptyContext('assistant-internal'), skills: [], handoffs: [], workRoot: process.cwd() }); assert.ok(final.prompt.length <= 28000, `o prompt final do Antigravity tem ${final.prompt.length} caracteres`);
 });

@@ -111,6 +111,7 @@ const scheduleRefresh = (ms = 350) => { clearTimeout(refreshTimer); refreshTimer
 async function refresh() {
   try {
     ctx.state = await api('state'); syncProviderNames();
+    checkDesktopNotify();
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
     for (const f of Object.values(ctx.flows)) if (f?.id) api('flows/' + f.id).then(v => { ctx.flows[f.id] = v; render(); }).catch(() => {});
     if (ctx.detail) ctx.detail = await api('tasks/' + ctx.detail.id).catch(() => ctx.detail);
@@ -216,6 +217,18 @@ async function testProv(payload, key) {
   try { ctx.ui.provTest[key] = await api('providers/test', payload); } catch (e) { ctx.ui.provTest[key] = { ok: false, error: e.message }; }
   render(); renderProv();
 }
+// ---------- Avisos do sistema (opcional): só quando a aba está em segundo plano ----------
+const seenNotify = new Set(store.get('cr.notified', []));
+function desktopNotify(id, title, body) {
+  if (!ctx.prefs?.desktopNotify || typeof Notification === 'undefined' || Notification.permission !== 'granted' || seenNotify.has(id)) return;
+  seenNotify.add(id); store.set('cr.notified', [...seenNotify].slice(-100)); if (!document.hidden) return;
+  try { const n = new Notification(title, { body, tag: id, icon: '/assets/favicon.png' }); n.onclick = () => { focus(); n.close(); }; } catch {}
+}
+function checkDesktopNotify() {
+  for (const n of ctx.state?.notices || []) desktopNotify('n:' + n.id, n.title, n.text);
+  for (const a of ctx.asst?.alerts || []) if (a.level === 'bad') desktopNotify('a:' + a.id, 'Code Room: ' + a.title, a.text);
+  const last = (ctx.asst?.messages || []).filter(m => m.role === 'assistant').at(-1); if (last && ctx.asst?.pending == null) desktopNotify('m:' + last.id, 'Code Room: o Assistente respondeu', String(last.text || '').slice(0, 120));
+}
 // ---------- Chat único (estilo mensageiro): janela flutuante com o Assistente e as missões diretas; balão quando minimizado ----------
 let asstTimer = null;
 if (ctx.ui.asstOpen === undefined) ctx.ui.asstOpen = store.get('cr.chat', {}).open ?? false;
@@ -243,7 +256,7 @@ function renderAsst() {
 }
 async function loadAsst() {
   try { ctx.asst = await api('assistant'); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
-  renderAsst(); clearTimeout(asstTimer);
+  renderAsst(); checkDesktopNotify(); clearTimeout(asstTimer);
   if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500);
 }
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
@@ -411,6 +424,13 @@ const actions = {
   'asst-thread-rename': id => { ctx.ui.renameId = id; renderAsst(); const i = document.querySelector('.cw-rename'); if (i) { i.focus(); i.select(); } },
   'asst-help': id => { const al = ctx.asst?.alerts?.find(x => x.id === id); if (al) return askAssistant(al.ask); },
   'asst-alert-dismiss': id => asstCall('alerts/dismiss', { id }),
+  'notify-toggle': async () => {
+    if (ctx.prefs.desktopNotify) { ctx.prefs.desktopNotify = false; savePrefs(); renderAsst(); return notify('Avisos do Windows desligados.'); }
+    if (typeof Notification === 'undefined') return notify('Este navegador não oferece avisos do sistema.', true);
+    const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    if (perm !== 'granted') return notify('O navegador não liberou os avisos. Libere nas permissões do site (ícone ao lado do endereço) e tente de novo.', true);
+    ctx.prefs.desktopNotify = true; savePrefs(); for (const n of ctx.state?.notices || []) seenNotify.add('n:' + n.id); renderAsst(); notify('Avisos do Windows ligados: você será avisado de lote concluído, falha e resposta do Assistente quando o app estiver em segundo plano.');
+  },
   'asst-new-thread': () => asstCall('thread/new'),
   'asst-thread': id => asstCall('thread/select', { id }),
   'asst-thread-del': id => { if (confirm('Apagar esta conversa? O histórico dela some.')) return asstCall('thread/delete', { id }); },
@@ -495,6 +515,7 @@ const actions = {
   'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); if (id === 'atualizacoes') loadUpdates(); render(); },
   'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
+  'net-diagnose': async () => { ctx.netDiag = 'busy'; render(); try { ctx.netDiag = (await api('network/diagnose')).checks; } catch (e) { ctx.netDiag = null; notify(e.message, true); } render(); },
   'pair-new': async () => { ctx.pairing = await api('devices/pair-code', {}); render(); },
   'revoke-device': async id => { await api(`devices/${id}/revoke`, {}); notify('Aparelho revogado.'); ctx.devices = await api('devices'); render(); },
   'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
@@ -696,7 +717,7 @@ async function start() {
     ctx.state = await api('state'); ctx.authed = true;
     sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
     if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
-    loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
+    loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); setInterval(() => { if (ctx.authed && !document.hidden === false) loadAsst(); else if (ctx.authed) loadAsst(); }, 60000); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
     if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
 }

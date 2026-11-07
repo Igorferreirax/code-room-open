@@ -13,7 +13,9 @@ import { cleanModel, cleanEffort } from './effort.mjs';
 export const ASSISTANT_PROJECT = 'assistant-internal', PROVIDER_ORDER = ['claude', 'codex', 'agy'];
 const AREAS = ['Programação', 'Vídeo', 'Financeiro', 'Pesquisa', 'Operações', 'Geral'];
 const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: 'teams', receitas: 'recipes', agentes: 'agents', entregas: 'deliveries', skills: 'skills', consumo: 'usage', rotinas: 'routines', conexoes: 'connections', configuracoes: 'settings' };
-const MAX_THREADS = 8, MAX_MANUAL = 20000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 40, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
+// O Antigravity recebe o pedido na linha de comando (limite de ~28 mil caracteres) e o Code Room ainda soma ~1 mil de cabeçalho: sobra de segurança.
+export const AGY_BUDGET = 26000;
+const MAX_THREADS = 8, MAX_MANUAL = 20000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 120, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
 const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -119,6 +121,13 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       else { const a = find(raw.agente); if (a.error) return bad('criar_pasta_entrada', a.error); payload.agentId = a.agent.id; who = `o agente “${a.agent.name}”`; }
       return { type: 'criar_pasta_entrada', summary: `Criar a pasta de entrada “${nome}” no projeto “${pr.project.name}” (pasta ${payload.dir}${payload.exts ? `, tipos ${payload.exts}` : ''}): cada arquivo novo vira uma tarefa de ${who}, e você é avisado ao terminar. Gasta a cota da sua IA a cada arquivo.`, detail: instr, payload, valid: true };
     }
+    case 'importar_projeto': {
+      const nome = short(raw.nome, 60), pasta = String(raw.pasta ?? '').trim(); if (!nome || /[\\/:*?"<>|]/.test(nome)) return bad('importar_projeto', 'O projeto precisa de um nome simples (sem barras, dois-pontos e símbolos).');
+      if (!/^([A-Za-z]:[\\/]|\\\\)/.test(pasta) || pasta.length > 400 || pasta.split(/[\\/]/).includes('..') || /[<>"|?*]/.test(pasta.slice(2))) return bad('importar_projeto', 'Informe o caminho completo da pasta do projeto (ex.: C:\\Projetos\\meu-app), sem “..”.');
+      if ((world.projects || []).some(p => lc(p.name) === lc(nome)) || planned.projects.some(x => lc(x) === lc(nome))) return bad('importar_projeto', `Já existe um projeto chamado “${nome}”.`);
+      const area = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
+      return { type: 'importar_projeto', summary: `Importar a pasta existente “${pasta}” como o projeto “${nome}” (ambiente ${area}). Os agentes poderão ler essa pasta e, se tiverem permissão de escrita, editar os arquivos dela.`, payload: { name: nome, path: pasta, area }, valid: true };
+    }
     case 'abrir_tela': { const v = VIEWS[raw.tela]; return v ? { type: 'abrir_tela', summary: `Abrir a tela ${raw.tela}`, payload: { view: v }, valid: true } : bad('abrir_tela', 'Tela desconhecida.'); }
     default: return null;   // ação desconhecida é ignorada
   }
@@ -178,7 +187,7 @@ export function localCommand(text, world, alerts = []) {
   return '**Comandos rápidos** (respondem na hora, sem gastar cota):\n- `/status`: o que roda, espera, terminou e falhou\n- `/pendencias`: o que merece a sua atenção\n- `/ajuda`: esta lista\n\nQualquer outra coisa, escreva normalmente: eu proponho os passos e você aprova com um clique.';
 }
 
-export function stateSummary(world, projects = [], question = '', focus = '') {
+export function stateSummary(world, projects = [], question = '', focus = '', focusInfo = '') {
   const ag = world.agents.map(a => `- ${a.name} (${short(a.role, 60)}) · ${a.provider} · ${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}`).join('\n') || '(nenhum agente ainda)';
   const tm = world.teams.map(t => `- ${t.name}: ${(t.members || []).map(m => `${m.role}=${world.agents.find(a => a.id === m.agentId)?.name || '?'}`).join(', ')}`).join('\n') || '(nenhuma equipe ainda)';
   const seen = new Set(), usable = world.skills.filter(s => s.recognized && !s.blocked && !seen.has(s.name) && seen.add(s.name));
@@ -188,15 +197,26 @@ export function stateSummary(world, projects = [], question = '', focus = '') {
   const top = scored.map(x => `- ${x.s.name}: ${short(x.s.description, 110)}`).join('\n'), rest = usable.filter(s => !scored.some(x => x.s === s)).map(s => s.name).slice(0, 60).join(', ');
   const sk = `${usable.length} no total.${top ? `\nMais ligadas ao pedido da pessoa:\n${top}` : '\nNenhuma parece ligada ao pedido atual (se for sobre skills, diga isso e ofereça criar uma com criar_skill ou importar uma pasta).'}\nOutras (só nomes): ${rest || '(nenhuma)'}`;
   const ln = (world.links || []).map(l => `${world.agents.find(a => a.id === l.from)?.name || '?'} → ${world.agents.find(a => a.id === l.to)?.name || '?'}`).slice(0, 20).join('; ') || '(nenhuma)';
-  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
+  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n${focusInfo ? focusInfo + '\n' : ''}` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
 }
 const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Se não souber, diga que não sabe. Para perguntas de status (“qual o status?”, “como está o projeto X / a equipe Y?”), responda SÓ com a seção STATUS AO VIVO do estado atual, em linguagem simples e curta: o que roda, o que espera, o que terminou, o que falhou e por quê; se o item citado não aparecer, diga que não há registro dele.`;
-export function buildPrompt({ manual, knowledge, summary, history = [], question, max = MAX_PROMPT }) {
+// Memória da conversa (sem gastar cota): o que a pessoa pediu e o que foi feito DEPOIS das mensagens recentes, em linhas curtas.
+// As últimas mensagens vão inteiras; as mais antigas viram "Pessoa pediu: …" e "Feito: …" (ações aprovadas), para decisões de dias atrás continuarem valendo.
+export function memoryOf(messages = [], keep = MAX_HISTORY) {
+  const old = (messages || []).filter(m => m.text || m.actions?.length).slice(0, -keep), out = [];
+  for (const m of old) {
+    if (m.role === 'user') out.push(`- Pessoa pediu: ${short(m.text, 110)}`);
+    else for (const a of m.actions || []) { if (a.status === 'applied') out.push(`- Feito: ${short(a.result || a.summary, 110)}`); else if (a.status === 'dismissed') out.push(`- Descartado: ${short(a.summary, 80)}`); }
+  }
+  let text = out.slice(-30).join('\n'); if (text.length > 2400) text = text.slice(-2400); return text;
+}
+export function buildPrompt({ manual, knowledge, summary, history = [], memory = '', question, max = MAX_PROMPT }) {
   const hist = history.slice(-MAX_HISTORY).map(m => `${m.role === 'user' ? 'Pessoa' : 'Assistente'}: ${short(m.text, MAX_MSG_IN_PROMPT)}`);
-  const parts = (h, man = manual, sum = summary, know = knowledge) => `${RULES}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n=== PERGUNTA DA PESSOA ===\n${question}`;
+  const parts = (h, man = manual, sum = summary, know = knowledge, mem = memory) => `${RULES}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== MEMÓRIA DA CONVERSA (resumo do que veio antes das mensagens abaixo) ===\n${mem || '(nada antes)'}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n=== PERGUNTA DA PESSOA ===\n${question}`;
   // A pergunta fica por último e nunca é cortada. Se passar do limite: primeiro sai o histórico antigo, depois encurta o estado, o que a IA entendeu e, por fim, o fim do manual.
   let h = hist, man = manual, sum = summary, know = knowledge, out = parts(h, man, sum, know);
   while (out.length > max && h.length) { h = h.slice(1); out = parts(h, man, sum, know); }
+  if (out.length > max && memory) { memory = memory.slice(Math.max(0, memory.length - Math.max(400, memory.length - (out.length - max)))); out = parts(h, man, sum, know, memory); }
   if (out.length > max) { sum = sum.slice(0, Math.max(1500, sum.length - (out.length - max))); out = parts(h, man, sum, know); }
   if (out.length > max) { know = know.slice(0, Math.max(500, know.length - (out.length - max))); out = parts(h, man, sum, know); }
   if (out.length > max) { man = man.slice(0, Math.max(3000, man.length - (out.length - max))); out = parts(h, man, sum, know); }
@@ -216,8 +236,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob }) {
-    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob });
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject }) {
+    Object.assign(this, { store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject });
     this.dir = join(dataDir, 'assistente');
   }
   get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], thread: { id: 't1', title: 'Conversa 1' }, others: [], order: ['t1'], pending: null, briefing: null, error: null }; }
@@ -293,7 +313,7 @@ export class Assistant {
   async brief({ provider } = {}) {
     await this.#sync(); if (this.s.briefing) throw new Error('A apresentação já está em andamento.');
     const manual = loadManual(this.root); if (manual.missing) throw new Error('O manual (docs/ASSISTENTE.md) não foi encontrado nesta instalação.');
-    const p = await this.#pickProvider(provider), task = this.#task(p, briefingPrompt(manual.text), 'brief');
+    const p = await this.#pickProvider(provider), task = this.#task(p, briefingPrompt(p === 'agy' ? manual.text.slice(0, AGY_BUDGET - 4000) : manual.text), 'brief');
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
   async ask(text, { projectId = null } = {}) {
@@ -303,7 +323,7 @@ export class Assistant {
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
-    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || ''), history: (s.messages || []).filter(m => m.text), question: q, max: p === 'agy' ? MAX_PROMPT : 80000 }), task = this.#task(p, prompt, 'ask');
+    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : ''), history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : 80000 }), task = this.#task(p, prompt, 'ask');
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();
@@ -354,6 +374,7 @@ export class Assistant {
     else if (r.type === 'criar_projeto') { const pr = await this.saveProject(r.payload); result = `Projeto “${pr.name}” criado.`; projectId = pr.id; }
     else if (r.type === 'ligar_agentes') { await this.saveLink(r.payload); result = 'Ligação criada: o trabalho passa de um agente ao outro.'; projectId = r.payload.projectId; }
     else if (r.type === 'criar_pasta_entrada') { const j = await this.saveFolderJob(r.payload); result = `Pasta de entrada criada. Ponha os arquivos em “${j.dir}” e eles entram sozinhos.`; projectId = r.payload.projectId; taskView = 'routines'; }
+    else if (r.type === 'importar_projeto') { const pr = await this.importProject(r.payload); result = `Projeto “${pr.name}” importado.`; projectId = pr.id; }
     else if (r.type === 'criar_skill') { await this.saveSkill(r.payload); result = `Skill “${r.payload.name}” criada. Já aparece em Skills.`; }
     else if (r.type === 'iniciar_tarefa') { const o = await this.startTask(r.payload); result = r.payload.teamId ? 'Fluxo da equipe iniciado. Acompanhe em Tarefas.' : 'Tarefa iniciada. Acompanhe em Tarefas.'; projectId = r.payload.projectId; taskView = o?.id ? 'tasks' : null; }
     else if (r.type === 'abrir_tela') result = 'Tela aberta.';

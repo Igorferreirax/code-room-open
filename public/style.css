@@ -465,3 +465,4 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cb-face{padding:5px;box-sizing:border-box;background:#0b1527}
 .cw-face:has(.mascot){border:0;border-radius:0;overflow:visible;background:transparent;width:46px;height:46px}.as-face:has(.mascot){border:0;background:transparent;overflow:visible;width:32px;height:32px}
 .cb-say{width:max-content}
+.cw-prov{width:auto;max-width:118px;font-size:.74rem;padding:.25em 1.6em .25em .5em;border-radius:8px}

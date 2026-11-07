@@ -24,7 +24,7 @@ import { emptyContext, cleanContext } from './context.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
-import { loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
+import { diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
 import { execFile } from 'node:child_process';
@@ -35,6 +35,7 @@ import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 import { createSkillFile } from './myskills.mjs';
 import { FolderJobs } from './folderjobs.mjs';
+import { describeFolder, folderLine } from './folderinfo.mjs';
 import { cleanModel, cleanEffort, effortsFor, EFFORT_LABEL } from './effort.mjs';
 import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, MAX_CUSTOM, findProgram, launcher } from './providers.mjs';
 
@@ -71,7 +72,8 @@ const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: joi
 const assistantWorld = async () => {
   const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, description: k.description, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
   const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => ({ id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', updatedAt: t.updatedAt, createdAt: t.createdAt, files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').length }));
-  return { runs, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+  const focusInfo = id => { const pr = store.get('projects', id); return pr && !isInternal(pr) ? folderLine(describeFolder(pr.path)) : ''; };
+  return { focusInfo, runs, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
@@ -89,7 +91,7 @@ async function startAssistantTask({ projectId, teamId, agentId, objective }) {
   if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
   const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
 }
-const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p) });
+const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -102,6 +104,13 @@ Onde salvar: ${job.outputNote}` : ''), requestId = `folder:${job.id}:${nonce}`;
   if (job.target.type === 'agent') { const { task } = createTask(store, { projectId: job.projectId, agentId: job.target.id, requestId, objective }); void runner.pump(); return { taskId: task.id }; }
   const r = orchestrator.startSequential({ projectId: job.projectId, teamId: job.target.id, requestId, objective, maxReviewRounds: 1 }); void runner.pump(); return { flowId: r.flow.id };
 });
+// Cadastrar uma pasta que já existe como projeto (tela Projetos e ação "importar_projeto" do Assistente).
+async function registerProject(b) {
+  const path = text(b.path, 2000); if (!isAbsolute(path)) throw new Error('Informe o caminho completo da pasta.');
+  const canonical = await realpath(path); if (!(await stat(canonical)).isDirectory()) throw new Error('Selecione uma pasta.');
+  if (store.list('projects').some(x => x.path === canonical)) throw new Error('Esta pasta já está cadastrada.');
+  return store.put('projects', { id: randomUUID(), name: text(b.name), path: canonical, area: optional(b.area, 60) || 'Geral', createdAt: new Date().toISOString() });
+}
 async function createFolderJob(b) { const j = folderJobs.save(b), pr = store.get('projects', j.projectId); await mkdir(join(pr.path, j.dir), { recursive: true }); folderJobs.process(j.id); return j; }
 const routines = new Routines(store, (r, slot) => {
   const requestId = `routine:${r.id}:${slot}`;
@@ -227,6 +236,7 @@ const handle = async (req, res) => {
       if (!auth) { tFail(ip); return send(res, 401, { error: 'Abra o Code Room pelo iniciador ou informe a chave local.' }); }
       tOk(ip);
       if (get && p === '/api/updates') return send(res, 200, updates.status());
+      if (get && p === '/api/network/diagnose') { masterOnly(auth); return send(res, 200, { checks: await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() }) }); }
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
       if (get && p === '/api/devices') { masterOnly(auth); return send(res, 200, devices.list().map(d => devices.view(d))); }
       if (get && p === '/api/usage/limits') return send(res, 200, { providers: limitsView(store), now: new Date().toISOString() });
@@ -338,13 +348,7 @@ const handle = async (req, res) => {
         }
         if (p === '/api/devices/pair-code') { masterOnly(auth); return send(res, 200, devices.createCode()); }
         if ((m = p.match(/^\/api\/devices\/([a-f0-9]+)\/revoke$/))) { masterOnly(auth); devices.revoke(m[1]); return send(res, 200, { ok: true }); }
-        if (p === '/api/projects') {
-          masterOnly(auth);
-          const path = text(b.path, 2000); if (!isAbsolute(path)) throw new Error('Informe o caminho completo da pasta.');
-          const canonical = await realpath(path); if (!(await stat(canonical)).isDirectory()) throw new Error('Selecione uma pasta.');
-          if (store.list('projects').some(x => x.path === canonical)) throw new Error('Esta pasta já está cadastrada.');
-          return send(res, 201, store.put('projects', { id: randomUUID(), name: text(b.name), path: canonical, area: optional(b.area, 60) || 'Geral', createdAt: new Date().toISOString() }));
-        }
+        if (p === '/api/projects') { masterOnly(auth); return send(res, 201, await registerProject(b)); }
         if (p === '/api/providers') { masterOnly(auth); const list = customSpecs(), spec = validateSpec(b, list), next = [...list.filter(x => x.id !== spec.id), spec]; store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 201, providersView()); }
         if (p === '/api/providers/delete') {
           masterOnly(auth); const id = text(b.id, 80); if (!getSpec(id)) throw new Error('IA não encontrada.');
