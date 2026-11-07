@@ -28,7 +28,7 @@ Marque cada item antes de divulgar. **[x]** = já verificado (com a data); **[ ]
 ## 4. Landing e repositório
 - [x] SEO: título, descrição, canonical, Open Graph, Twitter, JSON-LD, `robots.txt`, `sitemap.xml` (07/11).
 - [x] Imagem de compartilhamento 1200×630 e ícone da Apple (07/11).
-- [x] Imagens em WebP: a página caiu de 2,7 MB para cerca de 1,4 MB (07/11).
+- [x] Imagens em WebP: a página caiu de 2,7 MB para cerca de 1,2 MB (07/11).
 - [x] Acessibilidade (axe-core, regras WCAG 2 A/AA e boas práticas): 0 violações em desktop e celular (07/11).
 - [x] Todos os links do README, da Release e da landing respondem (07/11).
 - [x] CI verde, descrição e tópicos do repositório (07/11).
