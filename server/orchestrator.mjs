@@ -160,6 +160,7 @@ export class Orchestrator {
     };
   }
   recordDeliverable(task) {
+    if (task.project.id === 'assistant-internal') return;   // as respostas do Assistente não viram "entregas" (inflavam o prompt de cada pergunta)
     const ctx = this.store.get('contexts', task.project.id) || emptyContext(task.project.id);
     ctx.deliverables = [...ctx.deliverables, { taskId: task.id, agent: task.agent.name, summary: task.result.summary.slice(0, 400), files: (task.result.deliverables.files || []).map(f => f.path), at: now() }].slice(-20);
     this.store.put('contexts', ctx);

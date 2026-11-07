@@ -14,7 +14,7 @@ export const ASSISTANT_PROJECT = 'assistant-internal', PROVIDER_ORDER = ['claude
 const AREAS = ['Programação', 'Vídeo', 'Financeiro', 'Pesquisa', 'Operações', 'Geral'];
 const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: 'teams', receitas: 'recipes', agentes: 'agents', entregas: 'deliveries', skills: 'skills', consumo: 'usage', rotinas: 'routines', conexoes: 'connections', configuracoes: 'settings' };
 // O Antigravity recebe o pedido na linha de comando (limite de ~28 mil caracteres) e o Code Room ainda soma ~1 mil de cabeçalho: sobra de segurança.
-export const AGY_BUDGET = 26000;
+export const AGY_BUDGET = 24000;
 const MAX_THREADS = 8, MAX_MANUAL = 20000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 120, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
 const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);

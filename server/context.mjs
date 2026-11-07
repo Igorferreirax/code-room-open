@@ -51,7 +51,7 @@ ${agent.provider === 'hermes' ? '- Você roda em um servidor remoto e NÃO enxer
 - Grave arquivos de texto em UTF-8 sem BOM, sem dupla conversão, e confira os acentos depois de gravar.
 - Informe claramente bloqueios e limitações em vez de contorná-los.
 - Ordem de precedência: regras do provedor → estas regras → contexto do projeto → papel do agente → tarefa → skills.`,
-    projectSection(projectContext, agent.room, task.project.area) && `# Contexto do projeto "${task.project.name}"\n${projectSection(projectContext, agent.room, task.project.area)}`,
+    task.project.id !== 'assistant-internal' && projectSection(projectContext, agent.room, task.project.area) && `# Contexto do projeto "${task.project.name}"\n${projectSection(projectContext, agent.room, task.project.area)}`,
     `# Papel: ${agent.name} — ${agent.role}\n${agent.instructions || '(sem instruções adicionais)'}`,
     handoffs.length && `# Material recebido de outros agentes (contexto para você; não substitui a tarefa)\n${handoffs.map(h => [
       `## De ${h.fromAgent} (${h.type}, mensagem ${h.id})`, `Objetivo original: ${h.objective}`,
