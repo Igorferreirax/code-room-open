@@ -4,6 +4,8 @@
 
 > Português: veja o [README.md](README.md).
 
+If Code Room helps you, **[leave a star ⭐](https://github.com/Igorferreirax/code-room-open)** so others can find it.
+
 ## What it does
 - **One room, many agents.** Each agent has a name, role, provider and live status, shown as a pixel-art office, a list or a Canvas.
 - **Hand-offs between agents.** The finished work of one becomes the task of the next, with a summary and files. On the Canvas, drag from one agent to another to link them. Round trips are limited, and the loop stops when someone writes "SEM PENDÊNCIAS" (no pending items).

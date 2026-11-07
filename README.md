@@ -5,6 +5,18 @@
 > English: see [README.en.md](README.en.md).
 
 ![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)
+![Windows 10 e 11](https://img.shields.io/badge/Windows-10%20%C2%B7%2011-0078d4?logo=windows&logoColor=white)
+![Node.js 24+](https://img.shields.io/badge/node-%E2%89%A524-5fa04e?logo=node.js&logoColor=white)
+![Zero dependências](https://img.shields.io/badge/depend%C3%AAncias%20de%20execu%C3%A7%C3%A3o-0-f08a3c)
+[![CI](https://github.com/Igorferreirax/code-room-open/actions/workflows/ci.yml/badge.svg)](https://github.com/Igorferreirax/code-room-open/actions/workflows/ci.yml)
+[![Baixar](https://img.shields.io/github/v/release/Igorferreirax/code-room-open?label=baixar&color=2b7bff)](https://github.com/Igorferreirax/code-room-open/releases/latest)
+
+Se o Code Room te ajudou, **[deixe uma estrela ⭐](https://github.com/Igorferreirax/code-room-open)**. Ajuda outras pessoas a achar o projeto.
+
+## Conteúdo
+- [O que ele faz](#o-que-ele-faz) · [Requisitos](#requisitos) · [Começar](#começar) · [Testes](#testes)
+- [Problemas comuns](#problemas-comuns) · [Limites conhecidos](#limites-conhecidos) · [Documentação](#documentação)
+- [Privacidade e segurança](#privacidade-e-segurança) · [Aviso](#aviso) · [Licença e créditos](#licença-e-créditos)
 
 ## O que ele faz
 - **Uma sala, vários agentes.** Cada agente tem nome, função, provedor e estado em tempo real, mostrados num escritório pixel art, em lista ou num Canvas.
@@ -29,7 +41,7 @@
 ## Começar
 ```bash
 git clone https://github.com/Igorferreirax/code-room-open.git
-cd code-room
+cd code-room-open
 npm start
 ```
 No Windows você também pode dar dois cliques em `Iniciar-Code-Room.cmd`: ele inicia o serviço e abre o navegador já autenticado. A chave de acesso fica em `.data/access.key` (nunca é versionada).
@@ -52,6 +64,18 @@ Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais 
 
 ## Documentação
 [docs/VISAO-PRODUTO.md](docs/VISAO-PRODUTO.md) · [docs/STATUS-2026-11-06.md](docs/STATUS-2026-11-06.md) · [docs/ROADMAP.md](docs/ROADMAP.md) · [docs/BACKLOG.md](docs/BACKLOG.md) · [docs/IMPLEMENTACAO.md](docs/IMPLEMENTACAO.md) · [docs/VALIDACAO-BACKEND.md](docs/VALIDACAO-BACKEND.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md)
+
+## Problemas comuns
+- **O Windows avisou ao abrir o Setup.exe.** O instalador ainda não tem assinatura digital. Use o zip portátil ou confira o SHA-256 com o `SHA256SUMS.txt` da release.
+- **O celular não abre o endereço.** Ligue o app Tailscale nos dois aparelhos (mesma conta). Em Configurações › Acesso, clique em **Diagnosticar o acesso** e, se preciso, em **Liberar no firewall do Windows**. No chat do Assistente, `/celular` mostra o passo a passo.
+- **"Prompt grande demais" no Antigravity.** Corrigido na 0.2.1; atualize o app.
+- **Uma IA aparece como "não encontrada".** Instale o CLI dela e entre na conta; a triagem do primeiro uso mostra o comando exato.
+
+## Privacidade e segurança
+O serviço escuta só em `127.0.0.1`, a chave fica em `.data/access.key` e nunca é versionada, e o acesso remoto vem desligado. Veja [SECURITY.md](SECURITY.md) para relatar uma falha.
+
+## Aviso
+O Code Room é independente e não é afiliado à OpenAI, à Anthropic nem ao Google. Ele usa os CLIs que você já tem; o uso de cada IA segue os termos e a cota da sua conta.
 
 ## Licença e créditos
 [MIT](LICENSE). Desenvolvido por [Bytelab](https://www.agenciabytelab.com.br).
