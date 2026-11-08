@@ -18,6 +18,7 @@ const AREAS = ['Programação', 'Vídeo', 'Financeiro', 'Pesquisa', 'Operações
 const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: 'teams', receitas: 'recipes', agentes: 'agents', entregas: 'deliveries', skills: 'skills', consumo: 'usage', rotinas: 'routines', conexoes: 'connections', configuracoes: 'settings' };
 // O Antigravity recebe o pedido na linha de comando (limite de ~28 mil caracteres) e o Code Room ainda soma ~1 mil de cabeçalho: sobra de segurança.
 export const AGY_BUDGET = 24000;
+export const TASK_BUDGET = 29000;   // uma tarefa aceita no máximo 30000 caracteres no objetivo (tasks.mjs); o prompt do Assistente precisa caber
 const MAX_THREADS = 8, MAX_MANUAL = 20000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 120, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
 const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -358,7 +359,7 @@ export class Assistant {
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider);
-    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : ''), history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : 80000 }), task = this.#task(p, prompt, 'ask');
+    const prompt = buildPrompt({ manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : ''), history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask');
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();

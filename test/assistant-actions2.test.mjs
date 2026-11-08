@@ -104,3 +104,12 @@ test('agente com programas liberados: só Claude, nomes simples e no máximo 10;
   no(normalizeAction({ ...base, provedor: 'codex', programas: ['ffmpeg'] }, world()), /só vale para o Claude Code/);
   assert.ok(readFileSync(new URL('../docs/ASSISTENTE.md', import.meta.url), 'utf8').includes('`programas`'), 'manual explica');
 });
+
+test('o prompt do Assistente nunca passa do limite de 30000 caracteres de uma tarefa (conversa longa, estado grande, pergunta de 2000)', async () => {
+  const { buildPrompt, loadManual, TASK_BUDGET } = await import('../server/assistant.mjs');
+  const manual = loadManual(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1').replace(/%20/g, ' ')).text;
+  const history = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 'x'.repeat(1500) }));
+  const out = buildPrompt({ manual: manual || 'M'.repeat(20000), knowledge: 'K'.repeat(5000), summary: 'S'.repeat(4200), history, memory: 'm'.repeat(3000), question: 'Q'.repeat(2000), max: TASK_BUDGET });
+  assert.ok(out.length <= 30000, `prompt com ${out.length} caracteres`);
+  assert.ok(out.endsWith('Q'.repeat(2000)), 'a pergunta nunca é cortada');
+});
