@@ -70,6 +70,7 @@ try:
                 check('execução: tarefa finalizada mostra "Continuar a conversa" com escolha de agente', page.locator('#followup-form select[name=agentId] option').count() == 4 and 'mesma sessão' in page.inner_text('#followup-form'))
                 page.select_option('#project-select', p['id']); page.click('[data-nav=room]'); time.sleep(2.0)
                 page.click('#chat-bubble'); page.wait_for_selector('#mission', state='visible'); check('chat: o chat nasce minimizado e o balão abre a janela com a barra de mensagem', page.is_visible('#chat') and page.is_visible('#target'))
+                check('chat no celular: a caixa de mensagem não fica atrás da barra de baixo e o topo continua visível', page.evaluate("() => { const r = document.querySelector('#mission').getBoundingClientRect(), n = document.querySelector('.rail').getBoundingClientRect(); return innerWidth > 760 || (r.bottom <= n.top + 1 && document.querySelector('#chat').getBoundingClientRect().top >= 59); }"))
                 page.click('#mission'); page.keyboard.type('/hyper')
                 try: page.wait_for_selector('#slash-pop [data-pick]', timeout=15000)
                 except Exception: pass
@@ -176,6 +177,9 @@ try:
         # ---- Canvas com toque real (celular): arrastar cartão e ligar agentes sem rolar a página ----
         tctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); tp = tctx.new_page()
         tp.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); tp.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
+        tp.click('#chat-bubble'); tp.wait_for_selector('#mission', state='visible'); time.sleep(0.4)
+        check('chat no celular (toque): a caixa de mensagem não fica atrás da barra de baixo e o topo continua visível', tp.evaluate("() => { const r = document.querySelector('#mission').getBoundingClientRect(), n = document.querySelector('.rail').getBoundingClientRect(); return r.bottom <= n.top + 1 && document.querySelector('#chat').getBoundingClientRect().top >= 59; }"))
+        tp.click('[data-act=chat-min]'); time.sleep(0.3)
         tp.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas'}))")
         cdp = tctx.new_cdp_session(tp)
         def touch(kind, x, y): cdp.send('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [] if kind == 'touchEnd' else [{'x': x, 'y': y}]})
