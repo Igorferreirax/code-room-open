@@ -201,7 +201,7 @@ function render() {
   if (!ctx.authed) return;
   if (canvasBusy() || [...document.querySelectorAll('.ep-media video')].some(v => !v.paused && !v.ended)) { renderQueued = true; return; }   // não interrompe arrastar nem vídeo tocando   // não redesenha no meio de um arrastar
   const snap = snapshotForm();
-  $('topbar').innerHTML = V.topbarHtml(ctx); $('rail').innerHTML = V.railHtml(ctx.view);
+  $('topbar').innerHTML = V.topbarHtml(ctx); const pb = V.pendingBadges(ctx); $('rail').innerHTML = V.railHtml(ctx.view, pb); document.title = (pb.room ? `(${pb.room}) ` : '') + 'Code Room';
   $('view').setAttribute('aria-label', TITLES[ctx.view]);
   $('view').innerHTML = VIEWS[ctx.view](ctx);
   $('composer-root').innerHTML = V.composerBar(ctx);
@@ -580,6 +580,7 @@ const actions = {
   'add-skill-root': () => $('skillroot-dialog').showModal(),
   'del-sel': k => selectDelivery(k),
   approve: async () => { const [id] = ctx.ui.delSel.split('|'); await api(`tasks/${id}/approve`, { note: $('review-note')?.value || '' }); ctx.ui.reviewNote = ''; notify('Entrega aprovada. Nada foi publicado.'); await refresh(); },
+  'review-pull': async () => { const [id] = ctx.ui.delSel.split('|'); const r = await api(`tasks/${id}/reviewer-notes`); if (!r.text) { notify('O revisor não listou problemas para esta entrega.'); return; } ctx.ui.reviewNote = r.text; const ta = $('review-note'); if (ta) { ta.value = r.text; ta.dispatchEvent(new Event('input', { bubbles: true })); ta.scrollIntoView({ block: 'center' }); } notify(`Pontos de ${r.reviewer || 'o revisor'} colocados no campo. Confira e clique em Solicitar ajustes.`); },
   'request-changes': async () => { const [id] = ctx.ui.delSel.split('|'), fb = ($('review-note')?.value || '').trim(); if (!fb) throw new Error('Descreva o ajuste.'); const t = await api(`tasks/${id}/request-changes`, { feedback: fb, requestId: crypto.randomUUID() }); ctx.ui.reviewNote = ''; notify('Pedido de ajuste enviado como nova tarefa.'); await refresh(); await openTask(t.id); },
   'rm-worktree': async id => { if (!confirm('Remover o worktree e a branch desta tarefa? As mudanças que não foram integradas serão perdidas.')) return; await api('tasks/' + id + '/worktree/remove', {}); notify('Worktree removido.'); ctx.detail = await api('tasks/' + id); render(); },
   changes: async id => { const t = await api('tasks/' + id); $('changes-body').innerHTML = W.changesDialog(ctx, t); $('changes-dialog').showModal(); },

@@ -591,3 +591,5 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .activity-card .activity-list:focus-visible{outline:2px solid var(--accent-h,#6aa5ff);outline-offset:2px;border-radius:8px}
 /* o botão da rádio não encosta mais no texto da versão */
 .main .foot{padding-left:70px}@media (max-width:760px){.main .foot{padding-left:14px}}
+.rail button{position:relative}.rail .rb{position:absolute;top:1px;right:1px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--warn,#f5a524);color:#111;font-size:10px;font-weight:700;line-height:16px;text-align:center}
+#needs-you .plain li{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

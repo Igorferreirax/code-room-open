@@ -38,8 +38,8 @@ export { tabs, toggle };
 
 // ---------- Casca: barra de ícones e topo ----------
 export const NAV = [['room', 'home', 'Sala'], ['projects', 'folder', 'Projetos'], ['tasks', 'check-square', 'Tarefas'], ['teams', 'users', 'Equipes'], ['recipes', 'layers', 'Receitas'], ['agents', 'terminal', 'Agentes e ferramentas'], ['deliveries', 'file', 'Entregas'], ['skills', 'sparkle', 'Skills'], ['usage', 'chart', 'Consumo e limites'], ['routines', 'calendar', 'Rotinas'], ['connections', 'plug', 'Conexões'], ['settings', 'gear', 'Configurações']];
-export function railHtml(cur) {
-  return NAV.map(([id, ic, label]) => `<button data-nav="${id}" title="${esc(label)}" aria-label="${esc(label)}" aria-current="${cur === id || (cur === 'exec' && id === 'tasks') ? 'page' : 'false'}">${icon(ic, 22)}</button>`).join('');
+export function railHtml(cur, badges = {}) {
+  return NAV.map(([id, ic, label]) => { const n = badges[id] || 0; return `<button data-nav="${id}" title="${esc(label)}${n ? ` (${n} pendente${n > 1 ? 's' : ''})` : ''}" aria-label="${esc(label)}${n ? `, ${n} pendente${n > 1 ? 's' : ''}` : ''}" aria-current="${cur === id || (cur === 'exec' && id === 'tasks') ? 'page' : 'false'}">${icon(ic, 22)}${n ? `<span class="rb" aria-hidden="true">${n > 9 ? '9+' : n}</span>` : ''}</button>`; }).join('');
 }
 export function topbarHtml(ctx) {
   const online = ctx.state.agents.filter(a => ctx.agentStatus(a).status !== 'disconnected').length;
@@ -72,17 +72,29 @@ export function viewLogin(ctx) {
 
 // ---------- Sala ----------
 // "Precisa de você agora": só o que espera uma decisão sua (créditos, prévias, falhas dos lotes). Sem pendência, o cartão some.
-export function needsYou(ctx) {
-  const items = [];
-  for (const b of ctx.state.batches || []) {
-    if (b.status === 'aguardando_creditos') items.push(['warn', `Liberar créditos do lote “${b.name}”`]);
+export function pendingList(ctx) {
+  const s = ctx.state || {}, items = [];
+  for (const b of s.batches || []) {
+    if (b.status === 'aguardando_creditos') items.push({ kind: 'warn', text: `Liberar créditos do lote “${b.name}”`, nav: 'routines', n: 1, batch: true });
     for (const ep of b.episodes || []) {
-      if (ep.status === 'aguardando_previa') items.push(['warn', `Aprovar a prévia: ${ep.title}`]);
-      else if (ep.status === 'falhou') items.push(['bad', `Falhou: ${ep.title}${ep.note ? ' — ' + ep.note.slice(0, 70) : ''}`]);
+      if (ep.status === 'aguardando_previa') items.push({ kind: 'warn', text: `Aprovar a prévia: ${ep.title}`, nav: 'routines', n: 1, batch: true });
+      else if (ep.status === 'falhou') items.push({ kind: 'bad', text: `Falhou: ${ep.title}${ep.note ? ' — ' + ep.note.slice(0, 70) : ''}`, nav: 'routines', n: 1, batch: true });
     }
   }
-  if (!items.length) return '';
-  return `<section class="card"><div class="card-h"><h2>Precisa de você agora</h2><span class="pill warn">${items.length}</span></div><ul class="plain">${items.slice(0, 6).map(([k, t]) => `<li><span class="pill ${k}">${esc(t)}</span></li>`).join('')}</ul><button class="btn sm" data-nav="routines">Abrir Lotes de produção ${icon('arrow', 16)}</button></section>`;
+  const recent = r => { const at = Date.parse(r.createdAt); return !at || Date.now() - at < 14 * 86400000; };   // só as dos últimos 14 dias: o que ficou antigo não vira ruído
+  const dels = (s.runs || []).filter(r => r.status === 'completed' && !r.review && r.kind !== 'plan' && r.step !== 'review' && (r.deliverables || []).length && recent(r)).length;
+  if (dels) items.push({ kind: 'info', text: `${dels} entrega${dels > 1 ? 's' : ''} para revisar (aprovar ou pedir ajustes)`, nav: 'deliveries', n: dels, deliveries: true });
+  const plans = (s.plans || []).filter(p => p.status === 'proposed').length;
+  if (plans) items.push({ kind: 'warn', text: `${plans} plano${plans > 1 ? 's' : ''} do Supervisor para aceitar`, nav: 'tasks', n: plans });
+  for (const r of s.recipeRuns || []) if (r.status === 'waiting') items.push({ kind: 'warn', text: `Receita “${r.name}” espera a sua aprovação`, nav: 'recipes', n: 1 });
+  return items;
+}
+export const pendingBadges = ctx => { const it = pendingList(ctx); return { room: it.reduce((a, x) => a + x.n, 0), deliveries: it.filter(x => x.deliveries).reduce((a, x) => a + x.n, 0) }; };
+// "Precisa de você agora": só o que espera uma decisão sua (créditos, prévias, falhas dos lotes, entregas, planos e receitas). Sem pendência, o cartão some.
+export function needsYou(ctx) {
+  const items = pendingList(ctx); if (!items.length) return '';
+  const total = items.reduce((a, x) => a + x.n, 0);
+  return `<section class="card" id="needs-you"><div class="card-h"><h2>Precisa de você agora</h2><span class="pill warn">${total}</span></div><ul class="plain">${items.slice(0, 6).map(x => `<li><span class="pill ${x.kind}">${esc(x.text)}</span> <button class="link" data-nav="${x.nav}">Abrir</button></li>`).join('')}</ul></section>`;
 }
 export function viewRoom(ctx) {
   const agents = ctx.roomAgents(), sup = ctx.supervisorAgent(), rooms = ctx.rooms(), run = ctx.currentMission(), mode = ctx.viewMode();

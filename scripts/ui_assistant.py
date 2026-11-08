@@ -144,7 +144,7 @@ try:
         check('celular: começa só com o balão e a página sem rolagem lateral', pg.is_visible('#chat-bubble') and not pg.is_visible('#chat') and pg.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         pg.click('#chat-bubble'); nap(0.6)
         box = pg.evaluate("(() => { const r = document.getElementById('chat').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom, innerWidth, innerHeight, document.documentElement.scrollWidth]; })()")
-        check('celular: a janela ocupa a tela inteira, sem rolagem lateral', box[0] <= 1 and box[2] >= box[4] - 1 and box[3] >= box[5] - 1 and box[6] <= box[4], box)
+        check('celular: a janela ocupa a largura toda, entre o topo e a barra de baixo (sem cobri-los), sem rolagem lateral', box[0] <= 1 and box[2] >= box[4] - 1 and 55 <= box[1] <= 65 and box[3] <= box[5] - 55 and box[3] >= box[5] - 70 and box[6] <= box[4], box)
         check('celular: manual novo só avisa e a conversa continua (barra e botão Enviar visíveis)', 'O manual mudou' in pg.inner_text('#asst') and pg.is_visible('#mission') and pg.is_visible('#send'))
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'chat-m.png')); ctx.close(); browser.close()
 finally:

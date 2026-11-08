@@ -10,6 +10,8 @@ do meio (0.**3**.0).
 ## [Não lançado]
 
 ### Adicionado
+- **"Precisa de você agora" completo:** além dos lotes, o cartão da Sala mostra entregas para revisar (últimos 14 dias), planos do Supervisor para aceitar e receitas esperando aprovação, cada um com botão Abrir. A barra lateral ganha contador (Sala e Entregas), o título da aba mostra o total e o Assistente avisa no sino, com resposta local que não gasta cota.
+- **"Trazer pontos do revisor":** em Entregas, preenche o campo de ajustes com os problemas que o revisor listou. Você confere e clica em Solicitar ajustes.
 - **Ferramentas MCP liberadas por agente (só Claude Code):** no formulário do agente, o campo "Ferramentas MCP liberadas" aceita nomes de servidores que já estão no seu Claude (ex.: `flow-studio`). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP. Agente de leitura com MCP liberado continua sem editar arquivos. Não vale em projeto Financeiro.
 - **Assistente com mais autonomia (sempre com o seu clique):** novas ações `criar_canal` (perfil por nicho, com as contas só como @ público) e `criar_rotina` (manual, diária ou semanal), e `navegador` opcional ao criar agente. Ele enxerga os canais e rotinas que já existem. O manual dele agora explica as capacidades do Code Room e a orquestração. Ele continua sem conectar contas nem publicar.
 - **Limpeza automática opcional** (Configurações › Execução, desligada por padrão): uma vez por dia apaga só o que a limpeza com prévia já apagaria e avisa quanto liberou.
@@ -32,6 +34,7 @@ do meio (0.**3**.0).
 - **Player de músicas locais** ("Música de foco"): a Rádio Lo-Fi, gerada no próprio navegador, faz o papel dele.
 
 ### Corrigido
+- **Chat no celular:** a janela deixava a caixa de mensagem e o menu do projeto atrás da barra de baixo; agora fica entre o topo e a barra.
 - **`/celular` e o diagnóstico de acesso respondiam em cerca de 15 segundos** (a leitura do Firewall exigia administrador e terminava em "acesso negado"). Agora levam menos de 1 segundo e não precisam de administrador.
 - **"Iniciar com o Windows" desfazia o próprio clique** se você clicasse duas vezes rápido.
 - **Bandeja e atalhos não abriam em pastas com espaço no nome** (por exemplo `C:\Users\João Silva`): os caminhos agora vão entre aspas.
