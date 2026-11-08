@@ -1,8 +1,9 @@
-# Checklist de lançamento (Code Room 0.2.2)
+# Checklist de lançamento (Code Room 0.3.0)
 
 Marque cada item antes de divulgar. **[x]** = já verificado (com a data); **[ ]** = falta testar.
 
 ## 1. Instalação e atualização
+- [x] 0.3.0: sintaxe 123/123, testes do servidor 261/261, auditoria de segurança 62/62, varredura de segredos e dados pessoais sem achados (07/11).
 - [ ] Zip portátil em uma máquina limpa (sem Node, sem Code Room): extrair e abrir `Iniciar-Code-Room.cmd`.
 - [ ] Atualização 0.2.1 → 0.2.2 pelo botão **Atualizar**, dentro de um app instalado de verdade.
 - [ ] Ícone da área de trabalho: dois cliques, com e sem outro Code Room aberto (porta ocupada).
@@ -20,6 +21,7 @@ Marque cada item antes de divulgar. **[x]** = já verificado (com a data); **[ ]
 - [x] Fluxos com IA simulada e comandos locais do Assistente (testes automáticos, 07/11).
 
 ## 3. Celular
+- [ ] Pareamento por Tailscale já feito pelo Igor (07/11); falta o roteiro de testes no 4G (abrir, criar tarefa, aprovar, revogar).
 - [ ] Pareamento por Tailscale no Android (guia: `docs/CELULAR-PROMPT.md`).
 - [ ] Uso pelo celular fora de casa, no 4G.
 - [ ] Revogar o aparelho pelo computador e conferir que o celular perde o acesso.
