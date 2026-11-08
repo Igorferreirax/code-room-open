@@ -73,6 +73,7 @@ export function createTask(store, input) {
   const project = store.get('projects', input.projectId), agent = store.get('agents', input.agentId);
   if (!project || !agent) throw new Error('Escolha projeto e agente.');
   if (agent.browser && agent.browser !== 'off' && project.area === 'Financeiro') throw new Error('Projeto financeiro: agentes com navegador não são permitidos (uma página poderia mandar ordens ao agente e levar os dados).');
+  if ((agent.mcpTools || []).length && project.area === 'Financeiro') throw new Error('Projeto financeiro: agentes com ferramentas MCP externas não são permitidos.');
   if (['hermes'].includes(agent.provider) && project.area === 'Financeiro') throw new Error('Projeto financeiro: dados financeiros não são enviados a um provedor remoto (Hermes).');
   // Valide os ajustes da missão antes de avançar o contador ou gravar qualquer registro.
   const missionModel = input.model ? cleanModel(input.model) : agent.model;

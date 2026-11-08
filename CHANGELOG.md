@@ -10,6 +10,7 @@ do meio (0.**3**.0).
 ## [Não lançado]
 
 ### Adicionado
+- **Ferramentas MCP liberadas por agente (só Claude Code):** no formulário do agente, o campo "Ferramentas MCP liberadas" aceita nomes de servidores que já estão no seu Claude (ex.: `flow-studio`). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP. Agente de leitura com MCP liberado continua sem editar arquivos. Não vale em projeto Financeiro.
 - **Assistente com mais autonomia (sempre com o seu clique):** novas ações `criar_canal` (perfil por nicho, com as contas só como @ público) e `criar_rotina` (manual, diária ou semanal), e `navegador` opcional ao criar agente. Ele enxerga os canais e rotinas que já existem. O manual dele agora explica as capacidades do Code Room e a orquestração. Ele continua sem conectar contas nem publicar.
 - **Limpeza automática opcional** (Configurações › Execução, desligada por padrão): uma vez por dia apaga só o que a limpeza com prévia já apagaria e avisa quanto liberou.
 - **Player da Rádio Lo-Fi recolhível:** começa como um botãozinho discreto; abre com play, próxima faixa e volume, e se recolhe sozinho. Equalizador animado quando está tocando.

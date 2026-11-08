@@ -65,9 +65,14 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     const budget = Math.max(30, Math.floor(timeoutMs / 1000) - 10), q = `${r.bin} chat --query-file - --oneshot -Q --format stream-json --max-turns 12 --run-budget ${budget}`;
     return { file: r.ssh, args: sshArgs(r, q), input: prompt };
   } else {
-    args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
+    // No modo de planejamento (agente somente leitura) o Claude nega toda ferramenta MCP, mesmo liberada. Com MCP liberado, o agente de leitura roda em acceptEdits e as ferramentas de editar arquivo ficam proibidas.
+    const mcpOn = (agent.mcpTools || []).some(s => /^[\w-]{1,40}$/.test(s));
+    args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' || mcpOn ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
+    if (mcpOn && agent.mode !== 'write') args.push('--disallowedTools', 'Edit,Write,NotebookEdit');
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
     for (const prog of agent.commands || []) if (/^[\w.-]{1,40}$/.test(prog)) for (const tool of ['Bash', 'PowerShell']) args.push('--allowedTools', `${tool}(${prog}:*)`);
+    // Ferramentas MCP liberadas por servidor (ex.: flow-studio). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP.
+    for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
     args.push(...claudeBrowserArgs(agent.browser));
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
