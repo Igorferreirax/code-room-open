@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { proposeSubtasks } from './subtasks.mjs';
 import { createTask, transition } from './tasks.mjs';
 import { emptyContext, mayShare } from './context.mjs';
 import { planPrompt, parsePlan, validatePlan } from './supervisor.mjs';
@@ -80,6 +81,8 @@ export class Orchestrator {
   attemptAnswer(task) { return task.result?.attemptId ? this.store.get('runs', task.result.attemptId)?.answer || '' : ''; }
 
   onFinal(task) {
+    if (task.status === 'completed' && task.kind === 'work' && !task.batchId) { try { this.social?.proposePosts(task, this.attemptAnswer(task)).catch(() => {}); } catch {} }   // propostas de postagem do agente (+conta): só viram post se a pessoa aprovar
+    if (task.status === 'completed' && task.kind === 'work' && !task.batchId) { try { proposeSubtasks(this.store, task, this.attemptAnswer(task)); } catch {} }   // pedidos de ajuda entre agentes: só viram tarefa se a pessoa aprovar
     if (task.batchId) { try { this.batches?.onFinal(task); } catch (e) { this.store.event(task.id, { type: 'diagnostic', text: `Falha no lote: ${e.message}`, at: new Date().toISOString() }); } return; }
     if (task.status === 'completed' && task.kind === 'work' && (task.step !== 'review' || task.result.deliverables.files.length)) this.recordDeliverable(task);
     if (task.kind === 'plan') return this.onPlanFinished(task);
@@ -103,11 +106,15 @@ export class Orchestrator {
     const links = this.store.list('links').filter(l => l.enabled !== false && l.projectId === task.project.id && l.from === task.agent.id);
     if (!links.length) return;
     const answer = this.attemptAnswer(task) || task.result?.summary || '';
-    if (STOP_RE.test(answer)) { this.store.event(task.id, { type: 'diagnostic', text: 'Cadeia encerrada: o agente sinalizou que não há pendências.', at: now() }); return; }
+    // Ligação com condição: "sempre" (padrão) para quando o agente diz SEM PENDÊNCIAS; "aprovado" só segue se o resultado for APROVADO; "reprovado" só se for REPROVADO.
+    const stop = STOP_RE.test(answer), verdict = verdictOf(answer);
+    if (stop && !links.some(l => l.when === 'approved')) { this.store.event(task.id, { type: 'diagnostic', text: 'Cadeia encerrada: o agente sinalizou que não há pendências.', at: now() }); return; }
     const hops = (task.hops || 0) + 1, files = (task.result?.deliverables?.files || []).filter(f => f.change !== 'deleted');
     for (const l of links) {
       const max = l.maxHops || DEFAULT_HOPS, to = this.store.get('agents', l.to);
       if (!to) continue;
+      const when = l.when || 'always', ok = when === 'approved' ? verdict === 'approved' : when === 'rejected' ? verdict === 'rejected' : !stop;
+      if (!ok) { if (when !== 'always') this.store.event(task.id, { type: 'diagnostic', text: `Ligação para ${to.name} não seguiu: a condição “${when === 'approved' ? 'só se aprovado' : 'só se reprovado'}” não foi atendida (resultado: ${verdict === 'approved' ? 'aprovado' : verdict === 'rejected' ? 'reprovado' : 'sem veredito'}).`, at: now() }); continue; }
       if (hops > max) { this.store.event(task.id, { type: 'diagnostic', text: `Limite de ${max} repasse(s) atingido; a cadeia parou aqui para não gastar à toa.`, at: now() }); continue; }
       try {
         const root = task.rootObjective || task.objective;

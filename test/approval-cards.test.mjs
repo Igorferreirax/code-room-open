@@ -29,3 +29,12 @@ test('cartão: pedir ajustes abre o campo; prévia de lote reaproveita o botão 
   const ask = approvalHtml(ctx({ state }, { apIdx: 1, apChanges: 't:a' })); assert.match(ask, /id="ap-note"/); assert.match(ask, /data-act="ap-changes-send" data-id="a"/);
   const min = approvalHtml(ctx({ state }, { apCollapsed: true })); assert.match(min, /ap-min/); assert.ok(!min.includes('data-act="ap-approve"') && !min.includes('batch-preview-ok'));
 });
+
+test('cartões de plano e receita: aparecem no chat com Aceitar/Aprovar, mostram os passos e escapam HTML; de outros projetos não entram', () => {
+  const state = { agents: [{ id: 'a1', name: 'Roteirista' }], runs: [], batches: [],
+    plans: [{ id: 'pl1', status: 'proposed', projectId: 'p1', request: 'Montar o <b>Reel</b>', plan: { rationale: 'Primeiro o roteiro.', steps: [{ id: 's1', title: 'Escrever roteiro', agentId: 'a1' }, { id: 's2', title: 'Montar vídeo', agentId: 'zz' }] } }, { id: 'pl2', status: 'accepted', projectId: 'p1' }, { id: 'pl3', status: 'proposed', projectId: 'p9', request: 'outro projeto' }],
+    recipeRuns: [{ id: 'rr1', name: 'Semanal <i>x</i>', status: 'waiting', projectId: 'p1', objective: 'Resumo da semana' }, { id: 'rr2', name: 'Feita', status: 'done' }] };
+  const items = approvalItems(ctx({ state })); assert.deepEqual(items.map(i => i.key), ['pl:pl1', 'rr:rr1']);
+  const plan = approvalHtml(ctx({ state })); assert.match(plan, /data-act="accept-plan" data-id="pl1"/); assert.match(plan, /Escrever roteiro <small class="muted">→ Roteirista<\/small>/); assert.match(plan, /Montar vídeo/); assert.match(plan, /Plano do Supervisor/); assert.ok(!plan.includes('<b>Reel</b>')); assert.match(plan, /1\/2/);
+  const rec = approvalHtml(ctx({ state }, { apIdx: 1 })); assert.match(rec, /data-act="ap-recipe-approve" data-id="rr1"/); assert.match(rec, /data-act="ap-recipe-cancel"/); assert.match(rec, /Resumo da semana/); assert.ok(!rec.includes('<i>x</i>'));
+});

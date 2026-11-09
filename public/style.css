@@ -412,8 +412,8 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cw-body{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}.cw-body .as-log{flex:1;min-height:0}
 .cw-direct p{margin:.4em 0}
 .cw-foot{border-top:1px solid var(--line);background:var(--bg2)}
-.cw-foot .composer-bar{position:static;padding:8px;margin:0!important;border:0;background:none}.cw-foot .composer{display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:'tg tg tg' 'cl tx sd';gap:6px;padding:6px;min-height:0;align-items:center}
-.cw-foot .composer .target{grid-area:tg;max-width:none;width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:.3em .2em;font-size:.82rem}.cw-foot .composer>.iconbtn{grid-area:cl}.cw-foot .composer textarea{grid-area:tx;min-height:40px;max-height:130px}.cw-foot .composer .sendbtn{grid-area:sd;width:42px;height:42px}.cw-foot .composer .hint{display:none}
+.cw-foot .composer-bar{position:static;padding:8px;margin:0!important;border:0;background:none}.cw-foot .composer{display:grid;grid-template-columns:auto auto 1fr auto;grid-template-areas:'tg tg tg tg' 'cl mc tx sd';gap:6px;padding:6px;min-height:0;align-items:center}
+.cw-foot .composer .target{grid-area:tg;max-width:none;width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:.3em .2em;font-size:.82rem}.cw-foot .composer>.iconbtn{grid-area:cl}.cw-foot .composer>.mic{grid-area:mc}.cw-foot .composer textarea{grid-area:tx;min-height:40px;max-height:130px}.cw-foot .composer .sendbtn{grid-area:sd;width:42px;height:42px}.cw-foot .composer .hint{display:none}
 .cw-foot .opts-pop{bottom:calc(100% + 6px);left:6px;right:6px}.cw-foot .foot{display:none}
 .chat-bubble{position:fixed;right:18px;bottom:18px;width:62px;height:62px;border-radius:50%;border:2px solid var(--accent);background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.45);display:grid;place-items:center;z-index:40;cursor:pointer;padding:0}.chat-bubble:hover{transform:translateY(-2px)}
 .cb-face{width:44px;height:44px;display:block}.cb-face svg{width:100%;height:100%}
@@ -668,3 +668,43 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .as-act{display:block;color:var(--muted);font-size:.74rem;margin-top:2px}
 .cw-sent .link{font-size:.78rem}
 #needs-you .ny-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#needs-you .ny-row .pill{white-space:normal}
+
+/* Git no painel do projeto */
+.git-log{display:flex;flex-direction:column;gap:4px;margin:6px 0}.git-log li{font-size:.84rem;line-height:1.35}.git-log code{font-size:.78rem}
+
+/* Voz: microfone do campo de mensagem e interruptor de leitura */
+.mic.on{background:var(--bad);color:#fff;animation:cw-pulse 1s infinite}.mic:disabled{opacity:.4;cursor:not-allowed}
+
+/* Pastas de referência */
+.refs-list{margin:6px 0}.refs-list li{font-size:.84rem;line-height:1.35}
+
+.prop{margin:6px 0}.prop textarea{width:100%;box-sizing:border-box;min-height:48px}
+
+.ap-text{padding:8px 10px;font-size:.82rem;line-height:1.4;max-height:160px;overflow:auto}.ap-text p{margin:0 0 4px}.ap-text ol{margin:0;padding-left:1.2em}
+
+.cw-sim{border:1px dashed var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px}.cw-sim p{margin:.3em 0}.sim-bad li{color:var(--bad);font-size:.82rem}.sim-warn li{color:var(--warn);font-size:.82rem}
+
+/* Redes sociais */
+.soc-list li,.soc-posts li{margin:8px 0;line-height:1.4}.soc-act{margin-left:8px;display:inline-flex;gap:10px}.soc-act .link{font-size:.8rem}
+.soc-matrix{width:100%;border-collapse:collapse;font-size:.82rem}.soc-matrix th,.soc-matrix td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.ap-post textarea{width:100%;box-sizing:border-box;min-height:84px}.ap-when{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}.ap-when input[type=datetime-local]{width:auto}
+
+/* Biblioteca de APIs */
+.api-list li{margin:8px 0;line-height:1.4}.api-usage{margin-top:4px;max-width:420px}.api-bar{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:3px}.api-bar span{display:block;height:100%;background:var(--accent-h,#7aa2ff)}
+
+/* Canvas expansível */
+.cv-wrap{position:relative}.cv-expand{position:absolute;right:22px;top:8px;z-index:6}
+.cv-wrap.cv-big{position:fixed;inset:0;z-index:70;padding:48px 18px 18px;background:var(--bg,#0a1224);overflow:auto}.cv-wrap.cv-big .cv{max-height:calc(100vh - 190px);min-height:calc(100vh - 260px)}.cv-wrap.cv-big .cv-expand{right:24px;top:12px}
+
+/* Efeitos leves (só CSS, respeitam "Reduzir movimento" e só em telas com mouse). Inspirados no React Bits, sem biblioteca. */
+.btn:active{transform:scale(.97)}
+@media (hover:hover) and (pointer:fine){
+  html[data-motion=on] .btn{transition:transform .15s,box-shadow .2s,background-position .6s ease}
+  html[data-motion=on] .btn:not(.ghost):not(.outline):not(.danger){background-image:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.28) 50%,transparent 65%);background-size:250% 100%;background-position:120% 0;background-repeat:no-repeat}
+  html[data-motion=on] .btn:not(.ghost):not(.outline):not(.danger):hover{background-position:-120% 0}
+  html[data-motion=on] .btn:not(.ghost):not(.outline):hover{box-shadow:0 6px 18px -8px var(--accent)}
+}
+.composer:focus-within{box-shadow:0 0 0 1px var(--accent),0 0 16px -4px var(--accent)}
+.cv-node.st-running{box-shadow:0 0 0 1px #5fe3b0,0 0 18px -6px #5fe3b0}
+html .cv-wrap>.cv-expand{position:absolute;right:22px;top:8px;overflow:visible}html .cv-wrap.cv-big>.cv-expand{right:24px;top:12px}
+.sync-list{max-height:260px;overflow:auto;margin:8px 0;padding:6px 8px;border:1px solid var(--line);border-radius:10px}.sync-row{display:block;margin:4px 0;line-height:1.35}.sync-ias{margin:8px 0}

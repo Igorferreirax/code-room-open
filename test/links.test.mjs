@@ -41,3 +41,16 @@ test('parada por "SEM PENDÊNCIAS", ligação desligada e tarefa de fluxo de equ
   assert.ok(store.events(stop.id).some(e => /não há pendências/i.test(e.text || '')));
   assert.equal(store.list('messages').length, 0);
 });
+
+test('ligação com condição: "só se aprovado" segue no APROVADO e não no REPROVADO; "só se reprovado" faz o contrário; "sempre" continua parando no SEM PENDÊNCIAS', async () => {
+  const { store, runner } = await setup({ concurrency: { global: 3, provider: { codex: 3, claude: 1 }, video: 1 } });
+  const P = await addProject(store, 'lk-when'), R = addAgent(store, 'rev', { role: 'Revisor' }), OK = addAgent(store, 'ok'), FIX = addAgent(store, 'fix'), ALW = addAgent(store, 'alw');
+  link(store, P, R, OK, { when: 'approved' }); link(store, P, R, FIX, { when: 'rejected' }); link(store, P, R, ALW);
+  const aprovado = task(store, P, R, 'answer=Tudo_certo._VEREDITO:_APROVADO'); await runner.pump();
+  await waitFor(() => store.list('tasks').length === 2 && allFinal(store), 25000, 'aprovado → só OK'); await new Promise(r => setTimeout(r, 600));
+  assert.deepEqual(store.list('tasks').filter(t => t.id !== aprovado.id).map(t => t.agent.id), ['ok'], 'só a ligação “aprovado” seguiu (a “sempre” para no veredito de aprovação)');
+  assert.ok(store.events(aprovado.id).some(e => /só se reprovado.*não foi atendida.*aprovado/.test(e.text || '')));
+  const antes = store.list('tasks').length, rep = task(store, P, R, 'answer=Faltou_cobrir_o_caso_X._VEREDITO:_REPROVADO'); await runner.pump();
+  await waitFor(() => store.list('tasks').length === antes + 3 && allFinal(store), 25000, 'reprovado → FIX e ALW'); await new Promise(r => setTimeout(r, 600));
+  assert.deepEqual(store.list('tasks').filter(t => t.linkFrom === rep.id).map(t => t.agent.id).sort(), ['alw', 'fix'], 'reprovado: segue a “reprovado” e a “sempre”, não a “aprovado”');
+});

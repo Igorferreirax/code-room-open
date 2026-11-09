@@ -153,6 +153,18 @@ export class Publisher {
     await writeFile(join(project.path, 'DESEMPENHO.md'), md);
   }
   cancel(id) { const p = this.store.get('posts', id); if (!p || p.status !== 'rascunho') throw new Error('Só dá para cancelar um rascunho.'); p.status = 'cancelado'; return this.store.put('posts', p); }
+  // Envia um arquivo de vídeo qualquer ao YouTube (usado pelas redes sociais). A aprovação por postagem acontece antes, em social.mjs.
+  async uploadVideo(file, { title, description = '', tags = [], privacy = 'private' }) {
+    if (!PRIVACY.includes(privacy)) throw new Error('Visibilidade inválida.');
+    const size = (await stat(file)).size, token = await this.#access();
+    const meta = { snippet: { title: text(title, 100, 'Título'), description: String(description).slice(0, 4900), tags, categoryId: '24' }, status: { privacyStatus: privacy, selfDeclaredMadeForKids: false } };
+    const init = await fetch(`${this.g.upload}?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(size), 'X-Upload-Content-Type': 'video/mp4' }, body: JSON.stringify(meta) });
+    if (!init.ok) throw new Error(`YouTube recusou iniciar o envio (${init.status}): ${(await init.text()).slice(0, 200)}`);
+    const loc = init.headers.get('location'); if (!loc) throw new Error('YouTube não devolveu o endereço de envio.');
+    const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Length': String(size), 'Content-Type': 'video/mp4' }, body: createReadStream(file), duplex: 'half' });
+    const j = await put.json().catch(() => ({})); if (!put.ok) throw new Error(`Envio falhou (${put.status}): ${j.error?.message || ''}`);
+    return { videoId: j.id, url: `https://youtube.com/shorts/${j.id}` };
+  }
   async #upload(post, project) {
     const file = await safeFile(project.path, post.file), size = (await stat(file)).size, token = await this.#access();
     const meta = { snippet: { title: post.title, description: post.description, tags: post.tags, categoryId: '24' }, status: { privacyStatus: post.privacy, selfDeclaredMadeForKids: false } };

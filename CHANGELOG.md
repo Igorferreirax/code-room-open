@@ -9,6 +9,27 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+- **YouTube**: o cartão antigo “Publicação” foi para dentro de Redes sociais (“YouTube e Google”), sem duplicar.
+- **Redes sociais** (Conexões): cadastre contas de YouTube, Bluesky, Mastodon, Telegram e Discord (publicam) e de Instagram, X, TikTok, Threads, LinkedIn e Facebook (pacote pronto). Cite `+apelido` em qualquer pedido ou rotina: o agente propõe a postagem e você aprova texto e horário no chat. Agendamento, limite diário por conta, nada publica sem aprovação e senhas só no computador. Veja `docs/REDES-SOCIAIS.md`.
+- **Repetir todo dia**: botão na tela da tarefa e em “Você pediu” abre a rotina já preenchida; modelos de rotina (notícias, cursos gratuitos, vagas, post do dia).
+- **Pesquisar na web** (opção do agente, só Claude Code): busca e leitura de páginas para rotinas de pesquisa; bloqueado em projeto Financeiro; ligado no modo piloto.
+- **Agente bloqueado vira “Liberar” com um clique**: quando o Claude nega um programa, um MCP ou a pesquisa na web por falta de liberação, a tarefa mostra o que faltou (com “Liberar” e “Liberar e pedir de novo”), o chat avisa e “Precisa de você agora” lista. Programas que dão controle total do computador (PowerShell, cmd, rm…) nunca são oferecidos; Financeiro continua bloqueando MCP e web.
+- **Levar para outras IAs** (Conexões): copia skills e servidores MCP do Claude Code para o Codex e o Antigravity (Gemini), sem sobrescrever, com backup e sem mostrar chaves.
+- **Canvas expansível** (botão Expandir, Esc recolhe) para ver muitos agentes trabalhando.
+- **Efeitos leves** (só CSS e um ouvinte de mouse, sem biblioteca; respeitam “reduzir movimento”): brilho discreto nos botões e foco luminoso no campo de mensagem.
+- **Biblioteca de APIs** (Conexões): guarda chaves (GitHub, OpenAI, Anthropic, Gemini, Groq, OpenRouter, ElevenLabs e outras), testa e mostra o consumo quando o serviço informa.
+- **Pastas de referência (somente leitura) por projeto:** os agentes só enxergam a pasta do projeto; agora você libera outras pastas (ex.: o repositório de onde vêm as ofertas) como uma **cópia somente leitura** em `.referencias/`, refeita antes de cada tarefa. O original nunca é alterado, segredos (`.env`, chaves, bancos, `node_modules`, logs) e arquivos grandes ficam de fora, com limites de tamanho. Projetos Financeiro não usam.
+- **Memória do projeto:** ao aprovar uma entrega, o Code Room sugere uma linha para "Decisões" do projeto (título, primeira frase do resumo e a observação da revisão). Você aceita (e pode editar) ou descarta; só entra no contexto dos agentes se aceitar.
+- **Histórico de ações** (Configurações › Histórico): quem iniciou, aprovou, pediu ajustes, cancelou, repetiu, liberou créditos ou confirmou publicação, em qual projeto, por qual agente, por onde (computador ou celular) e quando.
+- **Planos, receitas e pedidos de ajuda aprováveis no chat**, ao lado das entregas.
+- **Simular antes de rodar:** na conversa com uma equipe, o botão "Simular antes de rodar" confere equipe, agentes, IA instalada, regras do projeto Financeiro e permissões, e mostra o que cada agente poderá fazer, sem criar tarefa nem gastar cota.
+- **Condições nas ligações entre agentes:** "sempre", "só se aprovado" ou "só se reprovado" (por exemplo, revisor reprovou → volta ao desenvolvedor).
+- **Agentes pedem ajuda a outros agentes, com a sua aprovação:** o agente termina a resposta com um pedido; ele aparece em "Precisa de você agora" e no chat, e só vira tarefa (filha da original, com o resumo e os arquivos) se você aprovar. Limites de profundidade e de pedidos por tarefa valem.
+- **Versionamento com Git/GitHub no projeto:** no painel do projeto (Contexto), veja a branch, as alterações ainda sem commit, o remoto e os últimos commits; "Iniciar o Git neste projeto" cria o repositório; se o GitHub CLI (`gh`) estiver logado, aparecem também os pull requests abertos e as últimas verificações. Em Entregas, **"Commitar no Git"** cria um commit local só com os arquivos da entrega, e a opção **"Commitar automaticamente quando eu aprovar uma entrega"** faz isso ao aprovar. Nada é enviado (push) e nenhuma chave é guardada: usa o login que você já tem. Projetos Financeiro nunca commitam sozinhos.
+- **Voz no chat (fase 1):** botão de microfone para ditar em vez de digitar (o texto aparece no campo e você revisa antes de enviar) e interruptor **Voz** que lê um resumo curto das respostas do Assistente. Usa só o navegador (sem chave nem servidor); o microfone exige localhost ou https.
+- **Novo projeto dentro de uma pasta que você cita:** "crie o projeto X dentro de C:\Trabalho" (Assistente, ação `criar_projeto` com `pasta_pai`) e a caixa "Criar uma subpasta nova com o nome do projeto" no formulário. A pasta precisa existir; pastas do sistema (Windows, Arquivos de Programas, .ssh…) são recusadas.
+
 ## [0.3.1] - 2026-11-09
 
 ### Adicionado

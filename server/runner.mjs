@@ -9,9 +9,11 @@ import { snapshot, diffSnapshots } from './deliverables.mjs';
 import { killTree, alive, processIdentity } from './procs.mjs';
 import { buildPrompt, emptyContext } from './context.mjs';
 import { blockFor as obsidianBlock } from './obsidian.mjs';
+import { prepareReferences } from './referencias.mjs';
 import { createWorktree } from './worktree.mjs';
 import { claudeFromEvent } from './usage.mjs';
 import { browserNote } from './browseruse.mjs';
+import { suggestUnblocks } from './unblock.mjs';
 
 export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1, agy: 1, hermes: 1 }, video: 1 };
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
@@ -133,8 +135,9 @@ export class Runner {
     const selected = wantIds.length ? (await scanSkills(root, { extraRoots: this.store.get('settings', 'skillRoots')?.roots || [] })).filter(s => wantIds.includes(s.id)) : [];
     if (selected.length !== wantIds.length) throw fail('skill_unavailable', 'Uma skill escolhida não está mais disponível. Edite o agente ou escolha outra.');
     const obs = await obsidianBlock(this.store, task, agent);   // notas do Obsidian da pessoa (só se ela ligou o vínculo)
-    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: obs.text });
-    this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${obs.n ? ` Obsidian: ${obs.n} nota(s) de referência.` : ''}${browserNote(task.agent?.browser)}` });
+    const refs = await prepareReferences(this.store, task, root);   // cópia somente leitura das pastas de referência do projeto (antes do snapshot: não conta como entrega)
+    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: [obs.text, refs.text].filter(Boolean).join('\n\n') });
+    this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${obs.n ? ` Obsidian: ${obs.n} nota(s) de referência.` : ''}${refs.n ? ` Pastas de referência: ${refs.n}.` : ''}${browserNote(task.agent?.browser)}` });
     for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de skill: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, timeoutMs: task.limits.timeoutMs });
@@ -162,6 +165,7 @@ export class Runner {
         if (e.type === 'session') attempt.sessionId = e.text;
         if (e.model) attempt.modelReported = e.model;
         if (e.usage) attempt.usage = labelUsage(agent.provider, e.usage);
+        if (e.denials) attempt.denials = e.denials;   // o que o Claude negou por falta de liberação (vira sugestão “Liberar”)
         if (['session', 'usage', 'error', 'result'].includes(e.type)) this.save(attempt);
       }
     };
@@ -209,7 +213,7 @@ export class Runner {
     this.save(attempt); this.event(attempt.id, { type: 'status', text: status, failureKind });
     const fresh = this.store.get('tasks', task.id);
     const taskStatus = status === 'completed' && fresh.status === 'cancelling' ? 'cancelled' : status;
-    transition(this.store, fresh, taskStatus, { error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported, result: { summary: attempt.answer.slice(-2000), deliverables, readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
+    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported, result: { summary: attempt.answer.slice(-2000), deliverables, readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
     this.store.release(task.id); this.active.delete(task.id);
     settleDependents(this.store, task.id);
     try { this.hooks.onFinal?.(this.store.get('tasks', task.id)); } catch (e) { this.event(task.id, { type: 'diagnostic', text: `Falha na orquestração: ${e.message}` }); }

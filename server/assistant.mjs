@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { createTask } from './tasks.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
@@ -74,11 +74,12 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       const room = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
       if (world.agents.some(a => a.name.trim().toLowerCase() === nome.toLowerCase() && a.provider === raw.provedor)) return bad('criar_agente', `Já existe o agente “${nome}” nessa IA.`);
       let model = '', effort = ''; try { model = cleanModel(raw.modelo); effort = cleanEffort(raw.provedor, raw.esforco); } catch (e) { return bad('criar_agente', e.message); }
+      const web = raw.pesquisar_web === true; if (web && raw.provedor !== 'claude') return bad('criar_agente', 'Pesquisar na web só vale para o Claude Code.');
       let browser = 'off'; try { browser = cleanBrowser(raw.navegador, raw.provedor); } catch (e) { return bad('criar_agente', e.message); }
       const progs = raw.programas === undefined ? [] : raw.programas; if (!Array.isArray(progs)) return bad('criar_agente', 'programas deve ser uma lista de nomes, por exemplo ["ffmpeg"].');
       const commands = [...new Set(progs.map(c => String(c).trim()).filter(Boolean))]; if (commands.length > 10 || commands.some(c => !/^[\w.-]{1,40}$/.test(c))) return bad('criar_agente', 'Programas liberados: até 10 nomes simples (ex.: ffmpeg, node), sem caminhos nem espaços.');
       if (commands.length && raw.provedor !== 'claude') return bad('criar_agente', 'A lista de programas só vale para o Claude Code. No Codex, um agente que edita arquivos já roda comandos dentro da pasta do projeto.');
-      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}${model ? ` · modelo ${model}` : ''}${effort ? ` · esforço ${effort}` : ''}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${commands.length ? ` · PODE RODAR no terminal: ${commands.join(', ')}` : ''}${browser !== 'off' ? ` · NAVEGADOR: ${BROWSER_LABEL[browser]}${browser === 'chrome' ? ' (age nas suas contas em que você está logado; só use com projetos de confiança)' : ''}` : ''}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model, effort, instructions: '', mode, skillIds: [], commands, browser, capabilities: caps }, valid: true };
+      return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}${model ? ` · modelo ${model}` : ''}${effort ? ` · esforço ${effort}` : ''}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${commands.length ? ` · PODE RODAR no terminal: ${commands.join(', ')}` : ''}${web ? ' · PESQUISA NA WEB' : ''}${browser !== 'off' ? ` · NAVEGADOR: ${BROWSER_LABEL[browser]}${browser === 'chrome' ? ' (age nas suas contas em que você está logado; só use com projetos de confiança)' : ''}` : ''}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model, effort, instructions: '', mode, skillIds: [], commands, browser, web, capabilities: caps }, valid: true };
     }
     case 'definir_skills': {
       const r = find(raw.agente); if (r.error) return bad('definir_skills', r.error);
@@ -93,7 +94,8 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       const nome = short(raw.nome, 60); if (!nome || /[\\/:*?"<>|]/.test(nome)) return bad('criar_projeto', 'O projeto precisa de um nome simples (sem barras, dois-pontos, asterisco, interrogação, aspas, < > ou |).');
       if ((world.projects || []).some(p => lc(p.name) === lc(nome)) || planned.projects.some(x => lc(x) === lc(nome))) return bad('criar_projeto', `Já existe um projeto chamado “${nome}”.`);
       const area = raw.ambiente && AREAS.includes(raw.ambiente) ? raw.ambiente : 'Geral';
-      return { type: 'criar_projeto', summary: `Criar o projeto “${nome}” (ambiente ${area}) em uma pasta nova dentro de Documentos/CodeRoom/Projetos`, payload: { name: nome, area }, valid: true };
+      const pai = String(raw.pasta_pai ?? '').trim(); if (pai && (!isAbsolute(pai) || pai.length > 300 || /[\0\r\n]/.test(pai))) return bad('criar_projeto', 'A pasta onde criar o projeto precisa ser um caminho completo (ex.: C:\\Trabalho).');
+      return { type: 'criar_projeto', summary: pai ? `Criar o projeto “${nome}” (ambiente ${area}) em uma subpasta nova dentro de ${short(pai, 120)}` : `Criar o projeto “${nome}” (ambiente ${area}) em uma pasta nova dentro de Documentos/CodeRoom/Projetos`, payload: { name: nome, area, ...(pai ? { parent: pai } : {}) }, valid: true };
     }
     case 'iniciar_tarefa': {
       const objetivo = String(raw.objetivo ?? '').trim(); if (!objetivo || objetivo.length > 3000) return bad('iniciar_tarefa', 'Descreva o objetivo da tarefa (até 3000 caracteres).');
@@ -308,10 +310,10 @@ export class Assistant {
     const id = `assistant-${provider}`, base = { id, name: 'Assistente', role: 'Ajuda dentro do Code Room', room: 'Assistente', provider, model: '', instructions: '', internal: true };
     // Leitura (padrão) ou piloto: o agente interno é regravado a cada pergunta para refletir a escolha atual da pessoa.
     const want = pilot
-      ? { mode: 'write', skillIds: [], commands: PILOT_COMMANDS, mcpTools: provider === 'claude' ? this.mcpFn() : [], browser: provider === 'claude' ? 'chrome' : provider === 'codex' ? 'isolado' : 'off', skillTool: provider === 'claude', capabilities: [] }
-      : { mode: 'read', skillIds: [], commands: [], mcpTools: [], browser: 'off', skillTool: false, capabilities: [] };
+      ? { mode: 'write', skillIds: [], commands: PILOT_COMMANDS, mcpTools: provider === 'claude' ? this.mcpFn() : [], browser: provider === 'claude' ? 'chrome' : provider === 'codex' ? 'isolado' : 'off', skillTool: provider === 'claude', web: provider === 'claude', capabilities: [] }
+      : { mode: 'read', skillIds: [], commands: [], mcpTools: [], browser: 'off', skillTool: false, web: false, capabilities: [] };
     const old = this.store.get('agents', id);
-    if (!old || JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool'].map(k => old[k])) !== JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool'].map(k => want[k]))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
+    if (!old || JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web'].map(k => !!old[k] && typeof old[k] === 'boolean' ? true : old[k])) !== JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web'].map(k => !!want[k] && typeof want[k] === 'boolean' ? true : want[k]))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
     return id;
   }
   #task(provider, objective, tag, { pilot = false, projectId = null } = {}) {

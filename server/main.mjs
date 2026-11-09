@@ -35,6 +35,15 @@ import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
 import { retentionScan, retentionClean } from './retention.mjs';
+import { gitInfo, gitInit, commitFiles, githubInfo } from './gitinfo.mjs';
+import { proposeDecision, resolveProposal } from './context.mjs';
+import { simulateFlow } from './simulate.mjs';
+import { approveSubtask, dismissSubtask } from './subtasks.mjs';
+import { ApiLibrary } from './apilib.mjs';
+import { applyUnblocks } from './unblock.mjs';
+import { SyncIas } from './sync-ias.mjs';
+import { Social, CATALOG as SOCIAL_CATALOG } from './social.mjs';
+import { cleanRefs, scanReference } from './referencias.mjs';
 import { cleanConfig as obsClean, checkVault as obsCheck, findNotes as obsFind, termsOf as obsTerms, renderBlock as obsRender, saveNote as obsSave, clearCache as obsClear, DEFAULTS as OBS_DEFAULTS } from './obsidian.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { Power } from './power.mjs';
@@ -100,8 +109,16 @@ const assistantWorld = async () => {
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
-async function createProjectFolder({ name, area }) {
-  const base = workspaceDir(); await mkdir(base, { recursive: true });
+// Pastas que nunca recebem um projeto novo (sistema, programas, chaves e a raiz do disco).
+const forbiddenParent = p => { const l = resolve(p).toLowerCase().replace(/\//g, '\\'); return /^[a-z]:\\?$/.test(l) || /^[a-z]:\\(windows|program files|program files \(x86\)|programdata)(\\|$)/.test(l) || /\\(\.ssh|\.gnupg)(\\|$)/.test(l) || /\\appdata\\(roaming|local\\(programs|packages|microsoft))(\\|$)/.test(l); };
+async function createProjectFolder({ name, area, parent = null }) {
+  let base;
+  if (parent) {   // a pessoa citou uma pasta: o projeto nasce em uma subpasta NOVA dentro dela (a pasta precisa existir)
+    if (!isAbsolute(parent)) throw new Error('Informe o caminho completo da pasta.');
+    let real; try { real = await realpath(parent); if (!(await stat(real)).isDirectory()) throw 0; } catch { throw new Error('A pasta informada não existe.'); }
+    if (forbiddenParent(real)) throw new Error('Esta pasta é protegida pelo sistema. Escolha outra para o projeto.');
+    base = real;
+  } else { base = workspaceDir(); await mkdir(base, { recursive: true }); }
   const slug = String(name).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 50) || 'projeto';
   let dir = join(base, slug), n = 2; while (existsSync(dir)) dir = join(base, `${slug}-${n++}`);
   await mkdir(dir); const canonical = await realpath(dir);
@@ -119,11 +136,41 @@ const obsCfg = () => ({ ...OBS_DEFAULTS, ...(store.get('settings', 'obsidian') |
 async function obsStatus() { const c = obsCfg(); return { enabled: c.enabled, vault: c.vault, exclude: c.exclude, byProject: c.byProject, maxNotes: c.maxNotes, allowWrite: c.allowWrite, writeFolder: c.writeFolder, check: c.vault ? await obsCheck(c.vault, c.exclude) : null }; }
 const obsTitle = t => { const ask = String(t.objective || '').split('=== PERGUNTA DA PESSOA ===').pop(), m = /^Lote\s+"([^"]{1,80})"/.exec(ask), raw = m ? m[1] : ask.replace(/\s+/g, ' ').trim(); return raw.length > 90 ? raw.slice(0, 88) + '…' : raw || 'Entrega'; };
 async function obsSaveTask(t) { return obsSave(obsCfg(), { project: t.project.name, area: t.project.area, agent: t.agent.name, title: obsTitle(t), summary: t.result?.summary || '', files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').map(f => ({ path: f.path, bytes: f.bytes })), review: t.review?.note || '' }); }
+// ---------- Git do projeto (opcional): acompanhar commits e, se a pessoa quiser, commitar as entregas aprovadas (sempre local; nunca push) ----------
+const gitCfg = () => ({ autoCommit: false, ...(store.get('settings', 'git') || {}) });
+async function gitCommitTask(t) {
+  if (t.result?.isolation) throw new Error('Esta tarefa rodou em uma cópia isolada (worktree): integre a branch dela antes de commitar.');
+  const pr = store.get('projects', t.project.id); if (!pr) throw new Error('Projeto não encontrado.');
+  return commitFiles(pr.path, (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').map(f => f.path), `Code Room: ${obsTitle(t)}\n\nAgente: ${t.agent.name}\nTarefa: ${t.id}`);
+}
+// ---------- Histórico de ações (trilha de auditoria): o que foi iniciado, aprovado, ajustado ou cancelado, por onde e quando ----------
+const AUDIT_ROUTES = [
+  [/^\/api\/(?:runs|tasks)$/, 'iniciou uma tarefa'], [/^\/api\/flows$/, 'iniciou uma missão de equipe'], [/^\/api\/plans$/, 'pediu um plano ao supervisor'], [/^\/api\/plans\/[\w-]+\/accept$/, 'aceitou um plano'], [/^\/api\/subtasks\/[\w-]+\/approve$/, 'aprovou um pedido de ajuda entre agentes'], [/^\/api\/social\/posts\/[\w]+\/approve$/, 'aprovou uma postagem em rede social'], [/^\/api\/apis$/, 'salvou uma chave na biblioteca de APIs'], [/^\/api\/sync-ias\/apply$/, 'instalou skills ou MCP em outras IAs'], [/^\/api\/apis\/[\w-]+\/delete$/, 'removeu uma chave da biblioteca de APIs'], [/^\/api\/social\/accounts$/, 'salvou uma conta de rede social'], [/^\/api\/social\/accounts\/[\w-]+\/delete$/, 'removeu uma conta de rede social'],
+  [/^\/api\/tasks\/([\w-]+)\/approve$/, 'aprovou uma entrega', 'task'], [/^\/api\/tasks\/([\w-]+)\/unblock$/, 'liberou uma ferramenta para um agente', 'task'], [/^\/api\/tasks\/([\w-]+)\/request-changes$/, 'pediu ajustes em uma entrega', 'task'], [/^\/api\/(?:runs|tasks)\/([\w-]+)\/cancel$/, 'cancelou uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/retry$/, 'repetiu uma tarefa', 'task'],
+  [/^\/api\/projects\/([\w-]+)\/git\/commit$/, 'commitou uma entrega no Git', 'project'], [/^\/api\/obsidian\/save$/, 'salvou uma entrega no Obsidian'], [/^\/api\/obsidian\/config$/, 'mudou o vínculo com o Obsidian'], [/^\/api\/git\/config$/, 'mudou o commit automático do Git'], [/^\/api\/projects\/([\w-]+)\/references$/, 'mudou as pastas de referência', 'project'],
+  [/^\/api\/batches\/[\w-]+\/approve$/, 'liberou os créditos de um lote'], [/^\/api\/batches\/[\w-]+\/episodes\/[\w-]+\/approve-preview$/, 'aprovou a prévia de um episódio'],
+  [/^\/api\/posts\/[\w-]+\/confirm$/, 'confirmou uma publicação'], [/^\/api\/assistant\/apply$/, 'aprovou uma ação proposta pelo Assistente'], [/^\/api\/assistant\/autonomy$/, 'mudou o modo do Assistente (conversa/piloto)'], [/^\/api\/devices\/[\w-]+\/revoke$/, 'revogou o acesso de um aparelho'],
+];
+function auditRoute(p, b, auth) {
+  try {
+    for (const [re, what, kind] of AUDIT_ROUTES) {
+      const m = p.match(re); if (!m) continue;
+      const t = kind === 'task' ? store.get('tasks', m[1]) : null, pr = kind === 'project' ? store.get('projects', m[1]) : t?.project;
+      store.event('_audit', { type: 'audit', who: 'Você', what, title: t ? obsTitle(t) : '', project: pr?.name || null, agent: t?.agent?.name || null, via: auth === 'device' ? 'celular' : 'computador', detail: re.source.includes('autonomy') ? (b?.mode === 'pilot' ? 'piloto' : 'conversa') : re.source.includes('obsidian\\/config') ? (b?.enabled === false ? 'desligou' : b?.allowWrite ? 'ligou, com escrita' : 'ligou, só lê') : '', at: new Date().toISOString() });
+      return;
+    }
+  } catch {}
+}
 const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
 const publisher = new Publisher(store, { dataDir: data });
+const social = new Social(store, { dataDir: data, publisher });
+const apiLib = new ApiLibrary(store, { dataDir: data });
+const syncIas = () => new SyncIas({ codexPath: connectors().find(c => c.id === 'codex')?.path || null });
+orchestrator.social = social;   // propostas de postagem dos agentes
+setInterval(() => social.tick().catch(() => {}), 30000).unref();   // publica o que já foi aprovado e agendado
 // Pasta de entrada: uma tarefa (ou fluxo da equipe) por arquivo novo; {arquivo} na instrução vira o caminho do arquivo.
 const folderJobs = new FolderJobs(store, (job, item, nonce) => {
   const objective = job.instruction.split('{arquivo}').join(item.rel) + (job.outputNote ? `
@@ -135,6 +182,7 @@ Onde salvar: ${job.outputNote}` : ''), requestId = `folder:${job.id}:${nonce}`;
 // Cadastrar uma pasta que já existe como projeto (tela Projetos e ação "importar_projeto" do Assistente).
 async function registerProject(b) {
   const path = text(b.path, 2000); if (!isAbsolute(path)) throw new Error('Informe o caminho completo da pasta.');
+  if (b.createSub === true) return createProjectFolder({ name: text(b.name), area: optional(b.area, 60), parent: path });   // “criar uma subpasta nova com o nome do projeto dentro desta pasta”
   const canonical = await realpath(path); if (!(await stat(canonical)).isDirectory()) throw new Error('Selecione uma pasta.');
   if (store.list('projects').some(x => x.path === canonical)) throw new Error('Esta pasta já está cadastrada.');
   return store.put('projects', { id: randomUUID(), name: text(b.name), path: canonical, area: optional(b.area, 60) || 'Geral', createdAt: new Date().toISOString() });
@@ -143,8 +191,8 @@ async function createFolderJob(b) { const j = folderJobs.save(b), pr = store.get
 const routines = new Routines(store, (r, slot) => {
   const requestId = `routine:${r.id}:${slot}`;
   if (r.target.type === 'recipe') return { runId: recipes.start(r.target.id, { objective: r.objective }).id };
-  if (r.target.type === 'agent') { const { task } = createTask(store, { projectId: r.projectId, agentId: r.target.id, requestId, objective: r.objective, criteria: r.criteria, limits: { maxAttempts: r.attempts } }); void runner.pump(); return { taskId: task.id }; }
-  return { flowId: orchestrator.startSequential({ projectId: r.projectId, teamId: r.target.id, requestId, objective: r.objective, criteria: r.criteria }).flow.id };
+  if (r.target.type === 'agent') { const { task } = createTask(store, { projectId: r.projectId, agentId: r.target.id, requestId, objective: social.expandMentions(r.objective).text, criteria: r.criteria, limits: { maxAttempts: r.attempts } }); void runner.pump(); return { taskId: task.id }; }
+  return { flowId: orchestrator.startSequential({ projectId: r.projectId, teamId: r.target.id, requestId, objective: social.expandMentions(r.objective).text, criteria: r.criteria }).flow.id };
 });
 
 function okKey(value) { const a = Buffer.from(value || ''), b = Buffer.from(key); return a.length === b.length && timingSafeEqual(a, b); }
@@ -169,7 +217,7 @@ function saveAgent(b) {
           if (mcpTools.length && b.provider !== 'claude') throw new Error('A liberação de ferramentas MCP só vale para o Claude Code.');
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
           const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
-          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: cleanModel(b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: cleanModel(b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, web: (b.web !== undefined ? b.web === true || b.web === '1' || b.web === 1 : !!old?.web) && b.provider === 'claude', browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
 }
 // Sugestões de modelo para o formulário (a pessoa pode digitar qualquer outro): aliases do Claude, lista real do Antigravity e o padrão do Codex.
 const modelCache = new Map();
@@ -197,7 +245,8 @@ function saveLink(b) {
   if (b.from === b.to) throw new Error('Um agente não pode se ligar a ele mesmo.');
   if (store.list('links').some(l => l.projectId === project.id && l.from === from.id && l.to === to.id)) throw new Error('Essa ligação já existe.');
   const maxHops = Math.min(6, Math.max(1, Math.trunc(Number(b.maxHops)) || 3));
-  return store.put('links', { id: randomUUID(), projectId: project.id, from: from.id, to: to.id, maxHops, enabled: true, createdAt: new Date().toISOString() });
+  const when = ['approved', 'rejected'].includes(b.when) ? b.when : 'always';   // quando seguir: sempre, só se aprovado ou só se reprovado
+  return store.put('links', { id: randomUUID(), projectId: project.id, from: from.id, to: to.id, maxHops, when, enabled: true, createdAt: new Date().toISOString() });
 }
 async function body(req) { let size = 0, chunks = []; for await (const chunk of req) { size += chunk.length; if (size > 100000) throw new Error('Requisição muito grande'); chunks.push(chunk); } return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
@@ -307,7 +356,7 @@ const handle = async (req, res) => {
       }
       if (get && p === '/api/state') {
         const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
-        return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
+        return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, socialProposals: store.list('socialPosts').filter(x => x.status === 'proposta').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), subtasks: store.list('subtasks').filter(x => x.status === 'proposed').sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20), plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
       }
       if (get && p === '/api/models') { masterOnly(auth); return send(res, 200, await modelSuggestions(url.searchParams.get('provider') || '')); }
       if (get && p === '/api/providers') { masterOnly(auth); return send(res, 200, providersView()); }
@@ -316,6 +365,21 @@ const handle = async (req, res) => {
         const rv = store.list('tasks').filter(x => x.step === 'review' && x.status === 'completed' && (x.dependsOn || []).includes(rnm[1])).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
         return send(res, 200, rv ? { reviewer: rv.agent?.name || null, ...reviewerProblems(rv.result?.summary) } : { reviewer: null, text: '', count: 0 });
       }
+      const refGet = get ? p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/references$/) : null;
+      if (refGet) {
+        masterOnly(auth); const pr = store.get('projects', refGet[1]); if (!pr) throw new Error('Projeto não encontrado.');
+        const dirs = []; for (const d of pr.referenceDirs || []) { let st = null; try { const sc = await scanReference(d.path); st = { files: sc.files.length, bytes: sc.bytes, skipped: sc.skipped }; } catch {} dirs.push({ ...d, stats: st }); }
+        return send(res, 200, { dirs, financeiro: pr.area === 'Financeiro' });
+      }
+      const gitGet = get ? p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/(git|github)$/) : null;   // variável própria: `m` só é declarada mais abaixo
+      if (gitGet) {
+        masterOnly(auth); const pr = store.get('projects', gitGet[1]); if (!pr) throw new Error('Projeto não encontrado.');
+        return send(res, 200, gitGet[2] === 'git' ? { ...(await gitInfo(pr.path)), projectId: pr.id, config: gitCfg() } : await githubInfo(pr.path));
+      }
+      if (get && p === '/api/sync-ias') { masterOnly(auth); return send(res, 200, await syncIas().overview()); }
+      if (get && p === '/api/apis') { masterOnly(auth); return send(res, 200, { catalog: apiLib.catalog(), keys: apiLib.list() }); }
+      if (get && p === '/api/social') { masterOnly(auth); return send(res, 200, { catalog: SOCIAL_CATALOG, accounts: social.accounts(), posts: social.posts() }); }
+      if (get && p === '/api/audit') { masterOnly(auth); return send(res, 200, { entries: store.events('_audit').filter(e => e.type === 'audit').reverse().slice(0, 200).map(({ seq, type, ...e }) => e) }); }
       if (get && p === '/api/obsidian') { masterOnly(auth); return send(res, 200, await obsStatus()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
       if (get && p === '/api/stream') {
@@ -354,6 +418,7 @@ const handle = async (req, res) => {
       if (req.method === 'POST') {
         if (!req.headers['content-type']?.startsWith('application/json')) return send(res, 415, { error: 'Envie JSON' });
         const b = await body(req);
+        res.once('finish', () => { if (res.statusCode < 400) auditRoute(p, b, auth); });   // trilha de ações: só o que deu certo
         // Atualização (só o computador, com a chave principal): consultar, ligar/desligar, adiar, baixar com conferência de SHA-256 e instalar.
         if (p === '/api/updates/check') { masterOnly(auth); return send(res, 200, await updates.check({ force: true })); }
         if (p === '/api/updates/settings') { masterOnly(auth); return send(res, 200, updates.setEnabled(b.enabled === true)); }
@@ -435,6 +500,22 @@ const handle = async (req, res) => {
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
         }
+        if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/git\/(init|commit)$/))) {
+          masterOnly(auth); const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
+          if (m[2] === 'init') return send(res, 200, { ...(await gitInit(pr.path)), projectId: pr.id, config: gitCfg() });
+          const t = store.get('tasks', text(b.taskId, 80)); if (!t || t.status !== 'completed' || t.project.id !== pr.id) throw new Error('Escolha uma entrega concluída deste projeto.');
+          return send(res, 200, await gitCommitTask(t));
+        }
+        if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/references$/))) {
+          masterOnly(auth); const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
+          if (pr.area === 'Financeiro') throw new Error('Projetos financeiros não usam pastas de referência (os dados não podem ser misturados).');
+          const dirs = await cleanRefs(b.dirs, pr.path); store.put('projects', { ...pr, referenceDirs: dirs }); return send(res, 200, { dirs });
+        }
+        if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/context\/proposals\/([a-zA-Z0-9-]+)\/(accept|dismiss)$/))) {
+          masterOnly(auth); const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
+          return send(res, 200, store.put('contexts', resolveProposal(store.get('contexts', pr.id) || emptyContext(pr.id), m[2], m[3] === 'accept', b.text)));
+        }
+        if (p === '/api/git/config') { masterOnly(auth); const next = { id: 'git', autoCommit: b.autoCommit === true }; store.put('settings', next); return send(res, 200, gitCfg()); }
         if (p === '/api/obsidian/config') {
           masterOnly(auth); const next = obsClean(b, obsCfg());
           if (next.enabled) { if (!next.vault) throw new Error('Informe a pasta do cofre antes de ligar.'); const c = await obsCheck(next.vault, next.exclude); if (!c.ok) throw new Error(c.error); } else next.allowWrite = false;
@@ -454,7 +535,7 @@ const handle = async (req, res) => {
         if (p === '/api/runs' || p === '/api/tasks') {
           const agent = store.get('agents', b.agentId);
           if (agent && !installed(agent)) throw Object.assign(new Error('Provedor não instalado.'), { failureKind: 'executable_missing' });
-          const { task, duplicate } = createTask(store, { ...b, objective: b.objective ?? b.prompt });
+          const { task, duplicate } = createTask(store, { ...b, objective: social.expandMentions(b.objective ?? b.prompt).text });   // +conta vira o bloco "contas para postar"
           send(res, duplicate ? 200 : 201, brief(task)); void runner.pump(); return;
         }
         if ((m = p.match(/^\/api\/(?:runs|tasks)\/([a-zA-Z0-9-]+)\/cancel$/))) { const t = await runner.cancel(m[1]); return send(res, 200, brief(t)); }
@@ -504,12 +585,20 @@ const handle = async (req, res) => {
           if (m[2] === 'delete') { routines.remove(m[1]); return send(res, 200, { ok: true }); }
           return send(res, 200, routines.setStatus(m[1], m[2] === 'pause' ? 'paused' : 'active'));
         }
+        if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/unblock$/))) {   // liberar o que o agente precisava (programa, MCP, web) e que foi negado
+          masterOnly(auth); const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
+          const ok = new Set((t.unblock || []).map(u => u.kind + ':' + u.value)); const items = (Array.isArray(b.items) ? b.items : []).filter(i => ok.has(String(i?.kind) + ':' + String(i?.value)));
+          const r = applyUnblocks(store, { agentId: t.agent.id, project: store.get('projects', t.project.id), items }); store.put('tasks', { ...store.get('tasks', t.id), unblock: (t.unblock || []).filter(u => !items.some(i => i.kind === u.kind && i.value === u.value)) }); return send(res, 200, r);
+        }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/approve$/))) {
           const t = store.get('tasks', m[1]); if (!t || t.status !== 'completed') throw new Error('Só tarefas concluídas podem ser aprovadas.');
           t.review = { status: 'approved', note: optional(b.note, 500), at: new Date().toISOString() }; store.put('tasks', t); store.event(t.id, { type: 'review', text: 'approved', at: t.review.at });
           let obsidian = null, obsidianError = null; const oc = obsCfg();
           if (oc.enabled && oc.allowWrite) { try { obsidian = (await obsSaveTask(t)).rel; } catch (e) { obsidianError = e.message; } }   // só com a permissão "alimentar o Obsidian"; um erro aqui nunca desfaz a aprovação
-          return send(res, 200, { ...brief(t), obsidian, obsidianError }); // aprovar não publica nada
+          let gitCommit = null, gitError = null;
+          if (gitCfg().autoCommit && t.project.area !== 'Financeiro') { try { gitCommit = (await gitCommitTask(t)).hash; } catch (e) { if (!/não é um repositório|Nada para commitar|não tem arquivos|existe mais/.test(e.message)) gitError = e.message; } }   // só com a opção ligada; commit local, nunca push; um erro aqui nunca desfaz a aprovação
+          let proposal = null; try { const r = proposeDecision(store.get('contexts', t.project.id) || emptyContext(t.project.id), { taskId: t.id, title: obsTitle(t), summary: t.result?.summary, note: t.review?.note }); if (r.added) { store.put('contexts', r.ctx); proposal = r.ctx.proposed.at(-1).id; } } catch {}   // sugere uma decisão para o contexto do projeto; só vale se a pessoa aceitar
+          return send(res, 200, { ...brief(t), obsidian, obsidianError, gitCommit, gitError, proposal }); // aprovar não publica nada
         }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/worktree\/remove$/))) {
           // Descarta a cópia isolada e a branch da tarefa. Só para tarefas já finalizadas; o caminho precisa estar dentro de .data/worktrees.
@@ -554,7 +643,24 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
           spawn('explorer.exe', [pr.path], { detached: true, stdio: 'ignore', windowsHide: false }).unref(); return send(res, 200, { ok: true });
         }
         if (p === '/api/teams') return send(res, 200, orchestrator.saveTeam(b));
-        if (p === '/api/flows') { const r = orchestrator.startSequential(b); return send(res, r.duplicate ? 200 : 201, r.flow); }
+        if ((m = p.match(/^\/api\/subtasks\/([a-zA-Z0-9]+)\/(approve|dismiss)$/))) {
+          if (m[2] === 'dismiss') return send(res, 200, dismissSubtask(store, m[1]));
+          const t = approveSubtask(store, orchestrator, m[1]); void runner.pump(); return send(res, 200, brief(t));
+        }
+        if (p === '/api/social/accounts') { masterOnly(auth); return send(res, 200, await social.saveAccount(b)); }
+        if ((m = p.match(/^\/api\/social\/accounts\/([a-zA-Z0-9-]+)\/(delete|test)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'delete' ? await social.removeAccount(m[1]) : await social.test(m[1])); }
+        if (p === '/api/sync-ias/apply') { masterOnly(auth); return send(res, 200, await syncIas().apply(b)); }
+        if (p === '/api/apis') { masterOnly(auth); return send(res, 200, await apiLib.save(b)); }
+        if ((m = p.match(/^\/api\/apis\/([a-zA-Z0-9-]+)\/(delete|check)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'delete' ? await apiLib.remove(m[1]) : await apiLib.check(m[1])); }
+        if (p === '/api/social/posts') { masterOnly(auth); return send(res, 201, await social.createPost(b)); }
+        if ((m = p.match(/^\/api\/social\/posts\/([a-zA-Z0-9]+)\/(approve|dismiss|mark)$/))) {
+          masterOnly(auth);
+          if (m[2] === 'dismiss') return send(res, 200, social.dismiss(m[1]));
+          if (m[2] === 'mark') return send(res, 200, social.markPosted(m[1], b));
+          return send(res, 200, await social.approve(m[1], b, { by: auth === 'device' ? 'celular' : 'computador' }));
+        }
+        if (p === '/api/flows/simulate') return send(res, 200, simulateFlow(store, { projectId: b.projectId, teamId: b.teamId, objective: b.objective, maxReviewRounds: b.maxReviewRounds }, { installed }));   // só confere: não cria tarefa nem chama IA
+        if (p === '/api/flows') { if (typeof b.objective === 'string') b.objective = social.expandMentions(b.objective).text; const r = orchestrator.startSequential(b); return send(res, r.duplicate ? 200 : 201, r.flow); }
         if (p === '/api/plans') { const r = orchestrator.requestPlan(b); return send(res, r.duplicate ? 200 : 201, r.plan); }
         if ((m = p.match(/^\/api\/plans\/([a-zA-Z0-9-]+)\/accept$/))) return send(res, 200, orchestrator.acceptPlan(m[1]));
         if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/context$/))) {

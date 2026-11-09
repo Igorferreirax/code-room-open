@@ -51,7 +51,7 @@ try:
                 if s == 'connections':
                     try: page.wait_for_selector('#yt-form', timeout=6000)
                     except Exception: pass
-                    check(f'{label}: Conexões mostra o cartão Publicação (YouTube) com o formulário de credenciais', page.locator('#yt-form').count() == 1 and 'YouTube Shorts' in page.inner_text('#view') and 'Instagram' in page.inner_text('#view'))
+                    check(f'{label}: Conexões tem Redes sociais com a conexão do YouTube/Google (formulário de credenciais) e a Biblioteca de APIs; sem o cartão antigo "Publicação"', page.locator('#yt-form').count() == 1 and page.locator('#social-card').count() == 1 and page.locator('#apis-card').count() == 1 and 'Instagram' in page.inner_text('#social-card') and 'YouTube Shorts' not in page.inner_text('#view'))
                 culprit = page.evaluate("(() => { const w = document.documentElement.clientWidth; let worst = null; for (const e of document.querySelectorAll('#view *, #composer-root *')) { let clipped = false; for (let a = e.parentElement; a && a.id !== 'view'; a = a.parentElement) if (['auto', 'hidden', 'scroll'].includes(getComputedStyle(a).overflowX)) { clipped = true; break; } if (clipped) continue; const r = e.getBoundingClientRect(); if (r.right > w + 1 && r.width > 0 && (!worst || r.right > worst.r)) worst = { r: r.right, s: e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '') }; } return worst ? worst.s + ' até ' + Math.round(worst.r) : ''; })()") if overflow > 1 else ''
                 check(f'{label}: tela {s} sem rolagem horizontal', overflow <= 1, f'{overflow}px {culprit}')
             if label == 'desktop':

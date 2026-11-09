@@ -74,6 +74,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     // Ferramentas MCP liberadas por servidor (ex.: flow-studio). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP.
     for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
     if (agent.skillTool) args.push('--allowedTools', 'Skill');   // o Assistente em modo piloto usa as skills instaladas (a ferramenta Skill só carrega instruções)
+    if (agent.web) args.push('--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch');   // pesquisa na internet (só leitura)
     args.push(...claudeBrowserArgs(agent.browser));
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
@@ -123,7 +124,7 @@ export function normalize(provider, e) {
       const tools = (e.message?.content || []).filter(c => c.type === 'tool_use').map(c => c.name).join(', ');
       if (text || tools) return { type: 'activity', text: text || `Ferramentas: ${tools}` };
     }
-    if (e.type === 'result') return { type: e.is_error ? 'error' : 'result', text: e.result || e.errors?.join('\n') || '', usage: { input: e.usage?.input_tokens ?? null, output: e.usage?.output_tokens ?? null, cached: e.usage?.cache_read_input_tokens ?? null, cacheWrite: e.usage?.cache_creation_input_tokens ?? null, cost: e.total_cost_usd ?? null } };
+    if (e.type === 'result') return { type: e.is_error ? 'error' : 'result', text: e.result || e.errors?.join('\n') || '', usage: { input: e.usage?.input_tokens ?? null, output: e.usage?.output_tokens ?? null, cached: e.usage?.cache_read_input_tokens ?? null, cacheWrite: e.usage?.cache_creation_input_tokens ?? null, cost: e.total_cost_usd ?? null }, ...(Array.isArray(e.permission_denials) && e.permission_denials.length ? { denials: e.permission_denials.slice(0, 40).map(d => ({ tool_name: String(d.tool_name || ''), tool_input: { command: typeof d.tool_input?.command === 'string' ? d.tool_input.command.slice(0, 300) : undefined } })) } : {}) };
   }
   return null;
 }

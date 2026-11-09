@@ -8,6 +8,10 @@ export const EFFORT_LABEL = { low: 'baixo', medium: 'médio', high: 'alto', xhig
 import { providersCardHtml } from './providers-ui.js';
 import { hermesCardHtml } from './hermes-ui.js';
 import { obsidianCardHtml } from './obsidian-ui.js';
+import { auditHtml } from './audit-ui.js';
+import { socialCardHtml } from './social-ui.js';
+import { apisCardHtml } from './apis-ui.js';
+import { syncCardHtml } from './sync-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
@@ -80,21 +84,6 @@ export function viewAgents(ctx) {
 }
 
 // ---------- Conexões ----------
-// Publicação: conexão com o YouTube (Instagram vem depois). Nada é postado sem a sua confirmação, post a post.
-export function publishCard(ctx) {
-  const g = ctx.publish?.google, ig = ctx.publish?.instagram;
-  if (!g) return `<section class="card" style="margin-top:16px"><h2>Publicação</h2><p class="muted">Carregando…</p></section>`;
-  const head = g.connected ? `<p class="small" style="color:var(--ok)">${icon('check', 16)} Conectado${g.channel ? ` ao canal <b>${esc(g.channel.title)}</b>` : ''}. Os vídeos só sobem quando você confirmar cada um.</p>
-      <div class="btn-row"><button class="btn outline sm" data-act="yt-connect">Trocar de conta</button><button class="btn outline sm" data-act="yt-disconnect">Desconectar</button></div>`
-    : g.configured ? `<p class="small muted">Credenciais salvas. Falta autorizar a conta do canal no navegador.</p><div class="btn-row"><button class="btn sm" data-act="yt-connect">${icon('plug', 16)} Conectar YouTube</button></div>` : '';
-  return `<section class="card" style="margin-top:16px"><div class="card-h"><h2>Publicação</h2><span class="pill ${g.connected ? 'ok' : 'off'}">${g.connected ? 'YouTube conectado' : 'YouTube não conectado'}</span></div>
-  <h3 style="margin:6px 0">YouTube Shorts</h3>${head}
-  <details class="batch-new" ${g.configured ? '' : 'open'}><summary>${g.configured ? 'Credenciais do Google' : 'Como conectar (uma vez só)'}</summary>
-    <ol class="small muted" style="margin:8px 0 8px 18px;line-height:1.55"><li>Em console.cloud.google.com crie um projeto, ative a <b>YouTube Data API v3</b> e configure a tela de consentimento.</li><li>Em Credenciais, crie um <b>ID do cliente OAuth do tipo “Aplicativo para computador”</b>.</li><li>Cole o ID e o segredo abaixo e clique em Conectar. O Google pede a sua autorização no navegador.</li></ol>
-    <p class="small muted">Atenção: enquanto o app do Google não for verificado por eles, vídeos enviados pela API ficam <b>privados</b>. O Code Room também começa sempre como privado.</p>
-    <form id="yt-form" class="rt-form"><div class="form-grid"><label class="f">ID do cliente<input name="clientId" required maxlength="300" value="${esc(g.clientId || '')}" autocomplete="off"></label><label class="f">Segredo do cliente<input name="clientSecret" type="password" maxlength="300" placeholder="${g.configured ? 'guardado (deixe vazio para manter)' : ''}" autocomplete="off"></label></div><button class="btn outline">Salvar credenciais</button></form></details>
-  <h3 style="margin:14px 0 6px">Instagram</h3><p class="small muted">Em breve: depois do YouTube. Vai exigir conta profissional ligada a uma página do Facebook.</p></section>`;
-}
 // Canais: identidade, estilo, contas e cadência de cada perfil. O Postador de cada canal prepara os pacotes; quem publica é código, com a sua confirmação.
 export function channelsCard(ctx) {
   const chs = ctx.state.channels || [], ST = { vhs: 'VHS / realista', cordel: 'Xilogravura / cordel', outro: 'Outro' }, e = ctx.ui.channelEdit, cur = e === 'new' ? {} : chs.find(c => c.id === e) || null;
@@ -140,8 +129,7 @@ export function viewConnections(ctx) {
     <h3 style="margin:16px 0 8px">Autenticação</h3><p class="small ${info.authenticated ? '' : 'muted'}">${info.authenticated == null ? 'Login não verificado.' : info.authenticated ? `Login ativo${info.method ? ' (' + esc(info.method) + ')' : ''}.` : 'Login inativo.'}</p>
     <button class="btn block" data-act="copy" data-id="${esc(cmd.login)}" ${cmd.login && info.installed ? '' : 'disabled'} style="margin-top:8px">${icon('copy', 18)} Copiar comando de login</button><p class="muted small" style="text-align:center;margin-top:8px">Rode <code>${esc(cmd.login || '—')}</code> no terminal e conclua o acesso no fluxo oficial do provedor. O Code Room não captura senha.</p>
     <h3 style="margin:16px 0 8px">Recursos disponíveis</h3><div class="chips"><span class="chip">${icon('file', 16)} Arquivos</span><span class="chip">${icon('terminal', 16)} Comandos</span></div></aside></div>
-  ${providersCardHtml(ctx)}${hermesCardHtml(ctx)}${obsidianCardHtml(ctx)}
-  ${publishCard(ctx)}
+  ${providersCardHtml(ctx)}${hermesCardHtml(ctx)}${obsidianCardHtml(ctx)}${apisCardHtml(ctx)}${socialCardHtml(ctx)}${syncCardHtml(ctx)}
   ${channelsCard(ctx)}
   <section class="card"><h2>Módulos e capacidades</h2>${mods ? mods.map(m => `<div class="module"><strong>${esc(m.name)}</strong> ${Object.entries(m.capabilities).map(([k, v]) => `<span class="pill ${s[v.status][0]}" title="${esc(v.detail)}" style="margin-left:6px">${esc(CAPS[k] || k)}: ${s[v.status][1]}</span>`).join('')}</div>`).join('') : empty('Verificando…')}<p class="muted small" style="margin-top:8px">Uma capacidade só aparece como verificada depois de uma sonda real neste computador.</p></section>
   <div class="composer-bar" style="display:flex;align-items:center;gap:14px;margin:14px -26px 0"><span class="muted" style="flex:1;display:flex;gap:10px;align-items:center">${icon('info', 18)} API e assinatura podem ter cobranças diferentes.</span><button class="btn" data-nav="${cur === 1 ? 'teams' : cur === 2 ? 'projects' : 'room'}">Continuar ${icon('arrow', 18)}</button></div></div>`;
@@ -220,7 +208,7 @@ export function viewDeliveries(ctx) {
     <div class="dl-prev">${prev}</div>${k === 'html' ? '<p class="muted small">Pré-visualização isolada: scripts e recursos externos são bloqueados de propósito.</p>' : ''}
     <div class="dl-decide"><div class="dl-state">${rv ? (rv.status === 'approved' ? `<span class="pill ok">Aprovada</span>` : `<span class="pill warn">Ajustes pedidos</span>`) : can ? '<span class="pill info">Para revisar</span>' : `<span class="pill off">${esc(STATUS[sel.task.status] || sel.task.status)}</span>`}${rv?.note ? `<small class="muted">${esc(rv.note)}</small>` : ''}</div>
       <label class="sr-only" for="review-note">Descreva o ajuste</label><textarea id="review-note" rows="2" maxlength="500" placeholder="Precisa de ajuste? Descreva aqui (opcional para aprovar)…">${esc(ctx.ui.reviewNote || '')}</textarea><div class="muted small" style="text-align:right">${(ctx.ui.reviewNote || '').length}/500</div>
-      <div class="btn-row"><button class="btn" data-act="approve" ${can ? '' : 'disabled'}>${icon('check', 16)} Aprovar</button><button class="btn ghost" data-act="request-changes" ${can ? '' : 'disabled'}>${icon('send', 16)} Pedir ajustes</button>${sel.task.flowId ? `<button class="btn ghost" data-act="review-pull" title="Preenche o campo com os problemas que o revisor listou. Você confere antes de enviar.">${icon('users', 16)} Pontos do revisor</button>` : ''}<span class="grow"></span>${can && ctx.obsidian?.enabled && ctx.obsidian.allowWrite ? `<button class="btn ghost sm" data-act="obs-save" data-id="${esc(sel.task.id)}" title="Cria uma nota nova no seu Obsidian com o resumo desta entrega">Salvar no Obsidian</button>` : ''}<button class="btn ghost sm" data-act="open-folder" data-id="${esc(sel.task.project.id)}">${icon('folder', 16)} Abrir pasta</button><button class="btn ghost sm" data-act="changes" data-id="${esc(sel.task.id)}">${icon('branch', 16)} Alterações</button></div>
+      <div class="btn-row"><button class="btn" data-act="approve" ${can ? '' : 'disabled'}>${icon('check', 16)} Aprovar</button><button class="btn ghost" data-act="request-changes" ${can ? '' : 'disabled'}>${icon('send', 16)} Pedir ajustes</button>${sel.task.flowId ? `<button class="btn ghost" data-act="review-pull" title="Preenche o campo com os problemas que o revisor listou. Você confere antes de enviar.">${icon('users', 16)} Pontos do revisor</button>` : ''}<span class="grow"></span>${can && ctx.gitInfo?.repo && ctx.gitInfo.projectId === sel.task.project.id ? `<button class="btn ghost sm" data-act="git-commit" data-id="${esc(sel.task.id)}" title="Commit local só dos arquivos desta entrega. Nada é enviado.">Commitar no Git</button>` : ''}${can && ctx.obsidian?.enabled && ctx.obsidian.allowWrite ? `<button class="btn ghost sm" data-act="obs-save" data-id="${esc(sel.task.id)}" title="Cria uma nota nova no seu Obsidian com o resumo desta entrega">Salvar no Obsidian</button>` : ''}<button class="btn ghost sm" data-act="open-folder" data-id="${esc(sel.task.project.id)}">${icon('folder', 16)} Abrir pasta</button><button class="btn ghost sm" data-act="changes" data-id="${esc(sel.task.id)}">${icon('branch', 16)} Alterações</button></div>
       <p class="muted small">Aprovar não publica nada. “Pedir ajustes” cria uma nova tarefa para o mesmo agente com o seu texto.</p></div>` : empty('Nenhuma entrega para mostrar.')}</section></div></div>`;
 }
 export function changesDialog(ctx, task) {
@@ -378,18 +366,29 @@ export function viewRoutines(ctx) {
   <section class="card" style="margin-top:16px"><div class="card-h"><h2>Últimas execuções</h2></div>${reports ? `<div class="tbl"><table><thead><tr><th>Data e hora</th><th>Rotina</th><th>Projeto</th><th>Resultado</th><th>Detalhes</th></tr></thead><tbody>${reports}</tbody></table></div>` : '<p class="muted">Nenhuma execução registrada.</p>'}
   ${note('Rotinas só rodam com o Code Room aberto e o computador ligado. Se a hora marcada passar com o serviço desligado, a execução é registrada como ignorada e não roda com atraso.', 'info')}</section></div>`;
 }
+// Modelos de rotina: só preenchem o formulário. Nada roda até a pessoa salvar.
+export const ROUTINE_TEMPLATES = [
+  { id: 'news', label: 'Notícias do dia', name: 'Notícias do dia', objective: 'Pesquise na internet as notícias mais importantes de hoje sobre [TEMA]. Entregue um resumo com no máximo 8 itens: título, 2 linhas do que aconteceu, fonte e link. Não invente nada; se não achar, diga.' },
+  { id: 'courses', label: 'Cursos gratuitos', name: 'Cursos gratuitos da semana', objective: 'Pesquise cursos gratuitos novos ou em destaque sobre [ÁREA]. Liste até 10: nome, plataforma, carga horária, se tem certificado, link. Ignore cursos pagos ou vencidos e marque a data da pesquisa.' },
+  { id: 'jobs', label: 'Vagas de emprego', name: 'Vagas de emprego', objective: 'Pesquise vagas recentes de [CARGO] em [LOCAL/REMOTO]. Liste até 10 das melhores: empresa, cargo, faixa salarial se houver, requisitos principais e link. Ordene da mais aderente à menos.' },
+  { id: 'post', label: 'Post do dia', name: 'Post do dia', objective: 'Escreva o post de hoje sobre [TEMA], com tom [TOM], pronto para publicar, e poste em +[apelido-da-conta]. Varie o ângulo em relação aos posts anteriores.' },
+  { id: 'free', label: 'Em branco', name: '', objective: '' },
+];
 export function panelRoutine(ctx) {
-  const r = ctx.state.routines.find(x => x.id === ctx.ui.panelId), t = r?.trigger || { type: 'time', freq: 'daily', time: '09:00' };
-  const tg = r?.target || { type: 'agent', id: ctx.state.agents[0]?.id };
-  return `<div class="card-h"><h2>${r ? 'Editar rotina' : 'Nova rotina'}</h2><button class="iconbtn" data-act="close-panel" aria-label="Fechar">${icon('x', 22)}</button></div>
-  <form id="routine-form" class="rt-form"><input type="hidden" name="id" value="${esc(r?.id || '')}"><label class="f">Nome da rotina<input name="name" required maxlength="120" value="${esc(r?.name || '')}" placeholder="Ex.: Gerar resumo semanal"></label>
+  const r = ctx.state.routines.find(x => x.id === ctx.ui.panelId), dr = r ? null : ctx.ui.routineDraft, t = r?.trigger || { type: 'time', freq: 'daily', time: dr?.time || '08:00' };
+  const dt = dr?.target ? { type: { a: 'agent', t: 'team', r: 'recipe' }[dr.target[0]] || 'agent', id: dr.target.slice(2) } : null;
+  const tg = r?.target || dt || { type: 'agent', id: ctx.state.agents[0]?.id };
+  const tpl = r ? '' : `<div class="rt-tpl"><p class="small muted">Comece por um modelo (você ajusta tudo depois):</p><div class="btn-row">${ROUTINE_TEMPLATES.map(x => `<button type="button" class="btn ghost sm" data-act="routine-tpl" data-id="${esc(x.id)}">${esc(x.label)}</button>`).join('')}</div></div>`;
+  return `<div class="card-h"><h2>${r ? 'Editar rotina' : dr?.fromTask ? 'Repetir todo dia' : 'Nova rotina'}</h2><button class="iconbtn" data-act="close-panel" aria-label="Fechar">${icon('x', 22)}</button></div>
+  ${dr?.fromTask ? '<p class="muted small">Esta rotina repete o pedido abaixo no horário escolhido. Os resultados chegam em Entregas e em “Precisa de você agora”.</p>' : ''}${tpl}
+  <form id="routine-form" class="rt-form"><input type="hidden" name="id" value="${esc(r?.id || '')}"><label class="f">Nome da rotina<input name="name" required maxlength="120" value="${esc(r?.name || dr?.name || '')}" placeholder="Ex.: Gerar resumo semanal"></label>
   <label class="f">Disparo (gatilho)<select name="ttype" id="r-ttype"><option value="time" ${t.type === 'time' ? 'selected' : ''}>Horário</option><option value="manual" ${t.type === 'manual' ? 'selected' : ''}>Manual (por comando)</option><option value="file" ${t.type === 'file' ? 'selected' : ''}>Ao adicionar arquivo na pasta do projeto</option></select></label>
   <label class="f g-file">Extensão do arquivo novo (vazio = qualquer arquivo)<input name="ext" value="${esc(t.ext || '')}" maxlength="8" placeholder="mp4 (vazio = qualquer arquivo)"></label>
   <div class="form-grid g-time"><label class="f">Frequência<select name="freq"><option value="daily" ${t.freq === 'daily' ? 'selected' : ''}>Diariamente</option><option value="weekly" ${t.freq === 'weekly' ? 'selected' : ''}>Semanalmente</option></select></label><label class="f">Horário<input type="time" name="time" value="${esc(t.time || '09:00')}"></label></div>
   <label class="f g-time">Dia da semana (semanal)<select name="day">${WEEK.map((d, i) => `<option value="${i}" ${t.day === i ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
-  <label class="f">Projeto<select name="projectId" required>${ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${(r?.projectId || ctx.project) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+  <label class="f">Projeto<select name="projectId" required>${ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${(r?.projectId || dr?.projectId || ctx.project) === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
   <label class="f">Quem executa<select name="target" required>${ctx.state.agents.map(a => `<option value="a:${esc(a.id)}" ${tg.type === 'agent' && tg.id === a.id ? 'selected' : ''}>${esc(a.name)} · ${esc(a.role)}</option>`).join('')}${ctx.state.teams.map(x => `<option value="t:${esc(x.id)}" ${tg.type === 'team' && tg.id === x.id ? 'selected' : ''}>Equipe ${esc(x.name)} (desenvolvedor → revisor)</option>`).join('')}${(ctx.state.recipes || []).map(x => `<option value=\"r:${esc(x.id)}\" ${tg.type === 'recipe' && tg.id === x.id ? 'selected' : ''}>Receita ${esc(x.name)}</option>`).join('')}</select></label>
-  <label class="f">Objetivo<textarea name="objective" rows="3" required maxlength="5000">${esc(r?.objective || '')}</textarea></label>
+  <label class="f">Objetivo<textarea name="objective" rows="4" required maxlength="5000">${esc(r?.objective || dr?.objective || '')}</textarea></label><p class="muted small">Dica: para pesquisar na internet, escolha um agente com “Pesquisar na web” ligado. Para postar, cite a conta com <code>+apelido</code>.</p>
   <label class="f">Executor<select disabled><option>PC local</option></select></label><p class="muted small" style="margin-top:6px">${icon('info', 14)} Requer computador ligado.</p>
   <label class="f">Comportamento de execução<select disabled><option>Não iniciar se já estiver em execução</option></select></label>
   <label class="f">Tentativas em caso de falha<select name="attempts">${[1, 2, 3].map(n => `<option ${r?.attempts === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
@@ -399,7 +398,7 @@ export function panelRoutine(ctx) {
 // ---------- Configurações ----------
 export function viewSettings(ctx) {
   const tab = ctx.ui.settingsTab || 'aparencia', p = ctx.prefs;
-  const menu = [['aparencia', 'palette', 'Aparência', 'Temas e preferências visuais'], ['execucao', 'gear', 'Execução', 'Agentes e ambientes'], ['acesso', 'key', 'Acesso', 'Chave local e permissões'], ['armazenamento', 'database', 'Armazenamento', 'Arquivos e dados'], ['atualizacoes', 'refresh', 'Atualizações', 'Versão e novidades']];
+  const menu = [['aparencia', 'palette', 'Aparência', 'Temas e preferências visuais'], ['execucao', 'gear', 'Execução', 'Agentes e ambientes'], ['acesso', 'key', 'Acesso', 'Chave local e permissões'], ['armazenamento', 'database', 'Armazenamento', 'Arquivos e dados'], ['atualizacoes', 'refresh', 'Atualizações', 'Versão e novidades'], ['historico', 'clock', 'Histórico', 'Quem fez o quê, e quando']];
   const themes = [['noite', 'Noite Lo-Fi', 'Foco e tranquilidade para longas sessões.'], ['amanhecer', 'Amanhecer', 'Clareza e energia para um novo dia.'], ['minimal', 'Minimal', 'Visual limpo e neutro para máxima concentração.']];
   const rt = ctx.state.runtime, c = rt.concurrency || { global: 1, provider: {}, video: 1 }, lim = ctx.state.limits || {};
   let body;
@@ -412,6 +411,7 @@ export function viewSettings(ctx) {
     <div><section class="card"><h2>Pré-visualização</h2><p class="muted small" style="margin-bottom:10px">Uma amostra do tema selecionado no seu espaço.</p><div style="border-radius:10px;overflow:hidden;border:1px solid var(--line)"><img class="art-img" src="/assets/theme-preview.png" alt="" aria-hidden="true" style="width:100%;display:block"></div></section>
       
       <button class="btn block lg" data-act="save-prefs" style="margin-top:14px">${icon('save', 18)} Salvar preferências</button></div></div>`;
+  else if (tab === 'historico') body = auditHtml(ctx);
   else if (tab === 'execucao') body = `<h2 style="font-size:1.5rem">Execução</h2><p class="muted">Limites de agentes e ambientes.</p><div class="cols c-1-1" style="margin-top:14px"><section class="card"><h2>Concorrência</h2><form id="conc-form"><label class="f">Execuções simultâneas (global)<input name="global" type="number" min="1" max="8" value="${c.global}"></label><div class="form-grid"><label class="f">Codex CLI<input name="codex" type="number" min="1" max="8" value="${c.provider?.codex ?? 1}"></label><label class="f">Claude Code<input name="claude" type="number" min="1" max="8" value="${c.provider?.claude ?? 1}"></label></div><label class="f">Renderizações de vídeo simultâneas<input name="video" type="number" min="1" max="8" value="${c.video}"></label><button class="btn block" style="margin-top:12px">Salvar limites</button></form><p class="muted small" style="margin-top:8px">Começa em 1. Mesmo com limite maior, só um agente escreve por pasta de projeto; leitores rodam juntos.</p></section>
     <section class="card"><h2>Fila</h2><div class="setting"><span class="grow">${rt.paused ? 'Novas tarefas pausadas' : 'Fila ativa'}<br><small class="muted">Pausar não cancela execuções em andamento.</small></span><button class="btn ghost" data-act="pause-toggle">${rt.paused ? 'Retomar' : 'Pausar novas tarefas'}</button></div><div class="setting"><span class="grow">Duração máxima: ${Math.round((lim.timeoutMs || 1200000) / 60000)} min<br><small class="muted">Ajuste em Consumo e limites.</small></span><button class="btn ghost" data-nav="usage">Abrir</button></div></section>${powerCard(ctx)}${retentionCard(ctx)}</div>`;
   else if (tab === 'atualizacoes') body = updatesSettingsHtml(ctx);

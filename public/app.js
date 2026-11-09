@@ -2,6 +2,7 @@ import { viewRecipes, panelRecipe, panelRecipeRun, readRecipeForm, draftFrom } f
 import { renderPhotoOffice, MAX_STATIONS } from './photo-office.js';
 import * as V from './views.js';
 import * as W from './views2.js';
+const ROUTINE_TEMPLATES = W.ROUTINE_TEMPLATES;
 import { icon } from './icons.js';
 import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
 import * as O from './onboarding.js';
@@ -9,6 +10,7 @@ import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { screenContext } from './screen-context.js';
+import { voiceSupport, stripForSpeech, speak, cancelSpeech, createDictation } from './voice.js';
 import { approvalHtml, approvalItems, mediaKind } from './approval-cards.js';
 import { liveTaskOf } from './live-ui.js';
 import { cleanMini, addMini, miniShellHtml, miniBodyHtml, bubbleLiveHtml } from './minichat.js';
@@ -122,6 +124,8 @@ function applyPrefs() {
   r.dataset.motion = off ? 'off' : 'on'; r.classList.toggle('tab-hidden', document.hidden);
 }
 const savePrefs = () => { store.set('cr.prefs', ctx.prefs); applyPrefs(); };
+ctx.voice = voiceSupport(window);
+let dictation = null;
 
 // ---------- Dados e tempo real ----------
 let refreshTimer = null;
@@ -212,7 +216,7 @@ function restoreForm(snap) {
 function renderLogin() { $('login').innerHTML = V.viewLogin(ctx); }
 let renderQueued = false;
 document.addEventListener('pause', e => { if (renderQueued && e.target.matches?.('.ep-media video')) { renderQueued = false; render(); } }, true);
-async function linkAgents(from, to, maxHops = 3) { try { await api('links', { projectId: ctx.project, from, to, maxHops }); notify('Ligação criada: quando o primeiro terminar, o segundo continua.'); await refresh(); } catch (e) { notify(e.message, true); } }
+async function linkAgents(from, to, maxHops = 3, when = 'always') { try { await api('links', { projectId: ctx.project, from, to, maxHops, when }); notify('Ligação criada: quando o primeiro terminar, o segundo continua.'); await refresh(); } catch (e) { notify(e.message, true); } }
 async function unlinkAgents(id) { if (!confirm('Remover esta ligação entre agentes?')) return; try { await api(`links/${id}/delete`, {}); await refresh(); } catch (e) { notify(e.message, true); } }
 function render() {
   if (!ctx.authed) return;
@@ -273,8 +277,13 @@ function readFjForm() { const f = $('fj-form'); if (!f) return; const d = Object
 function renderFj() { if ($('fj-dialog').open || true) $('fj-body').innerHTML = folderJobDialogHtml(ctx); }
 // ---------- Outras IAs (conectadas pela pessoa) ----------
 function syncProviderNames() { for (const c of ctx.state.connectors || []) if (c.custom) { V.PROVIDER[c.id] = c.name; PROVIDER_NAMES[c.id] = c.name; } }
-const approvedMsg = r => r?.obsidian ? `Entrega aprovada. Nota nova no Obsidian: ${r.obsidian}. Nada foi publicado.` : r?.obsidianError ? `Entrega aprovada, mas a nota do Obsidian não foi criada: ${r.obsidianError}` : 'Entrega aprovada. Nada foi publicado.';
+const approvedMsg = r => approvedBase(r) + (r?.proposal ? ' Sugeri uma decisão para o contexto do projeto (Projetos › Contexto).' : '');
+const approvedBase = r => r?.gitCommit ? `Entrega aprovada e commit ${r.gitCommit} criado (local). Nada foi publicado.` : r?.gitError ? `Entrega aprovada, mas o commit não foi criado: ${r.gitError}` : r?.obsidian ? `Entrega aprovada. Nota nova no Obsidian: ${r.obsidian}. Nada foi publicado.` : r?.obsidianError ? `Entrega aprovada, mas a nota do Obsidian não foi criada: ${r.obsidianError}` : 'Entrega aprovada. Nada foi publicado.';
 async function loadObsidian() { try { ctx.obsidian = await api('obsidian'); } catch { ctx.obsidian = null; } if (ctx.view === 'connections' || ctx.view === 'deliveries') render(); }
+async function loadAudit() { try { ctx.audit = await api('audit'); } catch { ctx.audit = { entries: [] }; } if (ctx.view === 'settings') render(); }
+async function loadSocial() { try { ctx.social = await api('social'); } catch { ctx.social = null; } if (ctx.view === 'connections' || ctx.ui.asstOpen) render(); }
+async function loadSync() { try { ctx.sync = await api('sync-ias'); } catch { ctx.sync = null; } if (ctx.view === 'connections') render(); }
+async function loadApis() { try { ctx.apis = await api('apis'); } catch { ctx.apis = null; } if (ctx.view === 'connections') render(); }
 async function loadHermes() { try { ctx.hermes = await api('hermes'); } catch { ctx.hermes = null; } if (ctx.view === 'connections') render(); }
 async function loadProviders() { try { ctx.providers = await api('providers'); } catch { ctx.providers = { catalog: [], custom: [], max: 10 }; } if (ctx.view === 'connections') render(); renderProv(); }
 function readProvForm() { const f = $('prov-form'); if (!f) return; const d = Object.fromEntries(new FormData(f)); ctx.ui.provForm = { ...(ctx.ui.provForm || emptyForm()), name: d.name || '', exe: d.exe || '', promptVia: d.promptVia || 'arg', argsText: d.argsText || '', modelFlag: d.modelFlag || '' }; }
@@ -332,6 +341,8 @@ function loadApprovalMedia() {
   if (!ctx.ui.asstOpen || V.targetOf(ctx) !== 'assistant') return;
   ctx.cardMedia = ctx.cardMedia || {};
   for (const it of approvalItems(ctx)) {
+    if (it.type === 'post' && !ctx.social && !cardAt.__social) { cardAt.__social = Date.now(); loadSocial(); }
+    if (it.type === 'plan' || it.type === 'recipe' || it.type === 'subtask' || it.type === 'post') continue;   // sem mídia para buscar
     if (cardAt[it.key] && Date.now() - cardAt[it.key] < 8 * 60000) continue; cardAt[it.key] = Date.now();
     (async () => {
       try {
@@ -343,9 +354,16 @@ function loadApprovalMedia() {
     })();
   }
 }
+// Voz ligada: lê em voz alta um resumo curto da resposta nova do Assistente (a primeira carga só marca o que já existia, para não ler o histórico).
+function speakNewReply() {
+  const last = [...(ctx.asst?.messages || [])].reverse().find(m => m.role === 'assistant' && m.text && !m.error);
+  if (!ctx.ui.spokenInit) { ctx.ui.lastSpoken = last?.id || null; ctx.ui.spokenInit = true; return; }
+  if (!last || last.id === ctx.ui.lastSpoken) return; ctx.ui.lastSpoken = last.id;
+  if (ctx.prefs.voiceReply) { const t = stripForSpeech(last.text); if (t) speak(window, t, { rate: ctx.prefs.voiceRate || 1 }); }
+}
 async function loadAsst() {
   try { ctx.asst = await api('assistant'); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
-  renderAsst(); checkDesktopNotify(); clearTimeout(asstTimer);
+  speakNewReply(); renderAsst(); checkDesktopNotify(); clearTimeout(asstTimer);
   if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500);
 }
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
@@ -393,8 +411,10 @@ function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.
 async function go(view) {
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
   if (view === 'skills') loadSkills(true);
-  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); }
+  if (view === 'routines' || view === 'tasks') refresh();   // lotes e tarefas criados por fora (Assistente, outro aparelho) aparecem ao abrir a tela, sem esperar os 15 s do relógio
+  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); loadSocial(); loadApis(); loadSync(); }
   if (view === 'deliveries' && !ctx.obsidian) loadObsidian();
+  if (view === 'deliveries' && ctx.project && ctx.gitInfo?.projectId !== ctx.project) loadGit(ctx.project, false);
   if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
   if (view === 'settings') loadStorage();
   if (view === 'usage') loadLimits();
@@ -407,7 +427,10 @@ async function loadSkills(withAudit) {
   if (!ctx.project) return; const id = ctx.project;
   try { const s = await api('skills?project=' + encodeURIComponent(id)); if (id === ctx.project) ctx.skills = s; render(); } catch {}
 }
-async function loadContext(id) { try { ctx.projectContext = await api(`projects/${id}/context`); render(); } catch {} }
+async function loadRefs(id) { try { ctx.refs = await api(`projects/${id}/references`); } catch { ctx.refs = null; } if (ctx.ui.panel === 'context') render(); }
+async function loadContext(id) { ctx.refs = null; loadRefs(id); ctx.gitInfo = null; ctx.githubInfo = null; loadGit(id, true); try { ctx.projectContext = await api(`projects/${id}/context`); render(); } catch {} }
+// Git do projeto: carrega o estado do repositório (e, se o GitHub CLI estiver logado, PRs e verificações) ao abrir o painel do projeto ou as Entregas.
+async function loadGit(id, withHub) { if (!id) return; try { ctx.gitInfo = await api(`projects/${id}/git`); } catch { ctx.gitInfo = { available: false, repo: false }; } if (withHub && ctx.gitInfo?.repo) { try { ctx.githubInfo = await api(`projects/${id}/github`); } catch { ctx.githubInfo = null; } } else if (withHub) ctx.githubInfo = null; if (ctx.ui.panel === 'context' || ctx.view === 'deliveries') render(); }
 async function loadChecks(force) { if (ctx.checks && !force) return; try { ctx.checks = await api('connectors/check'); render(); } catch {} }
 async function loadModules() { try { ctx.modules = await api('modules'); render(); } catch {} }
 async function loadPublish() { try { ctx.publish = await api('publish/status'); if (['connections', 'routines'].includes(ctx.view)) render(); } catch {} }
@@ -480,7 +503,7 @@ const actions = {
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => { const d = $('confirm-dialog'); d.dataset.id = id; d.showModal(); },
-  'accept-plan': async id => { await api(`plans/${id}/accept`, {}); notify('Plano aceito. As tarefas foram criadas.'); await refresh(); },
+  'accept-plan': async id => { await api(`plans/${id}/accept`, {}); notify('Plano aceito. As tarefas foram criadas.'); await refresh(); renderAsst(); },
   opts: async () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; const tg = V.targetOf(ctx); if (ctx.ui.optsOpen && tg.startsWith('a:')) { const ag = ctx.state.agents.find(x => x.id === tg.slice(2)); if (ag && !ctx.models?.[tg]) { try { const info = await api('models?provider=' + encodeURIComponent(ag.provider)); ctx.models = { ...(ctx.models || {}), [tg]: info.models }; ctx.efforts = { ...(ctx.efforts || {}), [tg]: info.efforts }; } catch {} } } render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
   'new-project': () => { ctx.ui.panel = 'new-project'; render(); $('panel').querySelector('input')?.focus(); },
   'pick-project': id => { setProject(id); go('room'); }, 'proj-filter': id => { ctx.ui.projFilter = id; render(); },
@@ -621,6 +644,40 @@ const actions = {
   'onb-skip': () => finishOnboarding(false),
   'add-skill-root': () => $('skillroot-dialog').showModal(),
   'del-sel': k => selectDelivery(k),
+  'ap-recipe-approve': async id => { await api(`recipe-runs/${id}/approve`, {}); notify('Receita aprovada. Ela continua.'); await refresh(); renderAsst(); },
+  'ap-recipe-cancel': async id => { if (!confirm('Cancelar esta receita?')) return; await api(`recipe-runs/${id}/cancel`, {}); notify('Receita cancelada.'); await refresh(); renderAsst(); },
+  'sim-flow': async () => { const t = V.targetOf(ctx); if (!t.startsWith('t:')) return; const text = ($('mission')?.value || '').trim(); ctx.sim = 'busy'; renderAsst();
+    try { ctx.sim = await api('flows/simulate', { projectId: ctx.project, teamId: t.slice(2), objective: text, maxReviewRounds: ctx.prefs.rounds || 1 }); } catch (e) { ctx.sim = { error: e.message }; } renderAsst(); },
+  'ap-sub-approve': async id => { await api(`subtasks/${id}/approve`, {}); notify('Pedido aprovado. O outro agente começou.'); await refresh(); renderAsst(); },
+  'ap-sub-dismiss': async id => { await api(`subtasks/${id}/dismiss`, {}); await refresh(); renderAsst(); },
+  'social-edit': id => { ctx.ui.socialForm = id ? { id, network: ctx.social.accounts.find(a => a.id === id)?.network } : null; render(); },
+  'social-del': async id => { if (!confirm('Remover esta conta? As senhas guardadas dela também são apagadas.')) return; await api(`social/accounts/${id}/delete`, {}); ctx.ui.socialForm = null; await loadSocial(); notify('Conta removida.'); },
+  'social-test': async id => { ctx.ui.socialTest = { ...(ctx.ui.socialTest || {}), [id]: { ok: true, detail: 'Testando…' } }; render(); try { ctx.ui.socialTest[id] = await api(`social/accounts/${id}/test`, {}); } catch (e) { ctx.ui.socialTest[id] = { ok: false, detail: e.message }; } render(); },
+  'social-copy': async id => { const p = ctx.social.posts.find(x => x.id === id); try { await navigator.clipboard.writeText(p.text); notify('Texto copiado. Cole no app da rede.'); } catch { notify('Não consegui copiar. Selecione o texto na fila.', true); } },
+  'social-mark': async id => { await api(`social/posts/${id}/mark`, { url: $('mk-' + id)?.value || '' }); await loadSocial(); notify('Marcada como postada.'); },
+  'social-dismiss': async id => { await api(`social/posts/${id}/dismiss`, {}); await loadSocial(); await refresh(); },
+  'ap-post-sched': (id, el) => { ctx.ui.apSched = { ...(ctx.ui.apSched || {}), [id]: !!el.checked }; renderAsst(); },
+  'ap-post-approve': async id => {
+    const text = $('pt-' + id)?.value || '', sched = $('pw-' + id)?.value, body = { confirm: true, text }; if (sched) { const t = new Date(sched); if (Number.isNaN(+t)) throw new Error('Escolha um horário válido.'); body.when = t.toISOString(); }
+    const r = await api(`social/posts/${id}/approve`, body); await Promise.all([refresh(), loadSocial()]);
+    notify(r.status === 'agendado' ? `Agendada para ${new Date(r.scheduledAt).toLocaleString('pt-BR')}. O Code Room publica nesse horário (com o computador ligado).` : r.status === 'publicado' ? 'Publicada.' : r.status === 'manual' ? 'Pacote pronto: veja em Conexões › Redes sociais para copiar e postar.' : r.status === 'falhou' ? `Não foi possível publicar: ${r.error}` : 'Aprovada.', r.status === 'falhou'); renderAsst();
+  },
+  'ap-post-dismiss': async id => { await api(`social/posts/${id}/dismiss`, {}); await Promise.all([refresh(), loadSocial()]); renderAsst(); },
+  'api-edit': id => { ctx.ui.apiForm = id ? { id } : null; render(); },
+  'api-del': async id => { if (!confirm('Remover esta chave? Ela é apagada deste computador.')) return; await api(`apis/${id}/delete`, {}); ctx.ui.apiForm = null; await loadApis(); notify('Chave removida.'); },
+  'api-check': async id => { notify('Testando…'); const r = await api(`apis/${id}/check`, {}); await loadApis(); notify(r.ok ? 'Chave funcionando.' : 'A chave tem problema: ' + r.detail, !r.ok); },
+  unblock: async (id, el) => {
+    const box = el.closest('.unblock-box'), items = [...box.querySelectorAll('.unb:checked')].map(x => ({ kind: x.dataset.kind, value: x.dataset.value })); if (!items.length) return notify('Marque o que liberar.', true);
+    const t = ctx.state.runs.find(x => x.id === id) || (ctx.detail?.id === id ? ctx.detail : null), r = await api(`tasks/${id}/unblock`, { items }); notify('Liberado: ' + r.released.join(', ') + '.');
+    if (el.dataset.again && t) { await api('tasks', { projectId: t.project.id, agentId: t.agent.id, requestId: crypto.randomUUID(), objective: t.objective }); notify('Liberado e pedido de novo. Acompanhe em Tarefas.'); }
+    await refresh(); if (ctx.view === 'exec') await openTask(id, ctx.execTab);
+  },
+  'cv-expand': () => { ctx.ui.cvBig = !ctx.ui.cvBig; render(); },
+  'sync-apply': async () => {
+    const pick = c => [...document.querySelectorAll('.' + c + ':checked')].map(x => x.value), targets = pick('sync-ai'), skills = pick('sync-skill'), mcps = pick('sync-mcp');
+    if (!targets.length) return notify('Marque pelo menos uma IA.', true); if (!skills.length && !mcps.length) return notify('Marque o que copiar (skills ou MCP).', true);
+    notify('Instalando…'); const r = await api('sync-ias/apply', { targets, skills, mcps }); ctx.syncResult = r.results; await loadSync(); notify(r.results.every(x => x.ok) ? 'Pronto. Reinicie a IA de destino para ver as novidades.' : 'Terminou, com avisos. Veja o resultado.', !r.results.some(x => x.ok));
+  },
   'ap-nav': id => { ctx.ui.apIdx = Math.max(0, (Number(ctx.ui.apIdx) || 0) + Number(id)); ctx.ui.apChanges = null; renderAsst(); },
   'ap-toggle': () => { ctx.ui.apCollapsed = !ctx.ui.apCollapsed; renderAsst(); },
   'ap-approve': async id => { const r = await api(`tasks/${id}/approve`, { note: '' }); notify(approvedMsg(r)); await refresh(); renderAsst(); },
@@ -630,6 +687,21 @@ const actions = {
   'ap-open': async (id, el) => { ctx.ui.delFilter = 'review'; await go('deliveries'); await selectDelivery(`${id}|${el.dataset.file}`); },
   'obs-preview': async () => { ctx.ui.obsQ = $('obs-q')?.value || ''; ctx.obsPreview = 'busy'; render(); try { ctx.obsPreview = await api('obsidian/preview', { q: ctx.ui.obsQ, projectId: ctx.project || undefined }); } catch (e) { ctx.obsPreview = { error: e.message }; } render(); },
   'obs-save': async id => { const r = await api('obsidian/save', { taskId: id }); notify(`Nota criada no Obsidian: ${r.rel}`); },
+  'git-init': async () => { if (!confirm('Iniciar o Git nesta pasta? Cria só a pasta oculta .git; nada é enviado para lugar nenhum.')) return; ctx.gitInfo = await api(`projects/${ctx.ui.panelId}/git/init`, {}); notify('Git iniciado no projeto.'); render(); },
+  'git-refresh': () => loadGit(ctx.ui.panelId, true),
+  'git-commit': async id => { const r = await api(`projects/${ctx.project}/git/commit`, { taskId: id }); notify(`Commit ${r.hash} criado com ${r.files.length} arquivo(s). Nada foi enviado.`); loadGit(ctx.project, false); },
+  mic: () => {
+    if (dictation?.listening) { dictation.stop(); return; }
+    const box = $('mission'); if (!box) return; cancelSpeech(window);
+    const base = box.value.trim() ? box.value.trim() + ' ' : '';
+    dictation = createDictation(window, { onText: txt => { box.value = (base + txt).slice(0, 30000); box.dispatchEvent(new Event('input', { bubbles: true })); }, onState: on => { ctx.ui.listening = on; $('mic')?.classList.toggle('on', on); $('mic')?.setAttribute('aria-pressed', String(on)); if (!on) box.focus(); }, onError: msg => notify(msg, true) });
+    if (!dictation) return notify('Este navegador não tem ditado por voz.', true);
+    if (!ctx.ui.micWarned) { ctx.ui.micWarned = true; notify('Ditado ligado. O áudio é tratado pelo serviço de voz do seu navegador; o Code Room só recebe o texto quando você apertar Enviar.'); }
+    dictation.start();
+  },
+  'voice-toggle': () => { ctx.prefs.voiceReply = !ctx.prefs.voiceReply; savePrefs(); if (ctx.prefs.voiceReply) speak(window, 'Voz ligada. Vou ler um resumo das respostas.', { rate: ctx.prefs.voiceRate || 1 }); else cancelSpeech(window); renderAsst(); },
+  'ctx-prop-accept': async id => { const text = $('prop-' + id)?.value; ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context/proposals/${id}/accept`, { text }); notify('Decisão adicionada ao contexto do projeto.'); render(); },
+  'ctx-prop-dismiss': async id => { ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context/proposals/${id}/dismiss`, {}); render(); },
   'pend-open': async k => { ctx.ui.delFilter = 'review'; await go('deliveries'); await selectDelivery(k); },
   'del-filter': id => { ctx.ui.delFilter = id === 'review' ? 'review' : 'all'; render(); },
   approve: async () => { const [id] = ctx.ui.delSel.split('|'); const r = await api(`tasks/${id}/approve`, { note: $('review-note')?.value || '' }); ctx.ui.reviewNote = ''; notify(approvedMsg(r)); await refresh(); },
@@ -657,7 +729,10 @@ const actions = {
   'batch-changes': async (id, el) => { const note = prompt('O que ajustar na prévia?'); if (!note) return; await api(`batches/${id}/episodes/${el.dataset.ep}/request-changes`, { note }); notify('Ajuste pedido. Só a prévia será refeita (sem gastar créditos).'); await refresh(); },
   'batch-retry': async (id, el) => { await api(`batches/${id}/episodes/${el.dataset.ep}/retry`, {}); await refresh(); },
   'batch-cancel': async id => { if (!confirm('Cancelar este lote? O que já foi gasto não volta.')) return; await api(`batches/${id}/cancel`, {}); await refresh(); },
-  'routine-tab': id => { ctx.ui.routineTab = id; render(); }, 'new-routine': () => { ctx.ui.panel = 'routine'; ctx.ui.panelId = null; render(); },
+  'routine-tpl': id => { const x = ROUTINE_TEMPLATES.find(t => t.id === id); if (!x) return; const f = $('routine-form'); ctx.ui.routineDraft = { ...(ctx.ui.routineDraft || {}), ...(f ? { projectId: f.projectId.value, target: f.target.value, time: f.time.value } : {}), name: x.name, objective: x.objective }; render(); },
+  'routine-from-task': id => { const t = ctx.state.runs.find(x => x.id === id); if (!t) return; openRoutineDraft({ task: t }); },
+  'routine-from-sent': (key, el) => { const m = (ctx.ui.sent?.[key] || [])[Number(el.dataset.i)]; if (!m) return; const t = m.taskId ? ctx.state.runs.find(x => x.id === m.taskId) : ctx.state.runs.find(x => x.flowId === m.flowId); openRoutineDraft({ task: t, key, text: m.text }); },
+  'routine-tab': id => { ctx.ui.routineTab = id; render(); }, 'new-routine': () => { ctx.ui.routineDraft = null; ctx.ui.panel = 'routine'; ctx.ui.panelId = null; render(); },
   'routine-menu': id => { ctx.ui.routineMenu = ctx.ui.routineMenu === id ? null : id; render(); },
   'routine-edit': id => { ctx.ui.panel = 'routine'; ctx.ui.panelId = id; ctx.ui.routineMenu = null; render(); },
   'recipe-new': () => { ctx.ui.recipeDraft = null; ctx.ui.panel = 'recipe'; ctx.ui.panelId = null; render(); },
@@ -672,7 +747,7 @@ const actions = {
   'routine-del': async id => { ctx.ui.routineMenu = null; await api(`routines/${id}/delete`, {}); notify('Rotina excluída.'); await refresh(); },
   'routine-test': async () => { const r = await saveRoutine(); await api(`routines/${r.id}/run`, {}); notify('Rotina salva e iniciada.'); ctx.ui.panel = null; await refresh(); },
   theme: id => { ctx.prefs.theme = id; savePrefs(); render(); }, 'save-prefs': () => { savePrefs(); notify('Preferências salvas neste navegador.'); },
-  'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); if (id === 'atualizacoes') loadUpdates(); render(); },
+  'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'historico') loadAudit(); if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); if (id === 'atualizacoes') loadUpdates(); render(); },
   'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
   'net-diagnose': async () => { ctx.netDiag = 'busy'; render(); try { ctx.netDiag = (await api('network/diagnose')).checks; } catch (e) { ctx.netDiag = null; notify(e.message, true); } render(); },
@@ -686,11 +761,20 @@ const actions = {
   'copy-text': async id => { try { await navigator.clipboard.writeText(id); notify('Link copiado.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   recheck: () => { ctx.checks = null; loadChecks(true); loadModules(); },
 };
+// Abre o painel de rotina já preenchido a partir de uma missão, fluxo ou tarefa que a pessoa quer repetir todo dia.
+function openRoutineDraft({ task, key, text }) {
+  const flow = task?.flowId ? (ctx.state.flows || []).find(f => f.id === task.flowId) : null;
+  const target = key || (flow?.teamId ? 't:' + flow.teamId : task?.agent ? 'a:' + task.agent.id : '');
+  const objective = String(text || flow?.objective || task?.objective || '').replace(/^Corrija a entrega conforme a revisão recebida[^.]*\. Objetivo original: /, '');
+  ctx.ui.routineDraft = { fromTask: true, name: objective.replace(/\s+/g, ' ').slice(0, 60) || 'Rotina diária', objective, projectId: task?.project?.id || ctx.project || '', target, time: '08:00' };
+  ctx.ui.panel = 'routine'; ctx.ui.panelId = null; render();
+}
 async function saveRoutine() {
   const f = $('routine-form'), d = Object.fromEntries(new FormData(f)), [tt, tid] = d.target.split(':');
+  if (/\[(TEMA|ÁREA|CARGO|LOCAL|TOM|apelido)[^\]]*\]/i.test(d.objective)) throw new Error('Troque os trechos entre [colchetes] do objetivo pelo que você quer.');
   const trigger = d.ttype === 'manual' ? { type: 'manual' } : d.ttype === 'file' ? { type: 'file', ext: d.ext || '' } : { type: 'time', freq: d.freq, time: d.time, ...(d.freq === 'weekly' ? { day: Number(d.day) } : {}) };
   const r = await api('routines', { ...(d.id ? { id: d.id } : {}), name: d.name, projectId: d.projectId, target: { type: tt === 'a' ? 'agent' : tt === 'r' ? 'recipe' : 'team', id: tid }, objective: d.objective, trigger, attempts: Number(d.attempts) });
-  await refresh(); return r;
+  ctx.ui.routineDraft = null; await refresh(); return r;
 }
 document.addEventListener('click', async e => {
   if (ctx.ui.whoOpen && !e.target.closest('.who')) { ctx.ui.whoOpen = false; render(); }
@@ -704,6 +788,7 @@ document.addEventListener('click', async e => {
   } catch (err) { notify(err.message, true); }
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && ctx.ui.cvBig) { ctx.ui.cvBig = false; render(); return; }
   if (ctx.ui.onb && !e.target.closest?.('input,textarea,select')) {
     if (e.key === 'Escape') { e.preventDefault(); return finishOnboarding(false); }
     if (ctx.ui.onb.mode === 'tour' && e.key === 'ArrowRight') { e.preventDefault(); return actions['onb-next'](); }
@@ -718,12 +803,15 @@ document.addEventListener('change', async e => {
   const t = e.target;
   try {
     if (t.id === 'project-select') { setProject(t.value); render(); }
+    else if (t.id === 'api-service') { ctx.ui.apiForm = { ...(ctx.ui.apiForm || {}), service: t.value }; render(); }
+    else if (t.id === 'social-net') { ctx.ui.socialForm = { ...(ctx.ui.socialForm || {}), network: t.value }; render(); }
+    else if (t.id === 'git-auto') { api('git/config', { autoCommit: t.checked }).then(c => { if (ctx.gitInfo) ctx.gitInfo.config = c; notify(c.autoCommit ? 'Ao aprovar uma entrega, o Code Room cria um commit local com os arquivos dela.' : 'Commit automático desligado.'); }).catch(e => { t.checked = !t.checked; notify(e.message, true); }); }
     else if (t.id === 'room-filter') { ctx.room = t.value; render(); }
     else if (t.id === 'sup-select') { store.set('cr.sup.' + ctx.project, t.value); render(); }
     else if (t.id === 'usage-period') { ctx.ui.usagePeriod = t.value; render(); } else if (t.id === 'usage-project') { ctx.ui.usageProject = t.value; render(); }
     else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
-    else if (t.id === 'target') { ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
+    else if (t.id === 'target') { ctx.sim = null; ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
     else if (t.dataset?.act === 'skill-agent') {
       const a = ctx.state.agents.find(x => x.id === t.dataset.agent); const ids = new Set(a.skillIds); if (t.checked) ids.add(t.dataset.id); else ids.delete(t.dataset.id);
@@ -756,6 +844,7 @@ document.addEventListener('submit', async e => {
       return;
     }
     if (fid === 'composer') {
+      if (dictation?.listening) dictation.stop(); cancelSpeech(window);   // ao enviar, para de ouvir e de falar
       let target = $('target').value, text = $('mission').value.trim(); const criteria = lines($('criteria')?.value), requestId = crypto.randomUUID(), skillIds = [];
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
       const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
@@ -771,15 +860,25 @@ document.addEventListener('submit', async e => {
       else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; rememberSent(target, text, { taskId: t.id }); await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
     } else if (fid === 'link-form') {
-      const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3);
+      const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3, fd.get('when') || 'always');
     } else if (fid === 'followup-form') {
       const fd = new FormData(f), t = await api(`tasks/${fd.get('id')}/followup`, { agentId: fd.get('agentId'), message: fd.get('message'), requestId: crypto.randomUUID() });
       notify(t.resumed ? 'Continuando a mesma sessão.' : 'Nova missão iniciada com o resumo e os arquivos da anterior.'); await refresh(); return openTask(t.id);
     } else if (fid === 'login-form') { key = $('access-key').value.trim(); ctx.ui.loginError = ''; start(); }
-    else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area }); if (d.team) store.set('cr.team.' + p.id, d.team); ctx.ui.panel = null; setProject(p.id); await refresh(); notify('Projeto criado.'); }
-    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
+    else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area, createSub: d.createSub === '1' }); if (d.team) store.set('cr.team.' + p.id, d.team); ctx.ui.panel = null; setProject(p.id); await refresh(); notify('Projeto criado.'); }
+    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.web = f.elements.web.checked; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
     else if (fid === 'flow-form') { const d = Object.fromEntries(new FormData(f)); await api('flows', { projectId: ctx.project, teamId: d.team, requestId: crypto.randomUUID(), objective: d.objective, criteria: lines(d.criteria), maxReviewRounds: ctx.prefs.rounds || 1 }); f.reset(); notify('Fluxo iniciado.'); await refresh(); }
     else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v); await api('settings/concurrency', { global: n(d.global), provider: { codex: n(d.codex), claude: n(d.claude) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
+    else if (fid === 'api-form') { const fd = new FormData(f); await api('apis', { id: fd.get('id') || undefined, service: ctx.ui.apiForm?.service || fd.get('service'), name: fd.get('name'), key: fd.get('key'), note: fd.get('note') }); ctx.ui.apiForm = null; await loadApis(); notify('Chave guardada. Use “Testar e ver consumo”.'); }
+    else if (fid === 'social-form') {
+      const fd = new FormData(f), network = ctx.ui.socialForm?.network || fd.get('network'), fields = {}; for (const [k, v] of fd.entries()) if (k.startsWith('f_')) fields[k.slice(2)] = v;
+      await api('social/accounts', { id: fd.get('id') || undefined, network, name: fd.get('name'), label: fd.get('label') || undefined, niche: fd.get('niche'), maxPerDay: Number(fd.get('maxPerDay')) || undefined, fields }); ctx.ui.socialForm = null; await loadSocial(); notify('Conta salva.');
+    }
+    else if (fid === 'social-post-form') { const fd = new FormData(f), w = fd.get('when'); await api('social/posts', { accountId: fd.get('accountId'), text: fd.get('text'), when: w ? new Date(w).toISOString() : undefined }); await Promise.all([refresh(), loadSocial()]); notify('Postagem criada. Aprove no chat (cartão “Aguardando você”).'); render(); }
+    else if (fid === 'refs-form') {   // pastas de referência: o servidor valida de novo (caminho, sistema, o próprio projeto, rótulos)
+      const dirs = $('refs-dirs').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => { const m = l.match(/^([^=\\/:]{1,40})=(.+)$/); return m ? { label: m[1].trim(), path: m[2].trim() } : { path: l }; });
+      ctx.refs = await api(`projects/${ctx.ui.panelId}/references`, { dirs }); notify(ctx.refs.dirs.length ? 'Pastas de referência salvas. A cópia é refeita antes de cada tarefa.' : 'Pastas de referência removidas.'); loadRefs(ctx.ui.panelId);
+    }
     else if (fid === 'context-form') { const d = Object.fromEntries(new FormData(f)); ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context`, { goals: d.goals, decisions: lines(d.decisions), pending: lines(d.pending), references: lines(d.references) }); notify('Contexto salvo.'); render(); }
     else if (fid === 'confirm-form') { const id = $('confirm-dialog').dataset.id; $('confirm-dialog').close(); await api(`tasks/${id}/retry`, { confirm: true }); notify('Nova tentativa na fila.'); await refresh(); }
     else if (fid === 'flowtest-form') { $('flowtest-dialog').close(); const team = ctx.teamDraft.id || ctx.state.teams[0]?.id; if (!team) throw new Error('Salve a equipe antes de testar o fluxo.'); await api('flows', { projectId: ctx.project, teamId: team, requestId: crypto.randomUUID(), objective: 'Teste do fluxo: crie um arquivo teste.txt com a palavra "ok" (UTF-8) e informe o nome do arquivo.', criteria: ['O arquivo teste.txt existe e contém "ok"'], maxReviewRounds: 1 }); notify('Fluxo de teste iniciado.'); await refresh(); }
@@ -826,7 +925,7 @@ function editAgent(id) {
   const f = $('agent-form'); f.reset();
   const sel = f.elements.provider; [...sel.querySelectorAll('[data-custom]')].forEach(o => o.remove()); for (const c of ctx.state.connectors || []) if (c.custom) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + (c.available ? '' : ' (não encontrada)'); o.dataset.custom = '1'; sel.append(o); } const a = ctx.state.agents.find(x => x.id === id);
   for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions', 'effort']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
-  f.elements.commands.value = (a?.commands || []).join(', '); f.elements.mcpTools.value = (a?.mcpTools || []).join(', '); f.elements.browser.value = a?.browser || 'off'; fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' }); syncBrowserOptions();
+  f.elements.commands.value = (a?.commands || []).join(', '); f.elements.mcpTools.value = (a?.mcpTools || []).join(', '); f.elements.browser.value = a?.browser || 'off'; f.elements.web.checked = !!a?.web; fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' }); syncBrowserOptions();
   f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));
   pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); $('agent-dialog').showModal();
   if (!ctx.skills.length) loadSkills().then(renderPicker);

@@ -126,3 +126,27 @@ test('agente Claude com ferramentas MCP liberadas: vira --allowedTools mcp__<ser
   assert.equal(args[args.indexOf('--disallowedTools') + 1], 'Edit,Write,NotebookEdit', 'mas continua sem editar arquivos');
   assert.equal((command(base, 'oi', {}).args || [])[(command(base, 'oi', {}).args || []).indexOf('--permission-mode') + 1], 'plan', 'sem MCP, segue em planejamento');
 });
+
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { access } from 'node:fs/promises';
+test('criar_projeto aceita pasta_pai (caminho completo citado pela pessoa) e mostra o destino no cartão', () => {
+  const w = world(), ok = normalizeAction({ acao: 'criar_projeto', nome: 'Achadinhos Novos', pasta_pai: 'C:/Trabalho' }, w);
+  assert.equal(ok.valid, true); assert.equal(ok.payload.parent, 'C:/Trabalho'); assert.match(ok.summary, /subpasta nova dentro de C:\/Trabalho/);
+  assert.equal(normalizeAction({ acao: 'criar_projeto', nome: 'X' }, w).payload.parent, undefined); assert.match(normalizeAction({ acao: 'criar_projeto', nome: 'X' }, w).summary, /Documentos\/CodeRoom\/Projetos/);
+  assert.equal(normalizeAction({ acao: 'criar_projeto', nome: 'X', pasta_pai: 'relativa/pasta' }, w).valid, false);
+});
+
+test('HTTP: criar projeto dentro de uma pasta existente cria subpasta nova; pastas do sistema e inexistentes são recusadas', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cr-newproj-')), pai = await mkdtemp(join(tmpdir(), 'cr-pai-')), port = 19000 + Math.floor(Math.random() * 10000);
+  const child = spawn(process.execPath, ['server/main.mjs'], { cwd: process.cwd(), env: { ...process.env, CODE_ROOM_DATA: dir, CODE_ROOM_PORT: String(port) }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    await Promise.race([once(child.stdout, 'data'), new Promise((_, no) => setTimeout(() => no(new Error('Servidor não iniciou')), 8000))]);
+    const key = readFileSync(join(dir, 'access.key'), 'utf8').trim(), post = b => fetch(`http://127.0.0.1:${port}/api/projects`, { method: 'POST', headers: { 'X-Code-Room-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    const r = await post({ name: 'Meu Projeto Novo', path: pai, area: 'Vídeo', createSub: true }); assert.equal(r.status, 201); const pj = await r.json();
+    assert.ok(pj.path.toLowerCase().startsWith(pai.toLowerCase()) && /Meu-Projeto-Novo$/.test(pj.path), pj.path); await access(pj.path);
+    const r2 = await post({ name: 'Meu Projeto Novo', path: pai, createSub: true }); assert.equal(r2.status, 201); assert.match((await r2.json()).path, /Meu-Projeto-Novo-2$/, 'não reaproveita pasta existente');
+    for (const bad of ['C:\\Windows', 'C:\\Program Files', 'C:\\']) { const rb = await post({ name: 'X', path: bad, createSub: true }); assert.equal(rb.status, 400, bad); assert.match((await rb.json()).error, /protegida/); }
+    const rn = await post({ name: 'X', path: join(pai, 'nao-existe'), createSub: true }); assert.equal(rn.status, 400); assert.match((await rn.json()).error, /não existe/);
+  } finally { const closed = once(child, 'close'); child.kill(); await closed; await rm(dir, { recursive: true, force: true }); await rm(pai, { recursive: true, force: true }); }
+});

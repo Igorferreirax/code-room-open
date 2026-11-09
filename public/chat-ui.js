@@ -25,10 +25,23 @@ export function chatHeaderHtml(ctx) {
   const asstOn = w.kind === 'assistant' && a?.briefed, pilot = a?.autonomy === 'pilot';
   const modeBtn = asstOn ? `<button type="button" class="cw-mode${pilot ? ' on' : ''}" role="switch" aria-checked="${pilot}" data-act="asst-autonomy" data-id="${pilot ? 'ask' : 'pilot'}" title="${pilot ? 'Modo piloto ligado: o Assistente trabalha como a sua IA no terminal. Clique para voltar à conversa.' : 'Modo conversa: o Assistente só conversa e propõe. Clique para ligar o modo piloto.'}" ${a.pending ? 'disabled' : ''}><span class="cw-sw" aria-hidden="true"></span><span>${pilot ? 'Piloto' : 'Conversa'}</span></button>` : '';
   const provSel = asstOn && (a.connected || []).length > 1 ? `<label class="sr-only" for="asst-provider">IA que responde</label><select id="asst-provider" class="cw-prov" title="Qual IA responde ao Assistente">${a.connected.map(p => `<option value="${esc(p)}" ${p === a.provider ? 'selected' : ''}>${esc(PROV[p] || p)}</option>`).join('')}</select>` : '';
-  const tools = asstOn ? `<div class="cw-tools">${modeBtn}${provSel}</div>` : '';
+  const voiceBtn = asstOn && ctx.voice?.tts ? `<button type="button" class="cw-mode cw-voice${ctx.prefs?.voiceReply ? ' on' : ''}" role="switch" aria-checked="${!!ctx.prefs?.voiceReply}" data-act="voice-toggle" title="${ctx.prefs?.voiceReply ? 'Lendo um resumo das respostas em voz alta. Clique para desligar.' : 'Ler um resumo das respostas em voz alta.'}"><span class="cw-sw" aria-hidden="true"></span><span>Voz</span></button>` : '';
+  const tools = asstOn ? `<div class="cw-tools">${modeBtn}${voiceBtn}${provSel}</div>` : '';
   const notify = w.kind === 'assistant' ? `<button type="button" class="iconbtn" data-act="notify-toggle" aria-pressed="${!!ctx.prefs?.desktopNotify}" aria-label="Avisos do Windows" title="${ctx.prefs?.desktopNotify ? 'Avisos do Windows ligados (clique para desligar)' : 'Ligar avisos do Windows: lote concluído, falha ou resposta do Assistente com o app em segundo plano'}">${ctx.prefs?.desktopNotify ? '🔔' : '🔕'}</button>` : '';
   const reset = asstOn ? '<button type="button" class="iconbtn" data-act="asst-reset" aria-label="Limpar esta conversa" title="Limpar esta conversa">🗑</button>' : '';
   return `<div class="cw-top"><span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}</b><small>${esc(w.sub)}</small></div>${notify}${reset}<button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${tools}${chips}`;
+}
+
+// Simulação da missão de equipe (não cria nada, não chama IA): mostra o que bloqueia, o que merece atenção e o que cada agente poderá fazer.
+export function simHtml(ctx) {
+  const r = ctx.sim, btn = '<button type="button" class="btn ghost sm" data-act="sim-flow">Simular antes de rodar</button>';
+  if (!r) return `<div class="cw-sim"><div class="btn-row">${btn}</div><p class="muted small">Escreva a missão abaixo e simule: o Code Room confere equipe, agentes, IA instalada e permissões sem gastar cota.</p></div>`;
+  if (r === 'busy') return '<div class="cw-sim"><p class="muted small" role="status">Conferindo…</p></div>';
+  if (r.error) return `<div class="cw-sim"><p class="upd-err small" role="alert">${esc(r.error)}</p><div class="btn-row">${btn}</div></div>`;
+  return `<div class="cw-sim"><div class="cw-sim-h"><span class="pill ${r.ok ? 'ok' : 'bad'}">${r.ok ? 'Pode rodar' : 'Há problemas'}</span> <small class="muted">${esc(r.tasks.min === r.tasks.max ? r.tasks.min : `${r.tasks.min} a ${r.tasks.max}`)} tarefa(s)</small></div>
+    ${r.problems.length ? `<ul class="plain sim-bad">${r.problems.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${r.warnings.length ? `<ul class="plain sim-warn">${r.warnings.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${r.steps.map(s => `<p class="small"><b>${esc(s.role)}: ${esc(s.agent)}</b>${s.provider ? ` <span class="muted">(${esc(s.provider)})</span>` : ''}<br><span class="muted">${s.grants.length ? esc(s.grants.join(' · ')) : ''}</span></p>`).join('')}
+    <p class="muted small">${esc(r.note)}</p><div class="btn-row">${btn}</div></div>`;
 }
 
 // O que você pediu a esta equipe ou agente pelo chat, com o andamento. Antes, depois de enviar a missão o texto sumia da tela.
@@ -40,9 +53,10 @@ export function sentHtml(ctx, key) {
     const mine = m.flowId ? runs.filter(r => r.flowId === m.flowId) : m.taskId ? runs.filter(r => r.id === m.taskId) : []; if (!mine.length) return ['Enviada', null];
     const act = mine.find(r => RUNNING.includes(r.status)); if (act) return [`Em andamento: ${esc(act.agent?.name || '')}`, act.id];
     const bad = mine.find(r => STOPPED.includes(r.status)); if (bad) return ['Parou: abra para ver o motivo', bad.id];
-    return ['Concluída', mine[mine.length - 1].id];
+    const last = mine[mine.length - 1]; if ((last.unblock || []).some(u => u.kind !== 'never')) return ['Concluída, mas o agente foi bloqueado: abra para liberar', last.id];
+    return ['Concluída', last.id];
   };
-  return `<div class="cw-sent"><h3 class="small">Você pediu</h3>${list.map(m => { const [label, id] = stat(m); return `<div class="cw-sent-item"><p>${esc(m.text)}</p><small class="muted">${hmTxt(m.at)} · ${label}</small>${id ? ` <button type="button" class="link" data-act="task" data-id="${esc(id)}">Abrir</button>` : ''}</div>`; }).join('')}</div>`;
+  return `<div class="cw-sent"><h3 class="small">Você pediu</h3>${list.map((m, i) => { const [label, id] = stat(m); return `<div class="cw-sent-item"><p>${esc(m.text)}</p><small class="muted">${hmTxt(m.at)} · ${label}</small>${id ? ` <button type="button" class="link" data-act="task" data-id="${esc(id)}">Abrir</button>` : ''} <button type="button" class="link" data-act="routine-from-sent" data-id="${esc(key)}" data-i="${i}" title="Cria uma rotina que repete este pedido todo dia">Repetir todo dia</button></div>`; }).join('')}</div>`;
 }
 
 // Corpo para quem não é o Assistente: estado e atividade do agente ou da equipe (o resultado de verdade aparece em Tarefas).
@@ -55,7 +69,7 @@ export function targetBodyHtml(ctx) {
   const rows = ev.map(e => `<li><span class="dot d-${DOT[e.status] || 'idle'}"></span><button type="button" class="link" data-act="task" data-id="${esc(e.id)}"><b>${esc(e.agent)}</b> ${esc(VERB[e.status] || e.status)} <span class="muted">“${esc(e.text)}”</span></button><small class="muted"> ${esc(e.ago)}</small></li>`).join('');
   const live = w.kind === 'agent' || w.kind === 'supervisor' ? liveHtml(ctx.live) : '';
   return `<div class="cw-direct"><p><b>Missão direta.</b> Escreva abaixo o que ${w.kind === 'team' ? 'a equipe' : 'o agente'} deve fazer. Use <code>/skill</code> para anexar uma skill (agente) e o clipe para critérios de conclusão. O resultado aparece em <button type="button" class="linkbtn" data-nav="tasks">Tarefas</button>.</p>${status}
-    ${sentHtml(ctx, String(targetOf(ctx)))}${live}
+    ${w.kind === 'team' ? simHtml(ctx) : ''}${sentHtml(ctx, String(targetOf(ctx)))}${live}
     <h3 class="small">Atividade recente</h3>${rows ? `<ul class="dots-list activity-list">${rows}</ul>` : '<p class="muted small">Ainda sem atividade.</p>'}</div>`;
 }
 
