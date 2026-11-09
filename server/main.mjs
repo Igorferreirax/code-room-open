@@ -18,7 +18,16 @@ import { Routines } from './routines.mjs';
 import { Recipes } from './recipes.mjs';
 import { connectors, check, REMOTE_PROVIDERS, setHermesDir } from './connectors.mjs';
 import { cleanBrowser } from './browseruse.mjs';
-import { scanSkills, auditSummary, usable } from './skills.mjs';
+import { scanSkills as scanSkillsFresh, auditSummary, usable } from './skills.mjs';
+// A leitura das skills percorre centenas de pastas (1 a 2 s, até 20 s com o computador ocupado) e a tela e o Assistente pedem a lista toda hora: guarda por 15 s.
+const skillCache = new Map();
+function scanSkills(projectPath, opts = {}) {
+  const key = JSON.stringify([projectPath || '', opts.extraRoots || []]), hit = skillCache.get(key);
+  if (hit && Date.now() - hit.at < 15000) return hit.p;
+  const p = scanSkillsFresh(projectPath, opts); skillCache.set(key, { at: Date.now(), p }); p.catch(() => skillCache.delete(key));
+  if (skillCache.size > 12) skillCache.delete(skillCache.keys().next().value);
+  return p;
+}
 import { createTask, retryTask } from './tasks.mjs';
 import { safeFile, contentType, mintToken, checkToken } from './deliverables.mjs';
 import { emptyContext, cleanContext } from './context.mjs';
@@ -26,6 +35,7 @@ import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { probeModules, capabilityVerified } from './modules.mjs';
 import { removeWorktree } from './worktree.mjs';
 import { retentionScan, retentionClean } from './retention.mjs';
+import { cleanConfig as obsClean, checkVault as obsCheck, findNotes as obsFind, termsOf as obsTerms, renderBlock as obsRender, saveNote as obsSave, clearCache as obsClear, DEFAULTS as OBS_DEFAULTS } from './obsidian.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
 import { Power } from './power.mjs';
 import { AutoClean } from './autoclean.mjs';
@@ -104,6 +114,11 @@ async function startAssistantTask({ projectId, teamId, agentId, objective }) {
   if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
   const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
 }
+// ---------- Obsidian (opcional): ler notas como referência e, se a pessoa permitir, gravar notas das entregas aprovadas ----------
+const obsCfg = () => ({ ...OBS_DEFAULTS, ...(store.get('settings', 'obsidian') || {}) });
+async function obsStatus() { const c = obsCfg(); return { enabled: c.enabled, vault: c.vault, exclude: c.exclude, byProject: c.byProject, maxNotes: c.maxNotes, allowWrite: c.allowWrite, writeFolder: c.writeFolder, check: c.vault ? await obsCheck(c.vault, c.exclude) : null }; }
+const obsTitle = t => { const ask = String(t.objective || '').split('=== PERGUNTA DA PESSOA ===').pop(), m = /^Lote\s+"([^"]{1,80})"/.exec(ask), raw = m ? m[1] : ask.replace(/\s+/g, ' ').trim(); return raw.length > 90 ? raw.slice(0, 88) + '…' : raw || 'Entrega'; };
+async function obsSaveTask(t) { return obsSave(obsCfg(), { project: t.project.name, area: t.project.area, agent: t.agent.name, title: obsTitle(t), summary: t.result?.summary || '', files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').map(f => ({ path: f.path, bytes: f.bytes })), review: t.review?.note || '' }); }
 const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
@@ -301,6 +316,7 @@ const handle = async (req, res) => {
         const rv = store.list('tasks').filter(x => x.step === 'review' && x.status === 'completed' && (x.dependsOn || []).includes(rnm[1])).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
         return send(res, 200, rv ? { reviewer: rv.agent?.name || null, ...reviewerProblems(rv.result?.summary) } : { reviewer: null, text: '', count: 0 });
       }
+      if (get && p === '/api/obsidian') { masterOnly(auth); return send(res, 200, await obsStatus()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
       if (get && p === '/api/stream') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
@@ -406,7 +422,7 @@ const handle = async (req, res) => {
         if (p.startsWith('/api/assistant/')) {
           masterOnly(auth); const a = p.slice('/api/assistant/'.length);
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
-          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null }));
+          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '' }));
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread());
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
@@ -419,6 +435,21 @@ const handle = async (req, res) => {
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
         }
+        if (p === '/api/obsidian/config') {
+          masterOnly(auth); const next = obsClean(b, obsCfg());
+          if (next.enabled) { if (!next.vault) throw new Error('Informe a pasta do cofre antes de ligar.'); const c = await obsCheck(next.vault, next.exclude); if (!c.ok) throw new Error(c.error); } else next.allowWrite = false;
+          store.put('settings', { id: 'obsidian', ...next }); obsClear(); return send(res, 200, await obsStatus());
+        }
+        if (p === '/api/obsidian/preview') {
+          masterOnly(auth); const c = obsCfg(); if (!c.vault) throw new Error('Informe a pasta do cofre.');
+          const pj = store.get('projects', typeof b.projectId === 'string' ? b.projectId : ''); if (pj?.area === 'Financeiro') throw new Error('Projetos financeiros não recebem notas do Obsidian.');
+          const notes = await obsFind({ vault: c.vault, exclude: c.exclude, terms: obsTerms(optional(b.q, 300) || '', pj?.name), folder: pj ? (c.byProject?.[pj.id] || '') : '', limit: c.maxNotes });
+          return send(res, 200, { notes: notes.map(({ rel, title, tags, excerpt }) => ({ rel, title, tags, excerpt })), chars: obsRender(notes, c.vault).length });
+        }
+        if (p === '/api/obsidian/save') {
+          masterOnly(auth); const t = store.get('tasks', text(b.taskId, 80)); if (!t || t.status !== 'completed') throw new Error('Só tarefas concluídas podem ser salvas no Obsidian.');
+          return send(res, 200, await obsSaveTask(t));
+        }
         if (p === '/api/agents') return send(res, 200, saveAgent(b));
         if (p === '/api/runs' || p === '/api/tasks') {
           const agent = store.get('agents', b.agentId);
@@ -430,7 +461,7 @@ const handle = async (req, res) => {
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/retry$/))) {
           if (b.confirm !== true) throw new Error('Repetir pode duplicar efeitos já produzidos. Confirme com { "confirm": true } depois de conferir os arquivos.');
           const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
-          t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1));
+          t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1)); store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
           const r = retryTask(store, m[1]); void runner.pump(); return send(res, 200, brief(r));
         }
         if (p === '/api/settings/limits') {
@@ -476,7 +507,9 @@ const handle = async (req, res) => {
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/approve$/))) {
           const t = store.get('tasks', m[1]); if (!t || t.status !== 'completed') throw new Error('Só tarefas concluídas podem ser aprovadas.');
           t.review = { status: 'approved', note: optional(b.note, 500), at: new Date().toISOString() }; store.put('tasks', t); store.event(t.id, { type: 'review', text: 'approved', at: t.review.at });
-          return send(res, 200, brief(t)); // aprovar não publica nada
+          let obsidian = null, obsidianError = null; const oc = obsCfg();
+          if (oc.enabled && oc.allowWrite) { try { obsidian = (await obsSaveTask(t)).rel; } catch (e) { obsidianError = e.message; } }   // só com a permissão "alimentar o Obsidian"; um erro aqui nunca desfaz a aprovação
+          return send(res, 200, { ...brief(t), obsidian, obsidianError }); // aprovar não publica nada
         }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/worktree\/remove$/))) {
           // Descarta a cópia isolada e a branch da tarefa. Só para tarefas já finalizadas; o caminho precisa estar dentro de .data/worktrees.
@@ -516,6 +549,8 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
         if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/open$/))) {
           const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
           if (process.platform !== 'win32') throw new Error('Abrir pasta só está disponível no Windows.');
+          // Servidores de teste (dados na pasta temporária) e CODE_ROOM_NO_OPEN=1 nunca abrem janelas no computador da pessoa.
+          if (process.env.CODE_ROOM_NO_OPEN === '1' || resolve(data).toLowerCase().startsWith(resolve(tmpdir()).toLowerCase())) return send(res, 200, { ok: true, skipped: true });
           spawn('explorer.exe', [pr.path], { detached: true, stdio: 'ignore', windowsHide: false }).unref(); return send(res, 200, { ok: true });
         }
         if (p === '/api/teams') return send(res, 200, orchestrator.saveTeam(b));

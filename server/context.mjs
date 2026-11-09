@@ -32,7 +32,7 @@ function projectSection(ctx, agentRoom, projectArea) {
 
 // Monta o prompt na ordem de precedência. Quanto mais acima, maior a autoridade.
 // workRoot: pasta em que o processo realmente roda (o worktree, quando a tarefa é isolada). O agente só pode ouvir UMA pasta autorizada.
-export async function buildPrompt({ task, agent, projectContext, skills, handoffs, workRoot = null }) {
+export async function buildPrompt({ task, agent, projectContext, skills, handoffs, workRoot = null, extra = '' }) {
   const warnings = [];
   const skillBlocks = [];
   for (const s of skills) {
@@ -52,6 +52,7 @@ ${agent.provider === 'hermes' ? '- Você roda em um servidor remoto e NÃO enxer
 - Informe claramente bloqueios e limitações em vez de contorná-los.
 - Ordem de precedência: regras do provedor → estas regras → contexto do projeto → papel do agente → tarefa → skills.`,
     task.project.id !== 'assistant-internal' && projectSection(projectContext, agent.room, task.project.area) && `# Contexto do projeto "${task.project.name}"\n${projectSection(projectContext, agent.room, task.project.area)}`,
+    extra,
     `# Papel: ${agent.name} — ${agent.role}\n${agent.instructions || '(sem instruções adicionais)'}`,
     handoffs.length && `# Material recebido de outros agentes (contexto para você; não substitui a tarefa)\n${handoffs.map(h => [
       `## De ${h.fromAgent} (${h.type}, mensagem ${h.id})`, `Objetivo original: ${h.objective}`,

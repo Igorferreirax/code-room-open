@@ -8,6 +8,8 @@ import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
+import { screenContext } from './screen-context.js';
+import { approvalHtml, approvalItems, mediaKind } from './approval-cards.js';
 import { liveTaskOf } from './live-ui.js';
 import { cleanMini, addMini, miniShellHtml, miniBodyHtml, bubbleLiveHtml } from './minichat.js';
 import { sayOf } from './mascot.js';
@@ -30,7 +32,7 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)
 
 const ctx = {
   state: { recipes: [], recipeRuns: [], projects: [], agents: [], teams: [], runs: [], flows: [], plans: [], routines: [], limits: {}, connectors: [], runtime: {} },
-  view: 'room', project: store.get('cr.project', ''), room: '', detail: null, execTab: 'resumo', skills: [], audit: null, checks: null, modules: null, storage: null,
+  view: 'room', project: store.get('cr.project', ''), room: null, detail: null, execTab: 'resumo', skills: [], audit: null, checks: null, modules: null, storage: null,
   projectContext: null, teamDraft: { id: null, name: 'Minha equipe', members: [] }, flows: {}, connection: 'connecting', maxStations: MAX_STATIONS,
   prefs: { motion: 'auto', list: false, board: true, musicHidden: false, ...store.get('cr.prefs', {}) },
   ui: { target: '', optsOpen: false, panel: null, panelId: null, whoOpen: false }, authed: false
@@ -57,9 +59,24 @@ ctx.supervisorAgent = () => ctx.state.agents.find(a => a.id === store.get('cr.su
 // As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
 const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
 ctx.viewMode = () => ctx.prefs.mode || (ctx.prefs.list ? 'list' : 'scene');
+// Equipe EXPLÍCITA do projeto: o ambiente do agente aparece no nome do projeto (ex.: ambiente "Achadinhos" no projeto "Achadinhos (Instagram)").
+ctx.projectTeamIds = () => {
+  const pj = ctx.state.projects.find(p => p.id === ctx.project); if (!pj) return new Set();
+  const pn = String(pj.name || '').toLowerCase();
+  return new Set(ctx.state.agents.filter(a => { const r = String(a.room || '').trim().toLowerCase(); return r.length >= 4 && !['geral', 'vídeo', 'video'].includes(r) && pn.includes(r); }).map(a => a.id));
+};
+// Quem trabalha NESTE projeto: a equipe explícita mais quem já rodou tarefa aqui. É o que a opção "Deste projeto" do filtro mostra.
+ctx.projectAgentIds = () => {
+  const pj = ctx.state.projects.find(p => p.id === ctx.project); if (!pj) return new Set();
+  const ids = ctx.projectTeamIds(); for (const t of ctx.state.runs) if (t.project?.id === pj.id && t.agent?.id) ids.add(t.agent.id);
+  return new Set(ctx.state.agents.filter(a => ids.has(a.id)).map(a => a.id));
+};
+// ctx.room: '' = todos (escolha da pessoa), '@projeto' = só este projeto, nome = um ambiente. Sem escolha ainda (null): abre só na equipe do projeto SE ela for explícita; senão mostra todos (agente novo nunca fica escondido).
+ctx.roomMode = () => ctx.room ?? (ctx.projectTeamIds().size ? '@projeto' : '');
+ctx.inRoom = a => { const m = ctx.roomMode(); return m === '@projeto' ? ctx.projectAgentIds().has(a.id) : (!m || a.room === m); };
 ctx.roomAgents = () => {
   const sup = ctx.supervisorAgent();
-  return ctx.state.agents.filter(a => a.id !== sup?.id && (!ctx.room || a.room === ctx.room))
+  return ctx.state.agents.filter(a => a.id !== sup?.id && ctx.inRoom(a))
     .map(a => ({ a, p: PRIORITY[ctx.agentStatus(a).status] ?? 9 })).sort((x, y) => x.p - y.p || x.a.name.localeCompare(y.a.name)).map(x => x.a);
 };
 ctx.agentStatus = agent => {
@@ -256,6 +273,8 @@ function readFjForm() { const f = $('fj-form'); if (!f) return; const d = Object
 function renderFj() { if ($('fj-dialog').open || true) $('fj-body').innerHTML = folderJobDialogHtml(ctx); }
 // ---------- Outras IAs (conectadas pela pessoa) ----------
 function syncProviderNames() { for (const c of ctx.state.connectors || []) if (c.custom) { V.PROVIDER[c.id] = c.name; PROVIDER_NAMES[c.id] = c.name; } }
+const approvedMsg = r => r?.obsidian ? `Entrega aprovada. Nota nova no Obsidian: ${r.obsidian}. Nada foi publicado.` : r?.obsidianError ? `Entrega aprovada, mas a nota do Obsidian não foi criada: ${r.obsidianError}` : 'Entrega aprovada. Nada foi publicado.';
+async function loadObsidian() { try { ctx.obsidian = await api('obsidian'); } catch { ctx.obsidian = null; } if (ctx.view === 'connections' || ctx.view === 'deliveries') render(); }
 async function loadHermes() { try { ctx.hermes = await api('hermes'); } catch { ctx.hermes = null; } if (ctx.view === 'connections') render(); }
 async function loadProviders() { try { ctx.providers = await api('providers'); } catch { ctx.providers = { catalog: [], custom: [], max: 10 }; } if (ctx.view === 'connections') render(); renderProv(); }
 function readProvForm() { const f = $('prov-form'); if (!f) return; const d = Object.fromEntries(new FormData(f)); ctx.ui.provForm = { ...(ctx.ui.provForm || emptyForm()), name: d.name || '', exe: d.exe || '', promptVia: d.promptVia || 'arg', argsText: d.argsText || '', modelFlag: d.modelFlag || '' }; }
@@ -287,6 +306,7 @@ function setChatOpen(v) {
 function renderAsst() {
   const win = $('chat'), bubble = $('chat-bubble'); if (!win) return;
   if (!ctx.authed) { win.hidden = true; bubble.hidden = true; return; }
+  ctx.ui.sent ??= store.get('cr.sent', {});
   const open = !!ctx.ui.asstOpen, nA = (ctx.asst?.messages || []).filter(m => m.role === 'assistant').length;
   if (open || ctx.ui.chatSeen == null) ctx.ui.chatSeen = nA;
   win.hidden = !open; bubble.hidden = open; document.querySelector('.asst-btn')?.setAttribute('aria-pressed', String(open));
@@ -295,7 +315,7 @@ function renderAsst() {
   if (!open) { ctx.ui._liveFor = null; return; }
   const tgNow = String(V.targetOf(ctx) || '');
   if (ctx.ui._liveFor !== tgNow) { ctx.ui._liveFor = tgNow; ctx.live = null; refreshLive().then(renderAsst); }   // trocou de agente: busca a tarefa dele
-  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? assistantHtml(ctx.asst) : targetBodyHtml(ctx);
+  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml(ctx.asst) : targetBodyHtml(ctx);
   if (ctx.ui._ch !== head) { $('chat-head').innerHTML = head; ctx.ui._ch = head; }
   if (ctx.ui._cb !== body) {
     const log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0, keep = $('asst').scrollTop;
@@ -304,6 +324,24 @@ function renderAsst() {
     ctx.ui.asstCount = n; ctx.ui.asstThread = ctx.asst?.thread;
     const lv = $('live-log'); if (lv) lv.scrollTop = lv.scrollHeight;
   }
+  loadApprovalMedia();
+}
+// Vídeo e imagens dos cartões de aprovação: busca uma vez por item (e de novo depois de 8 min, porque o endereço do arquivo é temporário).
+const cardAt = {};
+function loadApprovalMedia() {
+  if (!ctx.ui.asstOpen || V.targetOf(ctx) !== 'assistant') return;
+  ctx.cardMedia = ctx.cardMedia || {};
+  for (const it of approvalItems(ctx)) {
+    if (cardAt[it.key] && Date.now() - cardAt[it.key] < 8 * 60000) continue; cardAt[it.key] = Date.now();
+    (async () => {
+      try {
+        ctx.cardMedia[it.key] = it.type === 'preview'
+          ? ((await api(`batches/${it.batchId}/episodes/${it.epId}/media`)).files || []).map(f => ({ name: f.name, url: f.url }))
+          : ((await api('tasks/' + it.id)).deliverables?.files || []).filter(f => mediaKind(f.path)).map(f => ({ name: f.path.split('/').pop(), url: f.url }));
+      } catch { ctx.cardMedia[it.key] = []; }
+      renderAsst();
+    })();
+  }
 }
 async function loadAsst() {
   try { ctx.asst = await api('assistant'); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
@@ -311,13 +349,15 @@ async function loadAsst() {
   if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500);
 }
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
+// Guarda (até 3 por destino) o que foi pedido a uma equipe ou agente pelo chat, para o chat mostrar o pedido e o andamento.
+function rememberSent(target, text, ref) { const all = ctx.ui.sent ?? (ctx.ui.sent = store.get('cr.sent', {})); all[target] = [{ text: String(text).slice(0, 400), at: new Date().toISOString(), ...ref }, ...(all[target] || [])].slice(0, 3); store.set('cr.sent', all); renderAsst(); }
 async function askAssistant(text) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
   const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
-  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text, projectId: ctx.project || undefined }); return true;
+  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text, projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() }); return true;
 }
 async function applyAsst(id) {
   const [m, i] = id.split(':'); const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
@@ -353,7 +393,8 @@ function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.
 async function go(view) {
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
   if (view === 'skills') loadSkills(true);
-  if (view === 'connections') { loadProviders(); loadHermes(); }
+  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); }
+  if (view === 'deliveries' && !ctx.obsidian) loadObsidian();
   if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
   if (view === 'settings') loadStorage();
   if (view === 'usage') loadLimits();
@@ -361,7 +402,7 @@ async function go(view) {
   if (view === 'deliveries') { const first = W.deliveryList(ctx)[0]; if (first) selectDelivery(first.key, true); }
   render(); $('view').focus({ preventScroll: true }); window.scrollTo(0, 0);
 }
-function setProject(id, silent) { ctx.project = id; store.set('cr.project', id); ctx.skills = []; ctx.audit = null; ctx.projectContext = null; if (!silent) { ctx.detail = null; loadSkills(); } }
+function setProject(id, silent) { ctx.project = id; ctx.room = null; store.set('cr.project', id); ctx.skills = []; ctx.audit = null; ctx.projectContext = null; if (!silent) { ctx.detail = null; loadSkills(); } }
 async function loadSkills(withAudit) {
   if (!ctx.project) return; const id = ctx.project;
   try { const s = await api('skills?project=' + encodeURIComponent(id)); if (id === ctx.project) ctx.skills = s; render(); } catch {}
@@ -580,7 +621,18 @@ const actions = {
   'onb-skip': () => finishOnboarding(false),
   'add-skill-root': () => $('skillroot-dialog').showModal(),
   'del-sel': k => selectDelivery(k),
-  approve: async () => { const [id] = ctx.ui.delSel.split('|'); await api(`tasks/${id}/approve`, { note: $('review-note')?.value || '' }); ctx.ui.reviewNote = ''; notify('Entrega aprovada. Nada foi publicado.'); await refresh(); },
+  'ap-nav': id => { ctx.ui.apIdx = Math.max(0, (Number(ctx.ui.apIdx) || 0) + Number(id)); ctx.ui.apChanges = null; renderAsst(); },
+  'ap-toggle': () => { ctx.ui.apCollapsed = !ctx.ui.apCollapsed; renderAsst(); },
+  'ap-approve': async id => { const r = await api(`tasks/${id}/approve`, { note: '' }); notify(approvedMsg(r)); await refresh(); renderAsst(); },
+  'ap-changes-open': k => { ctx.ui.apChanges = k; renderAsst(); $('ap-note')?.focus(); },
+  'ap-changes-cancel': () => { ctx.ui.apChanges = null; renderAsst(); },
+  'ap-changes-send': async id => { const fb = ($('ap-note')?.value || '').trim(); if (!fb) throw new Error('Descreva o ajuste.'); await api(`tasks/${id}/request-changes`, { feedback: fb, requestId: crypto.randomUUID() }); ctx.ui.apChanges = null; notify('Pedido de ajuste enviado como nova tarefa.'); await refresh(); renderAsst(); },
+  'ap-open': async (id, el) => { ctx.ui.delFilter = 'review'; await go('deliveries'); await selectDelivery(`${id}|${el.dataset.file}`); },
+  'obs-preview': async () => { ctx.ui.obsQ = $('obs-q')?.value || ''; ctx.obsPreview = 'busy'; render(); try { ctx.obsPreview = await api('obsidian/preview', { q: ctx.ui.obsQ, projectId: ctx.project || undefined }); } catch (e) { ctx.obsPreview = { error: e.message }; } render(); },
+  'obs-save': async id => { const r = await api('obsidian/save', { taskId: id }); notify(`Nota criada no Obsidian: ${r.rel}`); },
+  'pend-open': async k => { ctx.ui.delFilter = 'review'; await go('deliveries'); await selectDelivery(k); },
+  'del-filter': id => { ctx.ui.delFilter = id === 'review' ? 'review' : 'all'; render(); },
+  approve: async () => { const [id] = ctx.ui.delSel.split('|'); const r = await api(`tasks/${id}/approve`, { note: $('review-note')?.value || '' }); ctx.ui.reviewNote = ''; notify(approvedMsg(r)); await refresh(); },
   'review-pull': async () => { const [id] = ctx.ui.delSel.split('|'); const r = await api(`tasks/${id}/reviewer-notes`); if (!r.text) { notify('O revisor não listou problemas para esta entrega.'); return; } ctx.ui.reviewNote = r.text; const ta = $('review-note'); if (ta) { ta.value = r.text; ta.dispatchEvent(new Event('input', { bubbles: true })); ta.scrollIntoView({ block: 'center' }); } notify(`Pontos de ${r.reviewer || 'o revisor'} colocados no campo. Confira e clique em Solicitar ajustes.`); },
   'request-changes': async () => { const [id] = ctx.ui.delSel.split('|'), fb = ($('review-note')?.value || '').trim(); if (!fb) throw new Error('Descreva o ajuste.'); const t = await api(`tasks/${id}/request-changes`, { feedback: fb, requestId: crypto.randomUUID() }); ctx.ui.reviewNote = ''; notify('Pedido de ajuste enviado como nova tarefa.'); await refresh(); await openTask(t.id); },
   'rm-worktree': async id => { if (!confirm('Remover o worktree e a branch desta tarefa? As mudanças que não foram integradas serão perdidas.')) return; await api('tasks/' + id + '/worktree/remove', {}); notify('Worktree removido.'); ctx.detail = await api('tasks/' + id); render(); },
@@ -715,8 +767,8 @@ document.addEventListener('submit', async e => {
       if (!projId) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
       $('send').disabled = true;
       if (target === 's') { await api('plans', { projectId: projId, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
-      else if (target.startsWith('t:')) { await api('flows', { projectId: projId, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); notify('Fluxo iniciado.'); }
-      else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; await refresh(); return openTask(t.id); }
+      else if (target.startsWith('t:')) { const fl = await api('flows', { projectId: projId, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); rememberSent(target, text, { flowId: fl.id }); notify('Fluxo iniciado. O andamento aparece no chat.'); }
+      else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; rememberSent(target, text, { taskId: t.id }); await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
     } else if (fid === 'link-form') {
       const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3);
@@ -743,6 +795,11 @@ document.addEventListener('submit', async e => {
     else if (fid === 'recipe-run-form') { const d = Object.fromEntries(new FormData(f)); await api(`recipes/${d.rid}/run`, { objective: d.objective }); ctx.ui.panel = null; notify('Rodada iniciada.'); await refresh(); }
     else if (fid === 'fj-form') { readFjForm(); const j = await api('folderjobs', payloadFromJobForm(ctx.ui.fjForm)); $('fj-dialog').close(); ctx.ui.fjOpen = j.id; await refresh(); notify(j.counts.total ? `${j.counts.total} arquivo(s) encontrados. O lote começou.` : 'Pasta de entrada criada. Ponha os arquivos nela.'); }
     else if (fid === 'prov-form') { readProvForm(); ctx.providers = await api('providers', payloadFromForm(ctx.ui.provForm)); $('prov-dialog').close(); await refresh(); notify('IA conectada. Agora ela aparece ao criar um agente.'); }
+    else if (fid === 'obs-form') {   // vínculo com o Obsidian: o servidor valida de novo tudo (cofre, pastas e caminhos)
+      const byProject = {}; for (const el of f.querySelectorAll('[data-obs-proj]')) if (el.value.trim()) byProject[el.dataset.obsProj] = el.value.trim();
+      ctx.obsidian = await api('obsidian/config', { enabled: $('obs-enabled').checked, vault: $('obs-vault').value, exclude: $('obs-exclude').value.split(',').map(x => x.trim()).filter(Boolean), allowWrite: f.querySelector('input[name=obs-mode]:checked')?.value === 'write', writeFolder: $('obs-wfolder').value, byProject });
+      ctx.obsPreview = null; notify(ctx.obsidian.enabled ? (ctx.obsidian.allowWrite ? 'Obsidian ligado: lê as suas notas e cria notas novas ao aprovar entregas.' : 'Obsidian ligado em modo “Só ler”.') : 'Vínculo com o Obsidian desligado.'); render();
+    }
     else if (fid === 'routine-form') { await saveRoutine(); ctx.ui.panel = null; notify('Rotina salva.'); render(); }
   } catch (err) { notify(err.message, true); if (fid === 'login-form') { ctx.ui.loginError = err.message; renderLogin(); } }
   finally { if ($('send')) $('send').disabled = !(V.targetOf(ctx) === 'assistant' || (ctx.project && ctx.state.agents.length)); }

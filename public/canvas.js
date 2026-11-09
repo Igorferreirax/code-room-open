@@ -34,7 +34,7 @@ function nodeHtml(ctx, a, p) {
 }
 
 export function canvasHtml(ctx) {
-  const agents = ctx.state.agents.filter(a => !ctx.room || a.room === ctx.room);
+  const agents = ctx.state.agents.filter(a => ctx.inRoom ? ctx.inRoom(a) : (!ctx.room || a.room === ctx.room));
   if (!agents.length) return `<div class="cv-empty">Crie agentes em “Agentes e ferramentas” para vê-los aqui.</div>`;
   const pos = layout(agents, loadPos(ctx.project)), ids = new Set(agents.map(a => a.id));
   const links = (ctx.state.links || []).filter(l => l.projectId === ctx.project && ids.has(l.from) && ids.has(l.to));
@@ -62,7 +62,7 @@ export function canvasHtml(ctx) {
 
 export function bindCanvas(root, ctx, { onOpen, onLink, onUnlink, onEnd }) {
   const cv = root.querySelector('#cv'); if (!cv) return;
-  const agents = ctx.state.agents.filter(a => !ctx.room || a.room === ctx.room), pos = layout(agents, loadPos(ctx.project));
+  const agents = ctx.state.agents.filter(a => ctx.inRoom ? ctx.inRoom(a) : (!ctx.room || a.room === ctx.room)), pos = layout(agents, loadPos(ctx.project));
   const svg = cv.querySelector('.cv-edges'), temp = cv.querySelector('#cv-temp');
   const redraw = () => svg.querySelectorAll('.cv-edge').forEach(g => {
     const a = port(pos[g.dataset.from], 'out'), b = port(pos[g.dataset.to], 'in'), d = curve(a, b);

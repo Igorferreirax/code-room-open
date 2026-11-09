@@ -38,8 +38,11 @@ export { tabs, toggle };
 
 // ---------- Casca: barra de ícones e topo ----------
 export const NAV = [['room', 'home', 'Sala'], ['projects', 'folder', 'Projetos'], ['tasks', 'check-square', 'Tarefas'], ['teams', 'users', 'Equipes'], ['recipes', 'layers', 'Receitas'], ['agents', 'terminal', 'Agentes e ferramentas'], ['deliveries', 'file', 'Entregas'], ['skills', 'sparkle', 'Skills'], ['usage', 'chart', 'Consumo e limites'], ['routines', 'calendar', 'Rotinas'], ['connections', 'plug', 'Conexões'], ['settings', 'gear', 'Configurações']];
+// Menu em 3 grupos (trabalho, equipe e sistema) com separadores finos; os botões e o data-nav são os mesmos de sempre.
+export const NAV_GROUPS = [['room', 'projects', 'tasks', 'deliveries'], ['agents', 'teams', 'recipes', 'skills', 'routines'], ['usage', 'connections', 'settings']];
 export function railHtml(cur, badges = {}) {
-  return NAV.map(([id, ic, label]) => { const n = badges[id] || 0; return `<button data-nav="${id}" title="${esc(label)}${n ? ` (${n} pendente${n > 1 ? 's' : ''})` : ''}" aria-label="${esc(label)}${n ? `, ${n} pendente${n > 1 ? 's' : ''}` : ''}" aria-current="${cur === id || (cur === 'exec' && id === 'tasks') ? 'page' : 'false'}">${icon(ic, 22)}${n ? `<span class="rb" aria-hidden="true">${n > 9 ? '9+' : n}</span>` : ''}</button>`; }).join('');
+  const btn = ([id, ic, label]) => { const n = badges[id] || 0; return `<button data-nav="${id}" title="${esc(label)}${n ? ` (${n} pendente${n > 1 ? 's' : ''})` : ''}" aria-label="${esc(label)}${n ? `, ${n} pendente${n > 1 ? 's' : ''}` : ''}" aria-current="${cur === id || (cur === 'exec' && id === 'tasks') ? 'page' : 'false'}">${icon(ic, 22)}${n ? `<span class="rb" aria-hidden="true">${n > 9 ? '9+' : n}</span>` : ''}</button>`; };
+  return NAV_GROUPS.map(g => g.map(id => NAV.find(n => n[0] === id)).filter(Boolean).map(btn).join('')).join('<i class="rail-sep" role="separator" aria-hidden="true"></i>');
 }
 export function topbarHtml(ctx) {
   const online = ctx.state.agents.filter(a => ctx.agentStatus(a).status !== 'disconnected').length;
@@ -82,8 +85,10 @@ export function pendingList(ctx) {
     }
   }
   const recent = r => { const at = Date.parse(r.createdAt); return !at || Date.now() - at < 14 * 86400000; };   // só as dos últimos 14 dias: o que ficou antigo não vira ruído
-  const dels = (s.runs || []).filter(r => r.status === 'completed' && !r.review && r.kind !== 'plan' && r.step !== 'review' && (r.deliverables || []).length && recent(r)).length;
-  if (dels) items.push({ kind: 'info', text: `${dels} entrega${dels > 1 ? 's' : ''} para revisar (aprovar ou pedir ajustes)`, nav: 'deliveries', n: dels, deliveries: true });
+  const open = (s.runs || []).filter(r => r.status === 'completed' && !r.review && r.kind !== 'plan' && r.step !== 'review' && (r.deliverables || []).length && recent(r)), dels = open.filter(r => inProject(ctx, r)).length, others = open.length - dels;
+  const first = open.filter(r => inProject(ctx, r)).sort((x, y) => String(y.updatedAt || '').localeCompare(String(x.updatedAt || '')))[0], firstFile = first && ((first.deliverables || []).find(f => !/\.(log|py|mjs|js|json|ps1|sh|cmd|lock)$/i.test(f.path)) || first.deliverables[0]);
+  if (dels) items.push({ kind: 'info', text: `${dels} entrega${dels > 1 ? 's' : ''} para revisar (aprovar ou pedir ajustes)`, nav: 'deliveries', n: dels, deliveries: true, key: firstFile ? `${first.id}|${firstFile.path}` : '' });
+  if (others) items.push({ kind: 'info', text: `${others} entrega${others > 1 ? 's' : ''} para revisar em outros projetos (troque o projeto no topo)`, nav: '', n: others });
   const plans = (s.plans || []).filter(p => p.status === 'proposed').length;
   if (plans) items.push({ kind: 'warn', text: `${plans} plano${plans > 1 ? 's' : ''} do Supervisor para aceitar`, nav: 'tasks', n: plans });
   for (const r of s.recipeRuns || []) if (r.status === 'waiting') items.push({ kind: 'warn', text: `Receita “${r.name}” espera a sua aprovação`, nav: 'recipes', n: 1 });
@@ -94,7 +99,7 @@ export const pendingBadges = ctx => { const it = pendingList(ctx); return { room
 export function needsYou(ctx) {
   const items = pendingList(ctx); if (!items.length) return '';
   const total = items.reduce((a, x) => a + x.n, 0);
-  return `<section class="card" id="needs-you"><div class="card-h"><h2>Precisa de você agora</h2><span class="pill warn">${total}</span></div><ul class="plain">${items.slice(0, 6).map(x => `<li><span class="pill ${x.kind}">${esc(x.text)}</span> <button class="link" data-nav="${x.nav}">Abrir</button></li>`).join('')}</ul></section>`;
+  return `<section class="card" id="needs-you"><div class="card-h"><h2>Precisa de você agora</h2><span class="pill warn">${total}</span></div><ul class="plain">${items.slice(0, 6).map(x => `<li class="ny-row"><span class="pill ${x.kind}">${esc(x.text)}</span>${x.key ? ` <button class="link" data-act="pend-open" data-id="${esc(x.key)}">Abrir a mais recente</button>` : x.nav ? ` <button class="link" data-nav="${x.nav}">Abrir</button>` : ''}</li>`).join('')}</ul></section>`;
 }
 export function viewRoom(ctx) {
   const agents = ctx.roomAgents(), sup = ctx.supervisorAgent(), rooms = ctx.rooms(), run = ctx.currentMission(), mode = ctx.viewMode();
@@ -106,7 +111,7 @@ export function viewRoom(ctx) {
   const supText = !sup ? 'Escolha um agente somente leitura para planejar missões.' : ctx.agentStatus(sup).status === 'running' ? 'Estou planejando a missão.' : ctx.state.runs.some(t => inProject(ctx, t) && ['running', 'queued', 'waiting_dependency'].includes(t.status)) ? 'Estou acompanhando a execução.' : 'Aguardando uma missão.';
   return `<div class="page" style="padding-top:16px"><div class="cols c-2-1">
     <section class="card scene-card" aria-label="Escritório">
-      <div class="scene-tools"><label class="small muted">Ambiente <select id="room-filter" style="display:inline-block;width:auto;margin-left:6px"><option value="">Todos</option>${rooms.map(r => `<option ${r === ctx.room ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label><span class="seg" role="group" aria-label="Modo de visualização">${[['scene', 'Cenário'], ['list', 'Lista'], ['canvas', 'Canvas']].map(([k, l]) => `<button type="button" class="${mode === k ? 'on' : ''}" data-act="view-mode" data-id="${k}" aria-pressed="${mode === k}">${l}</button>`).join('')}</span></div>
+      <div class="scene-tools"><label class="small muted">Ambiente <select id="room-filter" style="display:inline-block;width:auto;margin-left:6px">${ctx.projectAgentIds?.().size ? `<option value="@projeto" ${ctx.roomMode() === '@projeto' ? 'selected' : ''}>Deste projeto (${ctx.projectAgentIds().size})</option>` : ''}<option value="" ${ctx.roomMode() === '' ? 'selected' : ''}>Todos</option>${rooms.map(r => `<option ${r === ctx.roomMode() ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label><span class="seg" role="group" aria-label="Modo de visualização">${[['scene', 'Cenário'], ['list', 'Lista'], ['canvas', 'Canvas']].map(([k, l]) => `<button type="button" class="${mode === k ? 'on' : ''}" data-act="view-mode" data-id="${k}" aria-pressed="${mode === k}">${l}</button>`).join('')}</span></div>
       ${mode === 'canvas' ? '<div id="canvas-slot"></div>' : mode === 'list' ? `<div class="agent-list" style="padding:0 14px 14px">${agents.map(a => agentRow(ctx, a)).join('') || empty('Crie um agente em Agentes e ferramentas.')}</div>` : `<div id="office" class="office-host"></div>${more > 0 ? `<p class="muted small" style="padding:8px 16px 0">+${more} agente(s) fora das ${stations.length} estações. Use a vista em lista ou o filtro de ambiente.</p>` : ''}`}
       <div class="status-strip">${strip}<button class="more" data-nav="deliveries">Ver entregas ${icon('arrow', 16)}</button></div></section>
     <aside>

@@ -8,6 +8,7 @@ import { transition, settleDependents } from './tasks.mjs';
 import { snapshot, diffSnapshots } from './deliverables.mjs';
 import { killTree, alive, processIdentity } from './procs.mjs';
 import { buildPrompt, emptyContext } from './context.mjs';
+import { blockFor as obsidianBlock } from './obsidian.mjs';
 import { createWorktree } from './worktree.mjs';
 import { claudeFromEvent } from './usage.mjs';
 import { browserNote } from './browseruse.mjs';
@@ -131,8 +132,9 @@ export class Runner {
     const wantIds = [...new Set([...(agent.skillIds || []), ...(task.extraSkillIds || [])])];
     const selected = wantIds.length ? (await scanSkills(root, { extraRoots: this.store.get('settings', 'skillRoots')?.roots || [] })).filter(s => wantIds.includes(s.id)) : [];
     if (selected.length !== wantIds.length) throw fail('skill_unavailable', 'Uma skill escolhida não está mais disponível. Edite o agente ou escolha outra.');
-    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root });
-    this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${browserNote(task.agent?.browser)}` });
+    const obs = await obsidianBlock(this.store, task, agent);   // notas do Obsidian da pessoa (só se ela ligou o vínculo)
+    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: obs.text });
+    this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${obs.n ? ` Obsidian: ${obs.n} nota(s) de referência.` : ''}${browserNote(task.agent?.browser)}` });
     for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de skill: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, timeoutMs: task.limits.timeoutMs });

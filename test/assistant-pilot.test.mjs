@@ -51,8 +51,8 @@ test('modo piloto: o prompt troca as regras e a tela mostra o botão certo', () 
   const p = buildPrompt({ manual: 'm', knowledge: 'k', summary: 's', question: 'q', pilot: true });
   assert.match(p, /MODO PILOTO/);
   const base = { connected: ['claude'], manual: { available: true }, briefed: true, messages: [], alerts: [], provider: 'claude' };
-  assert.match(assistantHtml({ ...base, autonomy: 'ask' }), /data-act="asst-autonomy" data-id="pilot"[^>]*>Ligar modo piloto/);
-  assert.match(assistantHtml({ ...base, autonomy: 'pilot' }), /data-id="ask"[^>]*>Voltar ao modo consulta/);
+  assert.doesNotMatch(assistantHtml({ ...base, autonomy: 'ask' }), /as-pilot-note|asst-autonomy/);
+  const on = assistantHtml({ ...base, autonomy: 'pilot' }); assert.match(on, /class="as-pilot-note"[^>]*>.*Piloto ligado/); assert.ok(!on.includes('asst-autonomy'), 'o interruptor fica só no cabeçalho do chat');
 });
 
 test('modo piloto: o comando do Claude libera escrita, os programas, o MCP e o Chrome', async () => {

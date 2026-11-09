@@ -1,6 +1,6 @@
 // Janela de chat única (estilo mensageiro): cabeçalho com foto e conversas, corpo conforme com quem se fala e balão minimizado. Funções puras.
 import { esc, idx, targetOf } from './views.js';
-import { agentAv } from './art.js';
+import { agentAv, avatar } from './art.js';
 import { mascot, moodOf, sayOf, MOODS } from './mascot.js';
 import { activityEvents } from './activity.js';
 import { PROV } from './assistant-ui.js';
@@ -12,7 +12,7 @@ const VERB = { running: 'trabalhando em', queued: 'na fila:', waiting_dependency
 // Com quem a pessoa está falando agora: foto, título e subtítulo.
 export function whoIs(ctx) {
   const t = targetOf(ctx), a = ctx.asst, st = ctx.state || {};
-  if (t === 'assistant') return { kind: 'assistant', face: mascot(moodOf(a), 38), title: 'Assistente', sub: moodOf(a) === 'pensando' ? 'pensando…' : a?.briefed ? `${MOODS[moodOf(a)].label} · ${PROV[a.provider] || a.provider || 'IA'} · só propõe` : 'dormindo: apresente o Code Room a ele' };
+  if (t === 'assistant') return { kind: 'assistant', face: mascot(moodOf(a), 38), title: 'Assistente', sub: moodOf(a) === 'pensando' ? 'pensando…' : a?.briefed ? `${MOODS[moodOf(a)].label} · ${PROV[a.provider] || a.provider || 'IA'} · ${a.autonomy === 'pilot' ? 'modo piloto' : 'só propõe'}` : 'dormindo: apresente o Code Room a ele' };
   if (t.startsWith('a:')) { const ag = (st.agents || []).find(x => x.id === t.slice(2)); if (ag) return { kind: 'agent', face: agentAv(ag, idx(ctx, ag), 36), title: ag.name, sub: `${ag.role} · missão direta`, agent: ag }; }
   if (t.startsWith('t:')) { const tm = (st.teams || []).find(x => x.id === t.slice(2)); if (tm) { const first = (st.agents || []).find(x => x.id === tm.members?.[0]?.agentId); return { kind: 'team', face: first ? agentAv(first, idx(ctx, first), 36) : avatar(3, 36), title: `Equipe ${tm.name}`, sub: 'desenvolvedor → revisor · missão direta', team: tm }; } }
   if (t === 's') { const sup = ctx.supervisorAgent?.(); return { kind: 'supervisor', face: sup ? agentAv(sup, idx(ctx, sup), 36) : avatar(3, 36), title: 'Supervisor', sub: 'propõe um plano para você aceitar', agent: sup }; }
@@ -22,8 +22,27 @@ export function whoIs(ctx) {
 export function chatHeaderHtml(ctx) {
   const w = whoIs(ctx), a = ctx.asst, threads = w.kind === 'assistant' ? (a?.threads || []) : [];
   const chips = threads.length ? `<div class="cw-threads" role="tablist" aria-label="Conversas">${threads.map(t => `<span class="cw-th ${t.active ? 'on' : ''}">${ctx.ui.renameId === t.id ? `<input class="cw-rename" data-rename="${esc(t.id)}" value="${esc(t.title)}" maxlength="40" aria-label="Nome da conversa">` : `<button type="button" role="tab" aria-selected="${t.active}" data-act="asst-thread" data-id="${esc(t.id)}" title="${esc(t.title)}${t.active ? ' (duplo clique para renomear)' : ''}">${esc(t.title)}${t.waiting ? ' <i class="cw-wait" aria-label="esperando resposta"></i>' : ''}</button>`}${t.active && ctx.ui.renameId !== t.id ? `<button type="button" class="cw-x" data-act="asst-thread-rename" data-id="${esc(t.id)}" aria-label="Renomear esta conversa" title="Renomear">✎</button>` : ''}${t.active && threads.length > 1 ? `<button type="button" class="cw-x" data-act="asst-thread-del" data-id="${esc(t.id)}" aria-label="Apagar esta conversa">×</button>` : ''}</span>`).join('')}<button type="button" class="cw-th add" data-act="asst-new-thread" aria-label="Nova conversa" title="Nova conversa">＋</button></div>` : '';
-  return `<div class="cw-top"><span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}</b><small>${esc(w.sub)}</small></div>${w.kind === 'assistant' && a?.briefed && (a.connected || []).length > 1 ? `<label class="sr-only" for="asst-provider">IA que responde</label><select id="asst-provider" class="cw-prov" title="Qual IA responde ao Assistente">${a.connected.map(p => `<option value="${esc(p)}" ${p === a.provider ? 'selected' : ''}>${esc(PROV[p] || p)}</option>`).join('')}</select>` : ''}
-    ${w.kind === 'assistant' ? `<button type="button" class="iconbtn" data-act="notify-toggle" aria-pressed="${!!ctx.prefs?.desktopNotify}" aria-label="Avisos do Windows" title="${ctx.prefs?.desktopNotify ? 'Avisos do Windows ligados (clique para desligar)' : 'Ligar avisos do Windows: lote concluído, falha ou resposta do Assistente com o app em segundo plano'}">${ctx.prefs?.desktopNotify ? '🔔' : '🔕'}</button>` : ''}${w.kind === 'assistant' && a?.briefed ? '<button type="button" class="iconbtn" data-act="asst-reset" aria-label="Limpar esta conversa" title="Limpar esta conversa">🗑</button>' : ''}<button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${chips}`;
+  const asstOn = w.kind === 'assistant' && a?.briefed, pilot = a?.autonomy === 'pilot';
+  const modeBtn = asstOn ? `<button type="button" class="cw-mode${pilot ? ' on' : ''}" role="switch" aria-checked="${pilot}" data-act="asst-autonomy" data-id="${pilot ? 'ask' : 'pilot'}" title="${pilot ? 'Modo piloto ligado: o Assistente trabalha como a sua IA no terminal. Clique para voltar à conversa.' : 'Modo conversa: o Assistente só conversa e propõe. Clique para ligar o modo piloto.'}" ${a.pending ? 'disabled' : ''}><span class="cw-sw" aria-hidden="true"></span><span>${pilot ? 'Piloto' : 'Conversa'}</span></button>` : '';
+  const provSel = asstOn && (a.connected || []).length > 1 ? `<label class="sr-only" for="asst-provider">IA que responde</label><select id="asst-provider" class="cw-prov" title="Qual IA responde ao Assistente">${a.connected.map(p => `<option value="${esc(p)}" ${p === a.provider ? 'selected' : ''}>${esc(PROV[p] || p)}</option>`).join('')}</select>` : '';
+  const tools = asstOn ? `<div class="cw-tools">${modeBtn}${provSel}</div>` : '';
+  const notify = w.kind === 'assistant' ? `<button type="button" class="iconbtn" data-act="notify-toggle" aria-pressed="${!!ctx.prefs?.desktopNotify}" aria-label="Avisos do Windows" title="${ctx.prefs?.desktopNotify ? 'Avisos do Windows ligados (clique para desligar)' : 'Ligar avisos do Windows: lote concluído, falha ou resposta do Assistente com o app em segundo plano'}">${ctx.prefs?.desktopNotify ? '🔔' : '🔕'}</button>` : '';
+  const reset = asstOn ? '<button type="button" class="iconbtn" data-act="asst-reset" aria-label="Limpar esta conversa" title="Limpar esta conversa">🗑</button>' : '';
+  return `<div class="cw-top"><span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}</b><small>${esc(w.sub)}</small></div>${notify}${reset}<button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${tools}${chips}`;
+}
+
+// O que você pediu a esta equipe ou agente pelo chat, com o andamento. Antes, depois de enviar a missão o texto sumia da tela.
+const RUNNING = ['running', 'queued', 'waiting_dependency', 'starting', 'cancelling'], STOPPED = ['failed', 'interrupted', 'blocked'];
+export function sentHtml(ctx, key) {
+  const list = (ctx.ui?.sent || {})[key] || []; if (!list.length) return '';
+  const runs = ctx.state?.runs || [], hmTxt = t => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const stat = m => {
+    const mine = m.flowId ? runs.filter(r => r.flowId === m.flowId) : m.taskId ? runs.filter(r => r.id === m.taskId) : []; if (!mine.length) return ['Enviada', null];
+    const act = mine.find(r => RUNNING.includes(r.status)); if (act) return [`Em andamento: ${esc(act.agent?.name || '')}`, act.id];
+    const bad = mine.find(r => STOPPED.includes(r.status)); if (bad) return ['Parou: abra para ver o motivo', bad.id];
+    return ['Concluída', mine[mine.length - 1].id];
+  };
+  return `<div class="cw-sent"><h3 class="small">Você pediu</h3>${list.map(m => { const [label, id] = stat(m); return `<div class="cw-sent-item"><p>${esc(m.text)}</p><small class="muted">${hmTxt(m.at)} · ${label}</small>${id ? ` <button type="button" class="link" data-act="task" data-id="${esc(id)}">Abrir</button>` : ''}</div>`; }).join('')}</div>`;
 }
 
 // Corpo para quem não é o Assistente: estado e atividade do agente ou da equipe (o resultado de verdade aparece em Tarefas).
@@ -36,7 +55,7 @@ export function targetBodyHtml(ctx) {
   const rows = ev.map(e => `<li><span class="dot d-${DOT[e.status] || 'idle'}"></span><button type="button" class="link" data-act="task" data-id="${esc(e.id)}"><b>${esc(e.agent)}</b> ${esc(VERB[e.status] || e.status)} <span class="muted">“${esc(e.text)}”</span></button><small class="muted"> ${esc(e.ago)}</small></li>`).join('');
   const live = w.kind === 'agent' || w.kind === 'supervisor' ? liveHtml(ctx.live) : '';
   return `<div class="cw-direct"><p><b>Missão direta.</b> Escreva abaixo o que ${w.kind === 'team' ? 'a equipe' : 'o agente'} deve fazer. Use <code>/skill</code> para anexar uma skill (agente) e o clipe para critérios de conclusão. O resultado aparece em <button type="button" class="linkbtn" data-nav="tasks">Tarefas</button>.</p>${status}
-    ${live}
+    ${sentHtml(ctx, String(targetOf(ctx)))}${live}
     <h3 class="small">Atividade recente</h3>${rows ? `<ul class="dots-list activity-list">${rows}</ul>` : '<p class="muted small">Ainda sem atividade.</p>'}</div>`;
 }
 

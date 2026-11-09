@@ -9,6 +9,31 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+- **Obsidian (opcional, em Conexões):** vincule o seu cofre para os agentes usarem as suas notas como referência. A cada tarefa, o Code Room envia à IA só um trecho curto das notas mais parecidas com o pedido (com pasta do cofre por projeto e pastas ignoradas; projetos Financeiro nunca recebem). Escolha entre **"Só ler"** (padrão) e **"Permitir alimentar o Obsidian"**: ao aprovar uma entrega, cria uma nota nova numa pasta de destino sua, sem nunca editar ou apagar as suas notas. Há também "Salvar no Obsidian" em Entregas.
+- **Cartões de aprovação no chat do Assistente:** vídeo, imagens e prévias de lote aparecem no chat com Aprovar, Pedir ajustes e Abrir. Aprovar nunca publica.
+- **O Assistente sabe o que você está vendo:** a tela, o projeto e a entrega abertos entram no pedido, para "isto" e "esta tela" fazerem sentido.
+- **Sala por projeto:** o filtro ganhou "Deste projeto" (abre sozinho quando o ambiente dos agentes combina com o nome do projeto, como "Achadinhos").
+- **Interruptor Conversa/Piloto** no cabeçalho do chat.
+- **O chat mostra o que você pediu a uma equipe ou agente**, com o andamento ("Em andamento: Desenvolvedor", "Concluída", "Parou") e o botão Abrir. Antes, depois de enviar, o texto sumia da tela.
+- **Atividade ao vivo do piloto** no balão "Pensando…" (a última ferramenta que a IA usou) e aviso quando o piloto roda com uma IA que não é o Claude (sem MCP nem Chrome).
+- **O Assistente também usa o Obsidian** nas conversas (mesmas regras: só se ligado, só trechos, nunca em projeto Financeiro). O trecho de cada nota inclui o pedaço em que as palavras do pedido aparecem.
+- **"Fechar o Code Room" pergunta antes se houver tarefa rodando** (`stop.ps1 -Seguro` recusa em scripts; `-Forcar` fecha mesmo assim).
+
+### Alterado
+- **Entregas redesenhadas:** uma entrega por tarefa (não um arquivo por linha), arquivos de trabalho (logs, scripts) recolhidos, filtro "Para revisar" e a decisão (Aprovar / Pedir ajustes) sempre à vista, com bem menos texto.
+- **Chat mais limpo:** cabeçalho em duas linhas, avisos compactos e o aviso do piloto como uma linha discreta.
+- **Menu lateral em 3 grupos** (trabalho, equipe e sistema) com separadores finos.
+- **"Precisa de você agora"** separa o que é do projeto atual do que está em outros projetos e abre direto a entrega mais recente.
+
+### Corrigido
+- **Tarefa interrompida por reinício não podia ser retomada** ("Limite de 1 tentativa atingido"): a rota gravava o novo limite só em memória. Agora o "Tentar de novo" confirmado funciona e o revisor que ficou bloqueado por ela volta a esperar.
+- **A tela aberta e as notas do Obsidian eram cortadas do pedido ao Assistente** quando o estado era grande; agora têm seção própria e nunca são cortadas.
+- **O chat quebrava para uma equipe sem membros** (função `avatar` sem importar).
+- **Janelas do Explorer abrindo sozinhas:** testes automáticos clicavam em "Abrir pasta"; servidores de teste nunca abrem janelas.
+- **A lista de skills demorava 1 a 2 s (até 20 s com o computador ocupado):** agora fica em cache por 15 s.
+- **Testes de processo instáveis sob carga:** a suíte roda com concorrência limitada.
+
 ## [0.3.0] - 2026-11-09
 
 ### Adicionado

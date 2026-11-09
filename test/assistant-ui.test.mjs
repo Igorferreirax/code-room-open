@@ -36,6 +36,13 @@ const cctx = (over = {}) => ({ ui: {}, prefs: {}, asstOk: true, project: 'p1', a
   state: { agents: [{ id: 'a1', name: 'Diretor', role: 'Dirige', provider: 'claude' }], teams: [{ id: 't9', name: 'Doc', members: [{ role: 'desenvolvedor', agentId: 'a1' }] }], runs: [{ id: 'r1', status: 'completed', agent: { id: 'a1', name: 'Diretor' }, project: { id: 'p1', name: 'Canal' }, prompt: 'roteiro', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(), deliverables: [] }] },
   agentStatus: () => ({ status: 'idle', label: 'Inativo' }), supervisorAgent: () => null, ...over });
 
+test('janela do chat: interruptor Conversa/Piloto no cabeçalho do Assistente (aria, rótulo e destino do clique)', () => {
+  const off = chatHeaderHtml(cctx()); assert.match(off, /class="cw-mode" role="switch" aria-checked="false" data-act="asst-autonomy" data-id="pilot"/); assert.match(off, /<span>Conversa<\/span>/); assert.match(off, /só propõe/);
+  const c = cctx(); c.asst.autonomy = 'pilot'; const on = chatHeaderHtml(c); assert.match(on, /class="cw-mode on" role="switch" aria-checked="true" data-act="asst-autonomy" data-id="ask"/); assert.match(on, /<span>Piloto<\/span>/); assert.match(on, /modo piloto/);
+  c.asst.pending = { kind: 'ask' }; assert.match(chatHeaderHtml(c), /data-id="ask"[^>]*disabled/, 'trocar de modo espera a resposta em andamento');
+  assert.ok(!chatHeaderHtml(cctx({ ui: { target: 'a:a1' } })).includes('asst-autonomy'), 'só no Assistente');
+});
+
 test('janela do chat: cabeçalho muda com quem se fala (Assistente, agente, equipe) e mostra as conversas só no Assistente', () => {
   assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · só propõe/); assert.match(chatHeaderHtml(cctx()), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
   const two = cctx(); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false, waiting: true }, { id: 't2', title: '<b>Código</b>', active: true }];

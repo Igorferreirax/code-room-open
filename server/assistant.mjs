@@ -9,6 +9,7 @@ import { cleanModel, cleanEffort } from './effort.mjs';
 import { cleanBrowser, BROWSER_LABEL } from './browseruse.mjs';
 import { validateRoutine } from './routines.mjs';
 import { STYLES } from './channels.mjs';
+import { blockFor } from './obsidian.mjs';
 
 // Assistente: a IA que a PESSOA conectou (Claude Code, Codex ou Gemini) vira o suporte dentro do Code Room.
 // 1) Briefing: na primeira conexão a IA lê o manual (docs/ASSISTENTE.md), diz o que entendeu e isso é GRAVADO na máquina da pessoa.
@@ -25,6 +26,8 @@ const noBom = s => String(s || '').replace(/^﻿/, '');
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 export const isInternal = x => !!x?.internal;
+// O que a pessoa está vendo (enviado pela tela). Texto simples, sem quebra de linha, até 600 caracteres; vale para "isto", "esta tela", "essa entrega".
+export const screenLine = screen => { const t = String(screen ?? '').replace(/[\r\n]+/g, ' ').replace(/=== [A-ZÀ-Ú ]+ ===/g, '').trim().slice(0, 600); return t ? `\nTELA ABERTA AGORA (é o que a pessoa chama de “esta tela”, “isto” ou “essa entrega”): ${t}` : ''; };
 
 // ---------- manual ----------
 export function loadManual(root) {
@@ -256,9 +259,10 @@ export function memoryOf(messages = [], keep = MAX_HISTORY) {
   }
   let text = out.slice(-30).join('\n'); if (text.length > 2400) text = text.slice(-2400); return text;
 }
-export function buildPrompt({ manual, knowledge, summary, history = [], memory = '', question, max = MAX_PROMPT, pilot = false }) {
+export function buildPrompt({ manual, knowledge, summary, history = [], memory = '', question, max = MAX_PROMPT, pilot = false, extras = '' }) {
+  extras = String(extras || '').slice(0, 3800);   // tela aberta e notas do Obsidian: seção própria, que o corte de tamanho não alcança (antes ficavam no fim do estado e eram cortadas)
   const hist = history.slice(-MAX_HISTORY).map(m => `${m.role === 'user' ? 'Pessoa' : 'Assistente'}: ${short(m.text, MAX_MSG_IN_PROMPT)}`);
-  const parts = (h, man = manual, sum = summary, know = knowledge, mem = memory) => `${pilot ? PILOT_RULES : RULES}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== MEMÓRIA DA CONVERSA (resumo do que veio antes das mensagens abaixo) ===\n${mem || '(nada antes)'}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n=== PERGUNTA DA PESSOA ===\n${question}`;
+  const parts = (h, man = manual, sum = summary, know = knowledge, mem = memory) => `${pilot ? PILOT_RULES : RULES}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== MEMÓRIA DA CONVERSA (resumo do que veio antes das mensagens abaixo) ===\n${mem || '(nada antes)'}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n${extras ? `=== CONTEXTO EXTRA DESTA PERGUNTA (tela aberta e notas do Obsidian) ===\n${extras}\n\n` : ''}=== PERGUNTA DA PESSOA ===\n${question}`;
   // A pergunta fica por último e nunca é cortada. Se passar do limite: primeiro sai o histórico antigo, depois encurta o estado, o que a IA entendeu e, por fim, o fim do manual.
   let h = hist, man = manual, sum = summary, know = knowledge, out = parts(h, man, sum, know);
   while (out.length > max && h.length) { h = h.slice(1); out = parts(h, man, sum, know); }
@@ -324,7 +328,7 @@ export class Assistant {
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
       autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
-      pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
+      pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at, activity: this.#activity(pt) } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
   // Fecha as tarefas pendentes que já terminaram (sem depender de eventos): vira mensagem do assistente, erro ou conhecimento gravado.
@@ -355,6 +359,8 @@ export class Assistant {
       }
     }
   }
+  // O que a IA está fazendo agora (última ferramenta usada), para o chat não parecer travado em pedidos longos do piloto.
+  #activity(t) { try { if (!t?.currentAttemptId) return ''; const ev = this.store.events(t.currentAttemptId); for (let i = ev.length - 1; i >= 0; i--) if (ev[i].type === 'activity' && ev[i].text) return short(ev[i].text, 90); } catch {} return ''; }
   #answer(task) { const att = task?.result?.attemptId ? this.store.get('runs', task.result.attemptId) : null; return att?.answer || task?.result?.summary || ''; }
   #writeKnowledge(text, provider, hash) {
     mkdirSync(this.dir, { recursive: true });
@@ -369,15 +375,17 @@ export class Assistant {
     const p = await this.#pickProvider(provider), task = this.#task(p, briefingPrompt(p === 'agy' ? manual.text.slice(0, AGY_BUDGET - 4000) : manual.text), 'brief');
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
-  async ask(text, { projectId = null } = {}) {
+  async ask(text, { projectId = null, screen = '' } = {}) {
     await this.#sync(); const s = this.s, q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
     { const w0 = await this.worldFn(), al = proactiveAlerts(w0).filter(a => !(s.dismissedAlerts || []).includes(a.id)), reply = /^\/celular\s*$/i.test(q) && this.phoneHelp ? await this.phoneHelp().catch(e => 'Não consegui ler a rede agora: ' + e.message) : localCommand(q, w0, al);
       if (reply) { const at = new Date(this.now()).toISOString(); this.#save({ messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at }, { id: randomUUID(), role: 'assistant', text: reply, at, local: true, actions: [] }], error: null }); return this.status(); } }
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider), pilot = s.autonomy === 'pilot';
+    // Notas do Obsidian da pessoa (só se ela ligou o vínculo; nunca com projeto Financeiro em foco).
+    let obsText = ''; try { const po = projectId ? this.store.get('projects', projectId) : null; if (po?.area !== 'Financeiro') { const r = await blockFor(this.store, { objective: q, project: po ? { id: po.id, name: po.name, area: po.area } : { id: 'assistant-chat', name: '', area: 'Geral' } }, { role: '' }); if (r.text) obsText = '\n' + r.text; } } catch {}
     if (pilot && projectId && this.store.get('projects', projectId)?.area === 'Financeiro') throw new Error('Modo piloto não roda com um projeto financeiro em foco (navegador e ferramentas externas ficam bloqueados ali). Troque o foco ou volte ao modo consulta.');
-    const prompt = buildPrompt({ pilot, manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : ''), history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId });
+    const prompt = buildPrompt({ pilot, extras: [screenLine(screen).trim(), obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId });
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString() }], error: null });
     return this.status();

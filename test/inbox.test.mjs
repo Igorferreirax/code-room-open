@@ -118,3 +118,18 @@ test('entregas antigas (mais de 14 dias) sem revisão não contam como pendênci
   assert.equal(pendingList(ctx({ runs: [run({ createdAt: old })] })).length, 0);
   assert.equal(proactiveAlerts({ runs: [{ id: 'o', status: 'completed', review: false, files: 1, createdAt: old, updatedAt: old }] }).some(a => /^review:/.test(a.id)), false);
 });
+
+import { NAV_GROUPS } from '../public/views.js';
+test('menu lateral: 3 grupos com separadores, todos os 12 destinos continuam acessíveis e o contador segue no botão', () => {
+  const html = railHtml('room', { room: 2, deliveries: 1 }), ids = [...html.matchAll(/data-nav="(\w+)"/g)].map(m => m[1]);
+  assert.equal((html.match(/class="rail-sep"/g) || []).length, 2); assert.equal(ids.length, 12); assert.equal(new Set(ids).size, 12);
+  assert.deepEqual(NAV_GROUPS.flat().sort(), ['agents', 'connections', 'deliveries', 'projects', 'recipes', 'room', 'routines', 'settings', 'skills', 'tasks', 'teams', 'usage']);
+  assert.match(html, /aria-label="Entregas, 1 pendente"/); assert.match(html, /aria-current="page"/);
+});
+
+test('pendência de entrega abre direto a mais recente (arquivo de resultado antes de logs e scripts)', () => {
+  const mk = (id, at, files) => run({ id, updatedAt: at, deliverables: files.map(path => ({ path })) });
+  const items = pendingList(ctx({ runs: [mk('velha', '2026-11-01T10:00:00Z', ['a.md']), mk('nova', '2026-11-09T10:00:00Z', ['debug.log', 'gerar.py', 'final.mp4'])] }));
+  const it = items.find(i => i.deliveries); assert.equal(it.key, 'nova|final.mp4');
+  assert.match(needsYou(ctx({ runs: [mk('nova', '2026-11-09T10:00:00Z', ['final.mp4'])] })), /data-act="pend-open" data-id="nova\|final\.mp4"/);
+});

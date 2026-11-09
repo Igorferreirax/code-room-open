@@ -142,5 +142,8 @@ export function retryTask(store, id) {
   if (!task) throw new Error('Tarefa não encontrada.');
   if (task.attemptCount >= task.limits.maxAttempts) throw new Error(`Limite de ${task.limits.maxAttempts} tentativa(s) atingido.`);
   // Nova tentativa depois de falha começa limpa: uma sessão que falhou pode estar incompleta ou inexistente.
-  return transition(store, task, 'queued', { reason: null, error: null, resume: null });
+  const queued = transition(store, task, 'queued', { reason: null, error: null, resume: null });
+  // Quem ficou bloqueado só porque esta tarefa tinha falhado ou sido interrompida volta a esperar por ela.
+  for (const d of store.list('tasks')) if (d.dependsOn?.includes(id) && d.status === 'blocked') transition(store, d, 'waiting_dependency', { reason: null });
+  return queued;
 }
