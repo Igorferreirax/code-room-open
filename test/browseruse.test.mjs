@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setup, addProject, addAgent } from './helpers.mjs';
 import { createTask } from '../server/tasks.mjs';
-import { cleanBrowser, claudeBrowserArgs, codexBrowserArgs, browserNote, PLAYWRIGHT_ARGS, BROWSER_MODES } from '../server/browseruse.mjs';
+import { cleanBrowser, claudeBrowserArgs, codexBrowserArgs, browserNote, PLAYWRIGHT_ARGS, BROWSER_MODES, playwrightServer, findLocalPlaywright } from '../server/browseruse.mjs';
 import { command, connectors } from '../server/connectors.mjs';
 
 test('navegador: desligado por padrão; combinações inválidas são recusadas com motivo claro', () => {
@@ -17,7 +17,7 @@ test('navegador: desligado por padrão; combinações inválidas são recusadas 
 
 test('navegador: Claude Code — separado usa só o Playwright descartável; "meu Chrome" é explícito; desligado não acrescenta nada', () => {
   assert.deepEqual(claudeBrowserArgs('off'), []); assert.deepEqual(claudeBrowserArgs(undefined), []); assert.deepEqual(claudeBrowserArgs('lixo'), []);
-  const a = claudeBrowserArgs('isolado');
+  const NPX = { command: 'npx', args: PLAYWRIGHT_ARGS }, a = claudeBrowserArgs('isolado', NPX);
   assert.ok(a.includes('--strict-mcp-config'), 'as outras ferramentas MCP do seu Claude não vão junto');
   const cfg = JSON.parse(a[a.indexOf('--mcp-config') + 1]);
   assert.deepEqual(cfg.mcpServers.playwright, { command: 'npx', args: PLAYWRIGHT_ARGS }); assert.ok(PLAYWRIGHT_ARGS.includes('--isolated'), 'perfil descartável, sem suas contas');
@@ -27,7 +27,7 @@ test('navegador: Claude Code — separado usa só o Playwright descartável; "me
 
 test('navegador: Codex — separado entra por -c só nesta execução; outros modos não acrescentam nada', () => {
   assert.deepEqual(codexBrowserArgs('off'), []); assert.deepEqual(codexBrowserArgs('chrome'), [], 'Chrome real não existe para o Codex'); assert.deepEqual(codexBrowserArgs(undefined), []);
-  assert.deepEqual(codexBrowserArgs('isolado'), ['-c', 'mcp_servers.playwright.command="npx"', '-c', 'mcp_servers.playwright.args=["-y","@playwright/mcp@latest","--isolated"]']);
+  assert.deepEqual(codexBrowserArgs('isolado', { command: 'npx', args: PLAYWRIGHT_ARGS }), ['-c', 'mcp_servers.playwright.command="npx"', '-c', 'mcp_servers.playwright.args=["-y","@playwright/mcp@latest","--isolated"]']);
 });
 
 test('navegador: o aviso no histórico da tarefa diz qual navegador foi liberado', () => {
@@ -62,6 +62,19 @@ test('navegador: comando do Claude Code leva os argumentos certos e nunca o nave
 });
 test('navegador: comando do Codex leva o Playwright só quando liberado', { skip: !has('codex') && 'Codex não instalado aqui' }, () => {
   const base = command({ provider: 'codex', mode: 'read' }, 'oi'); assert.ok(!base.args.some(a => /mcp_servers/.test(a)));
-  const iso = command({ provider: 'codex', mode: 'read', browser: 'isolado' }, 'oi'); assert.ok(iso.args.some(a => a === 'mcp_servers.playwright.command="npx"'));
+  const iso = command({ provider: 'codex', mode: 'read', browser: 'isolado' }, 'oi'); assert.ok(iso.args.some(a => /^mcp_servers\.playwright\.command="/.test(a)), 'o servidor do Playwright entra (node com cópia local, ou npx)');
   assert.equal(iso.args.at(-1), '-', 'o prompt continua vindo pela entrada padrão');
+});
+
+test('navegador: usa a cópia local do Playwright MCP (sobe em segundos); sem cópia, cai no npx; o caminho vai citado ao Codex', async () => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises'), { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'pw-')); try {
+    assert.equal(findLocalPlaywright({ env: { LOCALAPPDATA: dir, APPDATA: dir }, home: dir }), null);
+    assert.deepEqual(playwrightServer(() => null), { command: 'npx', args: PLAYWRIGHT_ARGS, local: false });
+    const cli = join(dir, 'npm-cache', '_npx', 'abc', 'node_modules', '@playwright', 'mcp', 'cli.js'); await mkdir(join(cli, '..'), { recursive: true }); await writeFile(cli, '// x');
+    assert.equal(findLocalPlaywright({ env: { LOCALAPPDATA: dir }, home: dir }), cli);
+    const srv = playwrightServer(() => cli); assert.equal(srv.command, process.execPath); assert.deepEqual(srv.args, [cli, '--isolated']); assert.equal(srv.local, true);
+    const a = claudeBrowserArgs('isolado', srv); assert.deepEqual(JSON.parse(a[a.indexOf('--mcp-config') + 1]).mcpServers.playwright, { command: process.execPath, args: [cli, '--isolated'] });
+    const c = codexBrowserArgs('isolado', srv); assert.equal(c[1], 'mcp_servers.playwright.command=' + JSON.stringify(process.execPath)); assert.equal(JSON.parse(c[3].split('args=')[1])[1], '--isolated');
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

@@ -147,7 +147,7 @@ async function gitCommitTask(t) {
 }
 // ---------- Histórico de ações (trilha de auditoria): o que foi iniciado, aprovado, ajustado ou cancelado, por onde e quando ----------
 const AUDIT_ROUTES = [
-  [/^\/api\/(?:runs|tasks)$/, 'iniciou uma tarefa'], [/^\/api\/flows$/, 'iniciou uma missão de equipe'], [/^\/api\/plans$/, 'pediu um plano ao supervisor'], [/^\/api\/plans\/[\w-]+\/accept$/, 'aceitou um plano'], [/^\/api\/subtasks\/[\w-]+\/approve$/, 'aprovou um pedido de ajuda entre agentes'], [/^\/api\/social\/posts\/[\w]+\/approve$/, 'aprovou uma postagem em rede social'], [/^\/api\/apis$/, 'salvou uma chave na biblioteca de APIs'], [/^\/api\/economy\/apply$/, 'aplicou sugestões de economia nos agentes'], [/^\/api\/economy\/undo$/, 'desfez as sugestões de economia'], [/^\/api\/settings\/token-budget$/, 'mudou o teto diário de tokens'], [/^\/api\/sync-ias\/apply$/, 'instalou skills ou MCP em outras IAs'], [/^\/api\/apis\/[\w-]+\/delete$/, 'removeu uma chave da biblioteca de APIs'], [/^\/api\/social\/accounts$/, 'salvou uma conta de rede social'], [/^\/api\/social\/accounts\/[\w-]+\/delete$/, 'removeu uma conta de rede social'],
+  [/^\/api\/(?:runs|tasks)$/, 'iniciou uma tarefa'], [/^\/api\/flows$/, 'iniciou uma missão de equipe'], [/^\/api\/plans$/, 'pediu um plano ao supervisor'], [/^\/api\/plans\/[\w-]+\/accept$/, 'aceitou um plano'], [/^\/api\/subtasks\/[\w-]+\/approve$/, 'aprovou um pedido de ajuda entre agentes'], [/^\/api\/social\/posts\/[\w]+\/approve$/, 'aprovou uma postagem em rede social'], [/^\/api\/apis$/, 'salvou uma chave na biblioteca de APIs'], [/^\/api\/economy\/apply$/, 'aplicou sugestões de economia nos agentes'], [/^\/api\/agents\/[\w-]+\/delete$/, 'excluiu um agente'], [/^\/api\/teams\/[\w-]+\/delete$/, 'excluiu uma equipe'], [/^\/api\/projects\/members$/, 'mudou quem trabalha no projeto'], [/^\/api\/economy\/undo$/, 'desfez as sugestões de economia'], [/^\/api\/settings\/token-budget$/, 'mudou o teto diário de tokens'], [/^\/api\/sync-ias\/apply$/, 'instalou skills ou MCP em outras IAs'], [/^\/api\/apis\/[\w-]+\/delete$/, 'removeu uma chave da biblioteca de APIs'], [/^\/api\/social\/accounts$/, 'salvou uma conta de rede social'], [/^\/api\/social\/accounts\/[\w-]+\/delete$/, 'removeu uma conta de rede social'],
   [/^\/api\/tasks\/([\w-]+)\/approve$/, 'aprovou uma entrega', 'task'], [/^\/api\/tasks\/([\w-]+)\/unblock$/, 'liberou uma ferramenta para um agente', 'task'], [/^\/api\/tasks\/([\w-]+)\/request-changes$/, 'pediu ajustes em uma entrega', 'task'], [/^\/api\/(?:runs|tasks)\/([\w-]+)\/cancel$/, 'cancelou uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/retry$/, 'repetiu uma tarefa', 'task'],
   [/^\/api\/projects\/([\w-]+)\/git\/commit$/, 'commitou uma entrega no Git', 'project'], [/^\/api\/obsidian\/save$/, 'salvou uma entrega no Obsidian'], [/^\/api\/obsidian\/config$/, 'mudou o vínculo com o Obsidian'], [/^\/api\/git\/config$/, 'mudou o commit automático do Git'], [/^\/api\/projects\/([\w-]+)\/references$/, 'mudou as pastas de referência', 'project'],
   [/^\/api\/batches\/[\w-]+\/approve$/, 'liberou os créditos de um lote'], [/^\/api\/batches\/[\w-]+\/episodes\/[\w-]+\/approve-preview$/, 'aprovou a prévia de um episódio'],
@@ -480,6 +480,32 @@ const handle = async (req, res) => {
         if (p === '/api/devices/pair-code') { masterOnly(auth); return send(res, 200, devices.createCode()); }
         if ((m = p.match(/^\/api\/devices\/([a-f0-9]+)\/revoke$/))) { masterOnly(auth); devices.revoke(m[1]); return send(res, 200, { ok: true }); }
         if (p === '/api/projects') { masterOnly(auth); return send(res, 201, await registerProject(b)); }
+        // Excluir agente ou equipe (antes não havia como): só com confirmação, nunca com tarefa em andamento e sem deixar rastro quebrado.
+        if ((m = p.match(/^\/api\/agents\/([a-zA-Z0-9-]+)\/delete$/))) {
+          masterOnly(auth); const ag = store.get('agents', m[1]); if (!ag) throw new Error('Agente não encontrado.'); if (String(ag.id).startsWith('assistant-')) throw new Error('O agente do Assistente é interno e não pode ser excluído.');
+          if (b.confirm !== true) throw new Error('Confirme a exclusão com { "confirm": true }.');
+          if (store.list('tasks').some(t => t.agent?.id === ag.id && ['running', 'cancelling', 'queued'].includes(t.status))) throw new Error('Este agente tem tarefa em andamento ou na fila. Cancele ou espere terminar.');
+          const inTeams = store.list('teams').filter(t => (t.members || []).some(x => x.agentId === ag.id)); if (inTeams.length) throw new Error(`Este agente faz parte de: ${inTeams.map(t => t.name).join(', ')}. Tire-o da equipe (ou exclua a equipe) antes.`);
+          const usedBy = [...store.list('routines').filter(r => r.target?.type === 'agent' && r.target.id === ag.id), ...store.list('folderjobs').filter(j => j.target?.type === 'agent' && j.target.id === ag.id)]; if (usedBy.length) throw new Error(`Há rotinas ou pastas de entrada usando este agente: ${usedBy.slice(0, 3).map(r => r.name || r.id).join(', ')}. Troque o responsável antes.`);
+          for (const l of store.list('links')) if (l.from === ag.id || l.to === ag.id) store.remove('links', l.id);
+          for (const pj of store.list('projects')) if ((pj.agentIds || []).includes(ag.id)) store.put('projects', { ...pj, agentIds: pj.agentIds.filter(x => x !== ag.id) });
+          store.remove('agents', ag.id); store.event('_records', { type: 'record', kind: 'agents', id: ag.id, at: new Date().toISOString() }); return send(res, 200, { ok: true, name: ag.name });
+        }
+        if ((m = p.match(/^\/api\/teams\/([a-zA-Z0-9-]+)\/delete$/))) {
+          masterOnly(auth); const tm = store.get('teams', m[1]); if (!tm) throw new Error('Equipe não encontrada.'); if (b.confirm !== true) throw new Error('Confirme a exclusão com { "confirm": true }.');
+          if (store.list('flows').some(f => f.teamId === tm.id && ['running', 'queued', 'active'].includes(f.status))) throw new Error('Esta equipe tem um fluxo em andamento. Espere terminar ou cancele.');
+          const usedBy = [...store.list('routines').filter(r => r.target?.type === 'team' && r.target.id === tm.id), ...store.list('folderjobs').filter(j => j.target?.type === 'team' && j.target.id === tm.id)]; if (usedBy.length) throw new Error(`Há rotinas ou pastas de entrada usando esta equipe: ${usedBy.slice(0, 3).map(r => r.name || r.id).join(', ')}. Troque o responsável antes.`);
+          store.remove('teams', tm.id); store.event('_records', { type: 'record', kind: 'teams', id: tm.id, at: new Date().toISOString() }); return send(res, 200, { ok: true, name: tm.name });
+        }
+        // Quem trabalha em cada projeto (vínculo explícito): "trazer" um agente ou uma equipe inteira para o projeto, ou tirar. Só muda a exibição e a organização; permissões e liberações dos agentes não mudam.
+        if (p === '/api/projects/members') {
+          masterOnly(auth); const pj = store.get('projects', typeof b.projectId === 'string' ? b.projectId : ''); if (!pj) throw new Error('Projeto não encontrado.');
+          const ids = v => [...new Set((Array.isArray(v) ? v : []).filter(x => typeof x === 'string'))].slice(0, 50), known = new Set(store.list('agents').map(a => a.id));
+          const teamAgents = ids(b.addTeams).flatMap(tid => (store.get('teams', tid)?.members || []).map(m => m.agentId));
+          const add = [...ids(b.add), ...teamAgents].filter(id => known.has(id)), remove = new Set(ids(b.remove));
+          const next = [...new Set([...(pj.agentIds || []), ...add])].filter(id => known.has(id) && !remove.has(id));
+          return send(res, 200, store.put('projects', { ...pj, agentIds: next }));
+        }
         if (p === '/api/providers') { masterOnly(auth); const list = customSpecs(), spec = validateSpec(b, list), next = [...list.filter(x => x.id !== spec.id), spec]; store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 201, providersView()); }
         if (p === '/api/providers/delete') {
           masterOnly(auth); const id = text(b.id, 80); if (!getSpec(id)) throw new Error('IA não encontrada.');

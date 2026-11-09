@@ -14,7 +14,7 @@ export function whoIs(ctx) {
   const t = targetOf(ctx), a = ctx.asst, st = ctx.state || {};
   if (t === 'assistant') return { kind: 'assistant', face: mascot(moodOf(a), 38), title: 'Assistente', sub: moodOf(a) === 'pensando' ? 'pensando…' : a?.briefed ? `${MOODS[moodOf(a)].label} · ${PROV[a.provider] || a.provider || 'IA'} · ${a.autonomy === 'pilot' ? 'modo piloto' : 'só propõe'}` : 'dormindo: apresente o Code Room a ele' };
   if (t.startsWith('a:')) { const ag = (st.agents || []).find(x => x.id === t.slice(2)); if (ag) return { kind: 'agent', face: agentAv(ag, idx(ctx, ag), 36), title: ag.name, sub: `${ag.role} · missão direta`, agent: ag }; }
-  if (t.startsWith('t:')) { const tm = (st.teams || []).find(x => x.id === t.slice(2)); if (tm) { const first = (st.agents || []).find(x => x.id === tm.members?.[0]?.agentId); return { kind: 'team', face: first ? agentAv(first, idx(ctx, first), 36) : avatar(3, 36), title: `Equipe ${tm.name}`, sub: 'desenvolvedor → revisor · missão direta', team: tm }; } }
+  if (t.startsWith('t:')) { const tm = (st.teams || []).find(x => x.id === t.slice(2)); if (tm) { const first = (st.agents || []).find(x => x.id === tm.members?.[0]?.agentId); return { kind: 'team', face: first ? agentAv(first, idx(ctx, first), 36) : avatar(3, 36), title: `${/^equipe/i.test(tm.name) ? '' : 'Equipe '}${tm.name}`, sub: 'desenvolvedor → revisor · missão direta', team: tm }; } }
   if (t === 's') { const sup = ctx.supervisorAgent?.(); return { kind: 'supervisor', face: sup ? agentAv(sup, idx(ctx, sup), 36) : avatar(3, 36), title: 'Supervisor', sub: 'propõe um plano para você aceitar', agent: sup }; }
   return { kind: 'none', face: mascot('feliz', 38), title: 'Chat', sub: '' };
 }

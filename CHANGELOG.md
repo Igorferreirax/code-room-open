@@ -9,7 +9,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.2] - 2026-11-09
+
 ### Adicionado
+- **Equipe do projeto (trazer e tirar):** painel do projeto › “Equipe deste projeto” e o seletor “Trazer” na Sala/Canvas colocam um agente ou uma equipe inteira no projeto. Com agentes trazidos, o Canvas, a Sala e a lista do chat mostram só quem é do projeto, com “Mostrar todas as equipes e agentes (geral)” para ver tudo. Só organiza a tela: permissões e liberações de cada agente não mudam.
+- **Excluir agente e equipe** (antes não havia como): pedem confirmação, recusam agente com tarefa em andamento ou que está numa equipe, e limpam ligações e vínculos do projeto. Ficam registrados no histórico de ações.
+- **Canvas e Sala por projeto:** ao entrar num projeto com gente (vinculada ou que já rodou tarefa nele), o padrão é mostrar só ela; “Todos” continua a um clique no filtro Ambiente.
+- Ícones padronizados: 👥 equipe e 🤖 agente nas listas (o nome “Equipe Equipe de…” deixou de repetir).
 - **Corrigir com a IA:** na tarefa com problema, um botão manda o motivo ao Assistente, que diz a causa e propõe a correção (liberar programa ou ferramenta, ajustar o agente) para você aprovar.
 - **Skills favoritas e escondidas** (tela Skills): estrela para favoritar (vão para o topo) e “Esconder da lista”, com filtros próprios. É só preferência de exibição deste navegador.
 - **YouTube**: o cartão antigo “Publicação” foi para dentro de Redes sociais (“YouTube e Google”), sem duplicar.
@@ -40,6 +46,7 @@ do meio (0.**3**.0).
 - O app usa o mesmo monograma `CR` gerado para o ícone do instalador e aplica uma pilha tipográfica de sistema consistente, sem depender de Poppins ou Century Gothic instaladas.
 
 ### Corrigido
+- **Navegador separado dos agentes dava `CONNECT_TIMEOUT`:** o `npx @playwright/mcp@latest` levava ~25 s para subir e estourava o tempo de conexão do MCP. Agora o Code Room usa a cópia já baixada (sobe em ~2 s) e deixa o `npx` só como reserva.
 - **Mensagem do chat que sumia:** se o envio ao Assistente falhava (ocupado, IA fora, serviço reiniciando), a mensagem aparecia e depois desaparecia, e o texto era apagado. Agora o texto continua na barra e o aviso explica. Com o Code Room fora do ar, a mensagem diz isso em vez de “Failed to fetch”.
 
 ## [0.3.1] - 2026-11-09

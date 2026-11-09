@@ -57,6 +57,7 @@ try:
                 check(f'{label}: tela {s} sem rolagem horizontal', overflow <= 1, f'{overflow}px {culprit}')
             if label == 'desktop':
                 page.click('[data-nav=room]'); time.sleep(0.6)
+                page.evaluate("document.querySelector('#room-filter') && (document.querySelector('#room-filter').value = '', document.querySelector('#room-filter').dispatchEvent(new Event('change', { bubbles: true })))"); time.sleep(0.4)   # o padrão agora é só o projeto; estes checks querem todos
                 check('sala: 3 estações para 3 agentes + supervisor fora', page.locator('.ps-station[data-agent]').count() == 3 + 0, page.locator('.ps-station[data-agent]').count())
                 check('sala: agentes inativos mostram a pose cochilando (uma imagem por estação inativa)', page.evaluate("(() => { const ok = [...document.querySelectorAll('.ps-sleep')].filter(i => i.complete && i.naturalWidth > 0).length; return ok > 0 && ok === document.querySelectorAll('.ps-station.st-idle:not(.ps-sup)').length; })()"))
                 page.screenshot(path=os.path.join(ROOT, 'docs', 'evidencias-ui', 'v6-sala-cochilando.png'))
@@ -166,7 +167,10 @@ try:
                     check('acesso: pareamento mostra QR e código de 8 caracteres', page.locator('.pair-qr svg').count() == 1 and len(page.inner_text('.pair-code').strip()) == 8)
                     page.screenshot(path=os.path.join(ROOT, 'docs', 'evidencias-ui', 'v7-acesso-remoto.png'))
                 else: print('AVISO sem endereço de rede local nesta máquina: QR não exercitado')
-                page.click('#pref-net-lan'); time.sleep(0.8)
+                page.click('#pref-net-lan')
+                for _ in range(30):
+                    time.sleep(0.2)
+                    if api('network')['config']['lan'] is False: break   # espera ativa: sob carga o serviço demora mais que 0,8 s
                 check('acesso: rede local volta a ficar desligada', api('network')['config']['lan'] is False)
                 page.click('[data-act=settings-tab][data-id=aparencia]'); time.sleep(0.3)
                 check('sem Spotify: a configuração e o botão foram retirados (a rádio é a Rádio Lo-Fi)', page.locator('#spotify-url').count() == 0 and page.locator('.spot-btn').count() == 0)
@@ -189,6 +193,7 @@ try:
             for i in range(1, n + 1): touch('touchMove', x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n); time.sleep(0.02)
             touch('touchEnd', x1, y1); time.sleep(0.6)
         tp.click('[data-nav=room]'); time.sleep(0.5)
+        tp.evaluate("document.querySelector('#room-filter') && (document.querySelector('#room-filter').value = '', document.querySelector('#room-filter').dispatchEvent(new Event('change', { bubbles: true })))"); time.sleep(0.4)
         if tp.locator('.cv-node').count() == 0: tp.click('[data-act=view-mode][data-id=canvas]'); time.sleep(0.8)
         check('toque: Canvas mostra os cartões no celular', tp.locator('.cv-node').count() == 4)
         tp.locator('.cv-node', has_text='Caio').scroll_into_view_if_needed(); time.sleep(0.3)

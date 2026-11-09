@@ -65,7 +65,8 @@ ctx.viewMode = () => ctx.prefs.mode || (ctx.prefs.list ? 'list' : 'scene');
 ctx.projectTeamIds = () => {
   const pj = ctx.state.projects.find(p => p.id === ctx.project); if (!pj) return new Set();
   const pn = String(pj.name || '').toLowerCase();
-  return new Set(ctx.state.agents.filter(a => { const r = String(a.room || '').trim().toLowerCase(); return r.length >= 4 && !['geral', 'vídeo', 'video'].includes(r) && pn.includes(r); }).map(a => a.id));
+  const explicit = new Set(pj.agentIds || []);   // vínculo feito por “Trazer para o projeto”
+  return new Set(ctx.state.agents.filter(a => { const r = String(a.room || '').trim().toLowerCase(); return explicit.has(a.id) || (r.length >= 4 && !['geral', 'vídeo', 'video'].includes(r) && pn.includes(r)); }).map(a => a.id));
 };
 // Quem trabalha NESTE projeto: a equipe explícita mais quem já rodou tarefa aqui. É o que a opção "Deste projeto" do filtro mostra.
 ctx.projectAgentIds = () => {
@@ -74,7 +75,7 @@ ctx.projectAgentIds = () => {
   return new Set(ctx.state.agents.filter(a => ids.has(a.id)).map(a => a.id));
 };
 // ctx.room: '' = todos (escolha da pessoa), '@projeto' = só este projeto, nome = um ambiente. Sem escolha ainda (null): abre só na equipe do projeto SE ela for explícita; senão mostra todos (agente novo nunca fica escondido).
-ctx.roomMode = () => ctx.room ?? (ctx.projectTeamIds().size ? '@projeto' : '');
+ctx.roomMode = () => ctx.room ?? (ctx.projectAgentIds().size ? '@projeto' : '');   // ao entrar num projeto com gente (vinculada ou que já rodou tarefa nele), mostra só ela; “Todos” continua a um clique
 ctx.inRoom = a => { const m = ctx.roomMode(); return m === '@projeto' ? ctx.projectAgentIds().has(a.id) : (!m || a.room === m); };
 ctx.roomAgents = () => {
   const sup = ctx.supervisorAgent();
@@ -469,7 +470,7 @@ function openAgentMenu(id) {
   m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><span class="am-status small muted" data-am-status></span>
     <div class="am-live" data-am-live aria-live="polite"></div>
     <form class="am-form" data-id="${V.esc(a.id)}"><label class="sr-only" for="am-t-${V.esc(a.id)}">Missão para ${V.esc(a.name)}</label><textarea id="am-t-${V.esc(a.id)}" rows="2" maxlength="8000" placeholder="Missão para ${V.esc(a.name)}… (Enter envia)"></textarea><button type="submit" class="btn sm">Enviar</button></form>
-    <div class="am-actions"><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Fixar em janela</button><button type="button" role="menuitem" class="ghost" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar</button><button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button></div>`;
+    <div class="am-actions"><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Fixar em janela</button><button type="button" role="menuitem" class="ghost" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar</button>${(ctx.state.projects.find(p => p.id === ctx.project)?.agentIds || []).includes(a.id) ? `<button type="button" role="menuitem" class="ghost" data-act="member-remove" data-id="${V.esc(a.id)}">Tirar do projeto</button>` : ''}<button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button></div>`;
   document.body.appendChild(m); ctx.ui.bubble = id; renderBubble(); placeAgentMenu(m); refreshLive().then(renderBubble);
   m.querySelector('textarea')?.focus();
 }
@@ -563,6 +564,13 @@ const actions = {
   'tool-sel': id => { ctx.ui.toolSel = id; render(); }, 'tool-help': id => { ctx.ui.toolSel = id; ctx.ui.agentsTab = 'tools'; render(); },
   'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
+  'agent-delete': async id => { const a = ctx.state.agents.find(x => x.id === id); if (!a || !confirm(`Excluir o agente “${a.name}”?
+
+Isso apaga o perfil dele (nome, instruções, liberações). As tarefas e entregas antigas continuam no histórico. Não dá para desfazer.`)) return; try { await api(`agents/${id}/delete`, { confirm: true }); ctx.ui.panel = null; await refresh(); notify(`Agente “${a.name}” excluído.`); } catch (e) { notify(e.message, true); } },
+  'team-delete': async id => { const t = ctx.state.teams.find(x => x.id === id); if (!t || !confirm(`Excluir a equipe “${t.name}”?
+
+Os agentes dela continuam existindo; só a equipe (papéis e ordem) é apagada. Não dá para desfazer.`)) return; try { await api(`teams/${id}/delete`, { confirm: true }); await refresh(); notify(`Equipe “${t.name}” excluída.`); } catch (e) { notify(e.message, true); } },
+  'member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; closeAgentMenu(); await api('projects/members', { projectId: pid, remove: [id] }); await refresh(); notify('Agente tirado do projeto (ele continua existindo e pode voltar quando quiser).'); },
   'skill-view': id => { ctx.ui.skillView = id || ''; ctx.ui.skillMore = false; render(); },
   'skill-fav': id => skillPref('fav', id), 'skill-hide': id => skillPref('hide', id),
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
@@ -821,10 +829,12 @@ document.addEventListener('change', async e => {
     else if (t.id === 'social-net') { ctx.ui.socialForm = { ...(ctx.ui.socialForm || {}), network: t.value }; render(); }
     else if (t.id === 'git-auto') { api('git/config', { autoCommit: t.checked }).then(c => { if (ctx.gitInfo) ctx.gitInfo.config = c; notify(c.autoCommit ? 'Ao aprovar uma entrega, o Code Room cria um commit local com os arquivos dela.' : 'Commit automático desligado.'); }).catch(e => { t.checked = !t.checked; notify(e.message, true); }); }
     else if (t.id === 'room-filter') { ctx.room = t.value; render(); }
+    else if (t.id === 'member-add' || t.classList?.contains('member-add')) { const [k, id] = [t.value.slice(0, 1), t.value.slice(2)], pid = t.dataset.project || ctx.project; if (!id || !pid) return; await api('projects/members', { projectId: pid, ...(k === 't' ? { addTeams: [id] } : { add: [id] }) }); if (pid === ctx.project) ctx.room = '@projeto'; await refresh(); notify(k === 't' ? 'Equipe trazida para o projeto.' : 'Agente trazido para o projeto.'); }
     else if (t.id === 'sup-select') { store.set('cr.sup.' + ctx.project, t.value); render(); }
     else if (t.id === 'usage-period') { ctx.ui.usagePeriod = t.value; render(); } else if (t.id === 'usage-project') { ctx.ui.usageProject = t.value; render(); }
     else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
+    else if (t.id === 'target' && t.value === '@all') { ctx.ui.chatAll = !ctx.ui.chatAll; render(); renderAsst(); }
     else if (t.id === 'target') { ctx.sim = null; ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
     else if (t.dataset?.act === 'skill-agent') {
