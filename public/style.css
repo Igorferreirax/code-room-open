@@ -743,3 +743,11 @@ html[data-motion=off] .radio-pill.on .rp-glow{opacity:.45}
 .radio-pill .rp-vol{width:72px;height:14px;accent-color:var(--accent,#2b7bff);margin:0}
 .radio-pill .rp-next{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:0;background:transparent;color:var(--muted,#8fa3c7);cursor:pointer;padding:0}.radio-pill .rp-next:hover{color:var(--text,#e8eefc)}
 .radio-pill .rp-fab:active{transform:scale(.94)}
+
+/* Barras de rolagem finas e discretas (o trilho some; só o "dedo" aparece, e fica mais claro ao passar o mouse) */
+*{scrollbar-width:thin;scrollbar-color:rgba(143,163,199,.32) transparent}
+*::-webkit-scrollbar{width:6px;height:6px}
+*::-webkit-scrollbar-track,*::-webkit-scrollbar-corner{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(143,163,199,.28);border-radius:999px}
+*::-webkit-scrollbar-thumb:hover{background:rgba(143,163,199,.6)}
+*::-webkit-scrollbar-button{display:none;width:0;height:0}
