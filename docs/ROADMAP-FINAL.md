@@ -35,12 +35,12 @@ Legenda: ✅ feito · 🔄 em andamento · ⬜ a fazer · 👤 depende do Igor
 - ✅ Corrigido o "Prompt grande demais" no Antigravity (causa: respostas do Assistente viravam "entregas" e voltavam em todo prompt).
 - ✅ Acesso remoto: diagnóstico, botão de firewall (UAC), `/celular` no Assistente, aviso de rede local, prompt em `CELULAR-PROMPT.md`. ⬜ Validar com um celular real.
 - ✅ Criativos: Reel v1 e v2 (9:16) e legendas em `Desktop/Code Room Divulgacao`.
-- ⬜ Dois servidores do Code Room antigos (ativos desde 06/11 13:00) ainda rodando na máquina: conferir de onde vêm e encerrar.
+- ✅ Os “servidores antigos” de 06/11 eram o PM2 do próprio usuário (não são do Code Room); conferido em 09/11/2026.
 - ⬜ Retenção/limpeza de tarefas internas do Assistente; erros antigos do chat.
 
 ## G. Fechamento (07/11/2026, noite)
 - ✅ v0.2.1 publicada (Release, landing com links e SHA-256 novos conferidos em produção). Teste do atualizador: 28 OK.
 - ✅ Mencionar agente por clique; limpar erros do chat; limpeza de tarefas internas com prévia; comandos locais antes da apresentação.
 - ⬜ Teste do acesso remoto no Android (guia em CELULAR-PROMPT.md), assinatura do Setup.exe, domínio da Bytelab.
-- ⬜ Dois processos antigos do Code Room (desde 06/11 13:00; um em porta aleatória) ainda ativos: não encerrados por não saber de quem são.
+- ✅ Idem: eram processos do PM2, não do Code Room.
 

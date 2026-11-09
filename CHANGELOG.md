@@ -10,12 +10,14 @@ do meio (0.**3**.0).
 ## [Não lançado]
 
 ### Adicionado
+- **Corrigir com a IA:** na tarefa com problema, um botão manda o motivo ao Assistente, que diz a causa e propõe a correção (liberar programa ou ferramenta, ajustar o agente) para você aprovar.
+- **Skills favoritas e escondidas** (tela Skills): estrela para favoritar (vão para o topo) e “Esconder da lista”, com filtros próprios. É só preferência de exibição deste navegador.
 - **YouTube**: o cartão antigo “Publicação” foi para dentro de Redes sociais (“YouTube e Google”), sem duplicar.
 - **Redes sociais** (Conexões): cadastre contas de YouTube, Bluesky, Mastodon, Telegram e Discord (publicam) e de Instagram, X, TikTok, Threads, LinkedIn e Facebook (pacote pronto). Cite `+apelido` em qualquer pedido ou rotina: o agente propõe a postagem e você aprova texto e horário no chat. Agendamento, limite diário por conta, nada publica sem aprovação e senhas só no computador. Veja `docs/REDES-SOCIAIS.md`.
 - **Repetir todo dia**: botão na tela da tarefa e em “Você pediu” abre a rotina já preenchida; modelos de rotina (notícias, cursos gratuitos, vagas, post do dia).
 - **Pesquisar na web** (opção do agente, só Claude Code): busca e leitura de páginas para rotinas de pesquisa; bloqueado em projeto Financeiro; ligado no modo piloto.
 - **Rádio lo-fi em pixel art:** o botão da rádio é o radinho (imagem de 5 KB). Clicar liga (ele balança de leve, o visor acende e sobem notinhas) e clicar de novo para o som, sem abrir painel. Enquanto toca, uma barrinha de volume (e a próxima faixa) aparece grudada nele. Sem movimento ligado, fica parado.
-- **O que o Code Room enviou** (Conexões): as últimas chamadas para fora das redes sociais e da Biblioteca de APIs, com chaves e senhas mascaradas, para você conferir exatamente o que saiu.
+- **O que o Code Room enviou** (Conexões): as últimas chamadas para fora das redes sociais, do YouTube (login e upload), da verificação de atualização e da Biblioteca de APIs, com chaves e senhas mascaradas, para você conferir exatamente o que saiu.
 - **Privacidade e segurança no padrão de projeto aberto:** [docs/PRIVACIDADE.md](docs/PRIVACIDADE.md) lista o que fica no computador, o que sai, para onde e quando, e um teste falha se o código chamar um endereço que não esteja listado. CI no GitHub (Windows) com permissão mínima e ações presas a um commit, rodando sintaxe, testes e auditoria. Seção de privacidade no README e regra no CONTRIBUTING.
 - **Economia de tokens** (Consumo): “Onde os tokens foram” por agente, projeto e dia; sugestões para gastar menos (modelo mais leve, menos esforço, outra IA quando o limite do Claude passa de 80%) que você marca, aplica e pode desfazer; teto diário de tokens que avisa em 80% e impede iniciar novas tarefas no limite.
 - **Agente bloqueado vira “Liberar” com um clique**: quando o Claude nega um programa, um MCP ou a pesquisa na web por falta de liberação, a tarefa mostra o que faltou (com “Liberar” e “Liberar e pedir de novo”), o chat avisa e “Precisa de você agora” lista. Programas que dão controle total do computador (PowerShell, cmd, rm…) nunca são oferecidos; Financeiro continua bloqueando MCP e web.
@@ -36,6 +38,9 @@ do meio (0.**3**.0).
 - O chat do Assistente informa em cada pergunta quais fontes de contexto foram incluídas: projeto, tela aberta e quantidade de referências do Obsidian. Isso não altera o conteúdo enviado; torna o contexto visível no histórico.
 - O roadmap foi reconciliado com os recursos das versões 0.3.0 e 0.3.1 e agora separa itens entregues de pendências reais.
 - O app usa o mesmo monograma `CR` gerado para o ícone do instalador e aplica uma pilha tipográfica de sistema consistente, sem depender de Poppins ou Century Gothic instaladas.
+
+### Corrigido
+- **Mensagem do chat que sumia:** se o envio ao Assistente falhava (ocupado, IA fora, serviço reiniciando), a mensagem aparecia e depois desaparecia, e o texto era apagado. Agora o texto continua na barra e o aviso explica. Com o Code Room fora do ar, a mensagem diz isso em vez de “Failed to fetch”.
 
 ## [0.3.1] - 2026-11-09
 

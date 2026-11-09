@@ -24,8 +24,8 @@ function packCaption(network, title, description, tags) {
 const text = (v, max, label, req = true) => { const s = String(v ?? '').trim(); if (req && !s) throw new Error(`${label} obrigatório.`); if (s.length > max) throw new Error(`${label}: máximo de ${max} caracteres.`); return s; };
 
 export class Publisher {
-  constructor(store, { dataDir, base = process.env.CODE_ROOM_GOOGLE_BASE || '' } = {}) {
-    this.store = store; this.dir = dataDir; this.pending = new Map();
+  constructor(store, { dataDir, base = process.env.CODE_ROOM_GOOGLE_BASE || '', fetchFn = (...a) => fetch(...a) } = {}) {
+    this.fetchFn = fetchFn; this.store = store; this.dir = dataDir; this.pending = new Map();
     const g = base ? { auth: `${base}/auth`, token: `${base}/token`, api: `${base}/youtube/v3`, upload: `${base}/upload/youtube/v3/videos`, analytics: `${base}/yt-analytics/v2/reports` }
       : { auth: 'https://accounts.google.com/o/oauth2/v2/auth', token: 'https://oauth2.googleapis.com/token', api: 'https://www.googleapis.com/youtube/v3', upload: 'https://www.googleapis.com/upload/youtube/v3/videos', analytics: 'https://youtubeanalytics.googleapis.com/v2/reports' };
     this.g = g;
@@ -65,7 +65,7 @@ export class Publisher {
   }
   async disconnect() { const tok = await this.#read('publish-tokens.json'); delete tok.google; await this.#write('publish-tokens.json', tok); return this.status(); }
   async #token(params) {
-    const res = await fetch(this.g.token, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
+    const res = await this.fetchFn(this.g.token, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
     const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(`Google recusou o pedido (${j.error_description || j.error || res.status}).`); return j;
   }
   async #access() {
@@ -77,7 +77,7 @@ export class Publisher {
   }
   async #api(path) { return this.#get(this.g.api + path); }
   async #get(url) {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${await this.#access()}` } });
+    const res = await this.fetchFn(url, { headers: { Authorization: `Bearer ${await this.#access()}` } });
     const j = await res.json().catch(() => ({})); if (!res.ok) throw new Error(`YouTube respondeu ${res.status}: ${j.error?.message || ''}`); return j;
   }
 
@@ -158,20 +158,20 @@ export class Publisher {
     if (!PRIVACY.includes(privacy)) throw new Error('Visibilidade inválida.');
     const size = (await stat(file)).size, token = await this.#access();
     const meta = { snippet: { title: text(title, 100, 'Título'), description: String(description).slice(0, 4900), tags, categoryId: '24' }, status: { privacyStatus: privacy, selfDeclaredMadeForKids: false } };
-    const init = await fetch(`${this.g.upload}?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(size), 'X-Upload-Content-Type': 'video/mp4' }, body: JSON.stringify(meta) });
+    const init = await this.fetchFn(`${this.g.upload}?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(size), 'X-Upload-Content-Type': 'video/mp4' }, body: JSON.stringify(meta) });
     if (!init.ok) throw new Error(`YouTube recusou iniciar o envio (${init.status}): ${(await init.text()).slice(0, 200)}`);
     const loc = init.headers.get('location'); if (!loc) throw new Error('YouTube não devolveu o endereço de envio.');
-    const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Length': String(size), 'Content-Type': 'video/mp4' }, body: createReadStream(file), duplex: 'half' });
+    const put = await this.fetchFn(loc, { method: 'PUT', headers: { 'Content-Length': String(size), 'Content-Type': 'video/mp4' }, body: createReadStream(file), duplex: 'half' });
     const j = await put.json().catch(() => ({})); if (!put.ok) throw new Error(`Envio falhou (${put.status}): ${j.error?.message || ''}`);
     return { videoId: j.id, url: `https://youtube.com/shorts/${j.id}` };
   }
   async #upload(post, project) {
     const file = await safeFile(project.path, post.file), size = (await stat(file)).size, token = await this.#access();
     const meta = { snippet: { title: post.title, description: post.description, tags: post.tags, categoryId: '24' }, status: { privacyStatus: post.privacy, selfDeclaredMadeForKids: false } };
-    const init = await fetch(`${this.g.upload}?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(size), 'X-Upload-Content-Type': 'video/mp4' }, body: JSON.stringify(meta) });
+    const init = await this.fetchFn(`${this.g.upload}?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(size), 'X-Upload-Content-Type': 'video/mp4' }, body: JSON.stringify(meta) });
     if (!init.ok) throw new Error(`YouTube recusou iniciar o envio (${init.status}): ${(await init.text()).slice(0, 200)}`);
     const loc = init.headers.get('location'); if (!loc) throw new Error('YouTube não devolveu o endereço de envio.');
-    const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Length': String(size), 'Content-Type': 'video/mp4' }, body: createReadStream(file), duplex: 'half' });
+    const put = await this.fetchFn(loc, { method: 'PUT', headers: { 'Content-Length': String(size), 'Content-Type': 'video/mp4' }, body: createReadStream(file), duplex: 'half' });
     const j = await put.json().catch(() => ({})); if (!put.ok) throw new Error(`Envio falhou (${put.status}): ${j.error?.message || ''}`);
     Object.assign(post, { status: 'publicado', videoId: j.id, url: `https://youtube.com/shorts/${j.id}`, publishedAt: now() }); this.store.put('posts', post);
   }

@@ -355,6 +355,9 @@ function speakNewReply() {
   if (!last || last.id === ctx.ui.lastSpoken) return; ctx.ui.lastSpoken = last.id;
   if (ctx.prefs.voiceReply) { const t = stripForSpeech(last.text); if (t) speak(window, t, { rate: ctx.prefs.voiceRate || 1 }); }
 }
+// Skills favoritas e escondidas: só preferência de exibição deste navegador (não muda nada nos agentes nem nas skills).
+ctx.skillPrefs = store.get('cr.skillPrefs', { fav: [], hide: [] });
+function skillPref(kind, name) { const p = ctx.skillPrefs, other = kind === 'fav' ? 'hide' : 'fav', has = (p[kind] || []).includes(name); p[kind] = has ? p[kind].filter(x => x !== name) : [...(p[kind] || []), name]; if (!has && kind === 'hide') p.fav = (p.fav || []).filter(x => x !== name); store.set('cr.skillPrefs', p); render(); }
 async function loadAsst() {
   try { ctx.asst = await api('assistant'); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
   speakNewReply(); renderAsst(); checkDesktopNotify(); clearTimeout(asstTimer);
@@ -369,14 +372,17 @@ async function askAssistant(text) {
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
   const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
-  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst(); asstCall('ask', { text, projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() }); return true;
+  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
+  const ok = await asstCall('ask', { text, projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() });
+  if (!ok) { await loadAsst(); notify('A mensagem não foi enviada. Seu texto continua na barra: tente de novo.', true); }   // antes: a mensagem aparecia e sumia, e o texto era apagado
+  return ok;
 }
 async function applyAsst(id) {
   const [m, i] = id.split(':'); const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
   if (r.projectId) { await refresh(); setProject(r.projectId, true); } else await refresh();
   if (r.view) await go(r.view); renderAsst(); return r;
 }
-async function asstCall(path, body) { try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); }
+async function asstCall(path, body) { let ok = true; try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { ok = false; notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); return ok; }
 async function loadUpdates() { try { ctx.updates = await api('updates'); render(); } catch {} }
 function watchDownload() {
   const t = setInterval(async () => { await loadUpdates(); if (ctx.updates?.download?.state !== 'downloading') clearInterval(t); }, 1000);
@@ -557,6 +563,8 @@ const actions = {
   'tool-sel': id => { ctx.ui.toolSel = id; render(); }, 'tool-help': id => { ctx.ui.toolSel = id; ctx.ui.agentsTab = 'tools'; render(); },
   'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
+  'skill-view': id => { ctx.ui.skillView = id || ''; ctx.ui.skillMore = false; render(); },
+  'skill-fav': id => skillPref('fav', id), 'skill-hide': id => skillPref('hide', id),
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
   // ---- Rádio da Sala: lo-fi gerado no navegador. Desligada por padrão; só toca quando a pessoa clica (o navegador não permite tocar sozinho). ----
   'radio-next': () => radio?.nextTrack(),
@@ -589,6 +597,13 @@ const actions = {
   'chat-open': () => setChatOpen(true),
   'chat-min': () => setChatOpen(false),
   'asst-thread-rename': id => { ctx.ui.renameId = id; renderAsst(); const i = document.querySelector('.cw-rename'); if (i) { i.focus(); i.select(); } },
+  'fix-with-ai': id => {
+    const t = (ctx.detail?.id === id ? ctx.detail : null) || ctx.state.runs.find(x => x.id === id); if (!t) return;
+    const why = String(t.reason || t.error || '').replace(/\s+/g, ' ').slice(0, 700), kind = t.failureKind ? ` (tipo: ${t.failureKind})` : '';
+    return askAssistant(`A tarefa ${t.id} do agente “${t.agent?.name || '?'}” (${t.agent?.provider || '?'}) terminou com problema${kind}: ${why}
+
+Descubra a causa e proponha a correção como ação para eu aprovar (por exemplo liberar um programa ou uma ferramenta, ajustar o agente ou a permissão). Não repita a tarefa sem a correção.`);
+  },
   'asst-help': id => { const al = ctx.asst?.alerts?.find(x => x.id === id); if (al) return askAssistant(al.ask); },
   'asst-alert-dismiss': id => asstCall('alerts/dismiss', { id }),
   'notify-toggle': async () => {

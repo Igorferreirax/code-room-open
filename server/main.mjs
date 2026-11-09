@@ -99,7 +99,7 @@ const power = new Power({ store, countRunning: () => store.list('tasks').filter(
 power.start();
 const autoClean = new AutoClean({ store, dataDir: data, appDir: root });
 autoClean.start();
-const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '' });
+const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '', fetchImpl: loggedFetch(store, (...a) => fetch(...a), 'Verificar atualização') });
 setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
 const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
@@ -167,7 +167,7 @@ const assistant = new Assistant({ store, root, dataDir: data, world: assistantWo
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
-const publisher = new Publisher(store, { dataDir: data });
+const publisher = new Publisher(store, { dataDir: data, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'YouTube') });
 const outbox = new Outbox(store);
 const social = new Social(store, { dataDir: data, publisher, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Redes sociais') });
 const apiLib = new ApiLibrary(store, { dataDir: data, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Biblioteca de APIs') });

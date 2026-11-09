@@ -67,7 +67,7 @@ Os itens abaixo descrevem o que foi conferido naquela rodada. Para recursos post
 
 ### Fase 2: organização e manutenção
 - ⬜ **Retenção e limpeza**: política por tipo de dado (histórico de tarefas, saídas, entregas aprovadas, lixeira, worktrees), com limite por tela, botão “Limpar o que é antigo” com prévia do que será apagado e nada apagado sem confirmação. Entregas aprovadas ficam; lixeira esvazia só por ação da pessoa.
-- ✅ **Skills por categoria** (vídeo, código, marketing, pesquisa, texto, design), com filtro e contagem. ⬜ Favoritas e escondidas.
+- ✅ **Skills por categoria** (vídeo, código, marketing, pesquisa, texto, design), com filtro e contagem. ✅ Favoritas e escondidas (preferência deste navegador).
 - ⬜ **Orquestrações próprias**: salvar um arranjo de agentes, ligações e tarefa como “receita” reutilizável, criado pelo Assistente.
 - ✅ Skills que só citam documentos de apoio ausentes (pasta `tools/`) deixam de aparecer como aviso: funcionam sem eles.
 - ✅ **Pastas de entrada (lotes)**, em Rotinas: uma pasta do projeto, um agente ou equipe e uma instrução com `{arquivo}`; cada arquivo novo vira uma tarefa, com barra de progresso, tentar de novo as que falharam e faixa de aviso quando o lote termina. O Assistente cria isso pelo chat (`criar_pasta_entrada`). ⬜ Aviso do Windows fora do navegador e aba de resultados com os arquivos gerados.
