@@ -14,6 +14,7 @@ import { createWorktree } from './worktree.mjs';
 import { claudeFromEvent } from './usage.mjs';
 import { browserNote } from './browseruse.mjs';
 import { suggestUnblocks } from './unblock.mjs';
+import { tokenBudget } from './economy.mjs';
 
 export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1, agy: 1, hermes: 1 }, video: 1 };
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
@@ -40,7 +41,7 @@ export class Runner {
   budget() {
     const l = this.store.get('settings', 'limits') || {}, since = Date.now() - (l.budgetDays || 30) * 86400000;
     const spent = this.store.list('tasks').filter(t => t.usage?.cost != null && Date.parse(t.updatedAt) >= since).reduce((n, t) => n + t.usage.cost, 0);
-    return { enabled: !!l.budgetEnabled, usd: l.budgetUsd ?? null, days: l.budgetDays || 30, spentUsd: spent, reached: !!l.budgetEnabled && l.budgetUsd != null && spent >= l.budgetUsd };
+    return { enabled: !!l.budgetEnabled, usd: l.budgetUsd ?? null, days: l.budgetDays || 30, spentUsd: spent, reached: !!l.budgetEnabled && l.budgetUsd != null && spent >= l.budgetUsd, tokens: tokenBudget(this.store) };
   }
   event(id, event) { return this.store.event(id, { ...event, text: event.text?.slice(0, 24000), at: now() }); }
 
@@ -97,7 +98,7 @@ export class Runner {
     try {
       do {
         this.again = false;
-        if (this.paused() || this.budget().reached) break;
+        if (this.paused() || (b => b.reached || b.tokens.reached)(this.budget())) break;
         const limits = this.concurrency();
         const queued = this.store.list('tasks').filter(t => t.status === 'queued').sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.createdAt.localeCompare(b.createdAt));
         for (const t of queued) if (this.canStart(t, limits)) this.begin(t);

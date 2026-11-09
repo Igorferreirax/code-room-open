@@ -42,6 +42,7 @@ import { approveSubtask, dismissSubtask } from './subtasks.mjs';
 import { ApiLibrary } from './apilib.mjs';
 import { applyUnblocks } from './unblock.mjs';
 import { SyncIas } from './sync-ias.mjs';
+import { usageReport, suggest as economySuggest, applySuggestions, undoEconomy } from './economy.mjs';
 import { Social, CATALOG as SOCIAL_CATALOG } from './social.mjs';
 import { cleanRefs, scanReference } from './referencias.mjs';
 import { cleanConfig as obsClean, checkVault as obsCheck, findNotes as obsFind, termsOf as obsTerms, renderBlock as obsRender, saveNote as obsSave, clearCache as obsClear, DEFAULTS as OBS_DEFAULTS } from './obsidian.mjs';
@@ -145,7 +146,7 @@ async function gitCommitTask(t) {
 }
 // ---------- Histórico de ações (trilha de auditoria): o que foi iniciado, aprovado, ajustado ou cancelado, por onde e quando ----------
 const AUDIT_ROUTES = [
-  [/^\/api\/(?:runs|tasks)$/, 'iniciou uma tarefa'], [/^\/api\/flows$/, 'iniciou uma missão de equipe'], [/^\/api\/plans$/, 'pediu um plano ao supervisor'], [/^\/api\/plans\/[\w-]+\/accept$/, 'aceitou um plano'], [/^\/api\/subtasks\/[\w-]+\/approve$/, 'aprovou um pedido de ajuda entre agentes'], [/^\/api\/social\/posts\/[\w]+\/approve$/, 'aprovou uma postagem em rede social'], [/^\/api\/apis$/, 'salvou uma chave na biblioteca de APIs'], [/^\/api\/sync-ias\/apply$/, 'instalou skills ou MCP em outras IAs'], [/^\/api\/apis\/[\w-]+\/delete$/, 'removeu uma chave da biblioteca de APIs'], [/^\/api\/social\/accounts$/, 'salvou uma conta de rede social'], [/^\/api\/social\/accounts\/[\w-]+\/delete$/, 'removeu uma conta de rede social'],
+  [/^\/api\/(?:runs|tasks)$/, 'iniciou uma tarefa'], [/^\/api\/flows$/, 'iniciou uma missão de equipe'], [/^\/api\/plans$/, 'pediu um plano ao supervisor'], [/^\/api\/plans\/[\w-]+\/accept$/, 'aceitou um plano'], [/^\/api\/subtasks\/[\w-]+\/approve$/, 'aprovou um pedido de ajuda entre agentes'], [/^\/api\/social\/posts\/[\w]+\/approve$/, 'aprovou uma postagem em rede social'], [/^\/api\/apis$/, 'salvou uma chave na biblioteca de APIs'], [/^\/api\/economy\/apply$/, 'aplicou sugestões de economia nos agentes'], [/^\/api\/economy\/undo$/, 'desfez as sugestões de economia'], [/^\/api\/settings\/token-budget$/, 'mudou o teto diário de tokens'], [/^\/api\/sync-ias\/apply$/, 'instalou skills ou MCP em outras IAs'], [/^\/api\/apis\/[\w-]+\/delete$/, 'removeu uma chave da biblioteca de APIs'], [/^\/api\/social\/accounts$/, 'salvou uma conta de rede social'], [/^\/api\/social\/accounts\/[\w-]+\/delete$/, 'removeu uma conta de rede social'],
   [/^\/api\/tasks\/([\w-]+)\/approve$/, 'aprovou uma entrega', 'task'], [/^\/api\/tasks\/([\w-]+)\/unblock$/, 'liberou uma ferramenta para um agente', 'task'], [/^\/api\/tasks\/([\w-]+)\/request-changes$/, 'pediu ajustes em uma entrega', 'task'], [/^\/api\/(?:runs|tasks)\/([\w-]+)\/cancel$/, 'cancelou uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/retry$/, 'repetiu uma tarefa', 'task'],
   [/^\/api\/projects\/([\w-]+)\/git\/commit$/, 'commitou uma entrega no Git', 'project'], [/^\/api\/obsidian\/save$/, 'salvou uma entrega no Obsidian'], [/^\/api\/obsidian\/config$/, 'mudou o vínculo com o Obsidian'], [/^\/api\/git\/config$/, 'mudou o commit automático do Git'], [/^\/api\/projects\/([\w-]+)\/references$/, 'mudou as pastas de referência', 'project'],
   [/^\/api\/batches\/[\w-]+\/approve$/, 'liberou os créditos de um lote'], [/^\/api\/batches\/[\w-]+\/episodes\/[\w-]+\/approve-preview$/, 'aprovou a prévia de um episódio'],
@@ -168,6 +169,7 @@ const recipes = new Recipes(store, { pump: () => void runner.pump() });
 const publisher = new Publisher(store, { dataDir: data });
 const social = new Social(store, { dataDir: data, publisher });
 const apiLib = new ApiLibrary(store, { dataDir: data });
+const economyCtx = () => ({ connected: new Set(connectors().filter(c => c.path).map(c => c.id)), claudeWindows: store.get('settings', 'limits:claude')?.windows || [] });
 const syncIas = () => new SyncIas({ codexPath: connectors().find(c => c.id === 'codex')?.path || null });
 orchestrator.social = social;   // propostas de postagem dos agentes
 setInterval(() => social.tick().catch(() => {}), 30000).unref();   // publica o que já foi aprovado e agendado
@@ -376,6 +378,7 @@ const handle = async (req, res) => {
         masterOnly(auth); const pr = store.get('projects', gitGet[1]); if (!pr) throw new Error('Projeto não encontrado.');
         return send(res, 200, gitGet[2] === 'git' ? { ...(await gitInfo(pr.path)), projectId: pr.id, config: gitCfg() } : await githubInfo(pr.path));
       }
+      if (get && p === '/api/economy') { masterOnly(auth); const report = usageReport(store); return send(res, 200, { report, suggestions: economySuggest(store, { ...economyCtx(), report }), canUndo: !!store.get('settings', 'economy:undo')?.items?.length, budget: runner.budget().tokens }); }
       if (get && p === '/api/sync-ias') { masterOnly(auth); return send(res, 200, await syncIas().overview()); }
       if (get && p === '/api/apis') { masterOnly(auth); return send(res, 200, { catalog: apiLib.catalog(), keys: apiLib.list() }); }
       if (get && p === '/api/social') { masterOnly(auth); return send(res, 200, { catalog: SOCIAL_CATALOG, accounts: social.accounts(), posts: social.posts() }); }
@@ -549,7 +552,7 @@ const handle = async (req, res) => {
           const timeoutMin = Number(b.timeoutMin), budgetUsd = b.budgetUsd === '' || b.budgetUsd == null ? null : Number(b.budgetUsd);
           if (!(timeoutMin >= 1 && timeoutMin <= 60)) throw new Error('Duração máxima: de 1 a 60 minutos.');
           if (budgetUsd != null && !(budgetUsd >= 0)) throw new Error('Orçamento inválido.');
-          store.put('settings', { id: 'limits', timeoutMs: Math.round(timeoutMin * 60000), budgetUsd, budgetEnabled: b.budgetEnabled === true && budgetUsd != null, budgetDays: 30 });
+          store.put('settings', { ...(store.get('settings', 'limits') || {}), id: 'limits', timeoutMs: Math.round(timeoutMin * 60000), budgetUsd, budgetEnabled: b.budgetEnabled === true && budgetUsd != null, budgetDays: 30 });
           void runner.pump(); return send(res, 200, { limits: store.get('settings', 'limits'), budget: runner.budget() });
         }
         if (p === '/api/settings/skill-roots') {
@@ -649,6 +652,12 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
         }
         if (p === '/api/social/accounts') { masterOnly(auth); return send(res, 200, await social.saveAccount(b)); }
         if ((m = p.match(/^\/api\/social\/accounts\/([a-zA-Z0-9-]+)\/(delete|test)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'delete' ? await social.removeAccount(m[1]) : await social.test(m[1])); }
+        if (p === '/api/economy/apply') { masterOnly(auth); return send(res, 200, applySuggestions(store, b.ids, economyCtx())); }
+        if (p === '/api/economy/undo') { masterOnly(auth); return send(res, 200, undoEconomy(store)); }
+        if (p === '/api/settings/token-budget') {
+          masterOnly(auth); const limit = b.limit === '' || b.limit == null ? null : Math.round(Number(b.limit)); if (limit != null && !(limit >= 10000 && limit <= 1e9)) throw new Error('Teto diário: de 10.000 a 1.000.000.000 de tokens.');
+          store.put('settings', { ...(store.get('settings', 'limits') || { id: 'limits', timeoutMs: 1200000, budgetDays: 30 }), id: 'limits', budgetTokens: limit, budgetTokensEnabled: b.enabled === true && limit != null }); void runner.pump(); return send(res, 200, runner.budget().tokens);
+        }
         if (p === '/api/sync-ias/apply') { masterOnly(auth); return send(res, 200, await syncIas().apply(b)); }
         if (p === '/api/apis') { masterOnly(auth); return send(res, 200, await apiLib.save(b)); }
         if ((m = p.match(/^\/api\/apis\/([a-zA-Z0-9-]+)\/(delete|check)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'delete' ? await apiLib.remove(m[1]) : await apiLib.check(m[1])); }

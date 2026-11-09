@@ -282,6 +282,7 @@ const approvedBase = r => r?.gitCommit ? `Entrega aprovada e commit ${r.gitCommi
 async function loadObsidian() { try { ctx.obsidian = await api('obsidian'); } catch { ctx.obsidian = null; } if (ctx.view === 'connections' || ctx.view === 'deliveries') render(); }
 async function loadAudit() { try { ctx.audit = await api('audit'); } catch { ctx.audit = { entries: [] }; } if (ctx.view === 'settings') render(); }
 async function loadSocial() { try { ctx.social = await api('social'); } catch { ctx.social = null; } if (ctx.view === 'connections' || ctx.ui.asstOpen) render(); }
+async function loadEconomy() { try { ctx.economy = await api('economy'); } catch { ctx.economy = null; } if (ctx.view === 'usage') render(); }
 async function loadSync() { try { ctx.sync = await api('sync-ias'); } catch { ctx.sync = null; } if (ctx.view === 'connections') render(); }
 async function loadApis() { try { ctx.apis = await api('apis'); } catch { ctx.apis = null; } if (ctx.view === 'connections') render(); }
 async function loadHermes() { try { ctx.hermes = await api('hermes'); } catch { ctx.hermes = null; } if (ctx.view === 'connections') render(); }
@@ -411,6 +412,7 @@ function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.
 async function go(view) {
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
   if (view === 'skills') loadSkills(true);
+  if (view === 'usage') loadEconomy();
   if (view === 'routines' || view === 'tasks') refresh();   // lotes e tarefas criados por fora (Assistente, outro aparelho) aparecem ao abrir a tela, sem esperar os 15 s do relógio
   if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); loadSocial(); loadApis(); loadSync(); }
   if (view === 'deliveries' && !ctx.obsidian) loadObsidian();
@@ -678,6 +680,8 @@ const actions = {
     if (!targets.length) return notify('Marque pelo menos uma IA.', true); if (!skills.length && !mcps.length) return notify('Marque o que copiar (skills ou MCP).', true);
     notify('Instalando…'); const r = await api('sync-ias/apply', { targets, skills, mcps }); ctx.syncResult = r.results; await loadSync(); notify(r.results.every(x => x.ok) ? 'Pronto. Reinicie a IA de destino para ver as novidades.' : 'Terminou, com avisos. Veja o resultado.', !r.results.some(x => x.ok));
   },
+  'eco-apply': async () => { const ids = [...document.querySelectorAll('.eco-pick:checked')].map(x => x.value); if (!ids.length) return notify('Marque o que aplicar.', true); const r = await api('economy/apply', { ids }); notify(`Aplicado em ${r.applied} agente(s): ${r.agents.join(', ')}. Dá para desfazer.`); await Promise.all([refresh(), loadEconomy()]); },
+  'eco-undo': async () => { const r = await api('economy/undo', {}); notify(`Desfeito em ${r.restored} agente(s).`); await Promise.all([refresh(), loadEconomy()]); },
   'ap-nav': id => { ctx.ui.apIdx = Math.max(0, (Number(ctx.ui.apIdx) || 0) + Number(id)); ctx.ui.apChanges = null; renderAsst(); },
   'ap-toggle': () => { ctx.ui.apCollapsed = !ctx.ui.apCollapsed; renderAsst(); },
   'ap-approve': async id => { const r = await api(`tasks/${id}/approve`, { note: '' }); notify(approvedMsg(r)); await refresh(); renderAsst(); },
@@ -869,6 +873,7 @@ document.addEventListener('submit', async e => {
     else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.web = f.elements.web.checked; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
     else if (fid === 'flow-form') { const d = Object.fromEntries(new FormData(f)); await api('flows', { projectId: ctx.project, teamId: d.team, requestId: crypto.randomUUID(), objective: d.objective, criteria: lines(d.criteria), maxReviewRounds: ctx.prefs.rounds || 1 }); f.reset(); notify('Fluxo iniciado.'); await refresh(); }
     else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v); await api('settings/concurrency', { global: n(d.global), provider: { codex: n(d.codex), claude: n(d.claude) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
+    else if (fid === 'token-budget-form') { const fd = new FormData(f); await api('settings/token-budget', { limit: fd.get('limit'), enabled: fd.get('enabled') === 'on' }); await Promise.all([refresh(), loadEconomy()]); notify('Teto salvo.'); }
     else if (fid === 'api-form') { const fd = new FormData(f); await api('apis', { id: fd.get('id') || undefined, service: ctx.ui.apiForm?.service || fd.get('service'), name: fd.get('name'), key: fd.get('key'), note: fd.get('note') }); ctx.ui.apiForm = null; await loadApis(); notify('Chave guardada. Use “Testar e ver consumo”.'); }
     else if (fid === 'social-form') {
       const fd = new FormData(f), network = ctx.ui.socialForm?.network || fd.get('network'), fields = {}; for (const [k, v] of fd.entries()) if (k.startsWith('f_')) fields[k.slice(2)] = v;

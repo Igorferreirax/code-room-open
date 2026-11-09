@@ -80,6 +80,7 @@ export function viewLogin(ctx) {
 // "Precisa de você agora": só o que espera uma decisão sua (créditos, prévias, falhas dos lotes). Sem pendência, o cartão some.
 export function pendingList(ctx) {
   const s = ctx.state || {}, items = [];
+  const tb = s.runtime?.budget?.tokens; if (tb?.reached) items.push({ kind: 'bad', text: 'Teto diário de tokens atingido: novas tarefas aguardam', nav: 'usage', n: 1 }); else if (tb?.warn) items.push({ kind: 'warn', text: 'Mais de 80% do teto diário de tokens', nav: 'usage', n: 1 });
   const blocked = (s.runs || []).filter(r => r.status === 'completed' && (r.unblock || []).some(u => u.kind !== 'never') && Date.now() - Date.parse(r.updatedAt || 0) < 3 * 864e5);
   if (blocked.length) items.push({ kind: 'warn', text: `${blocked.length} agente${blocked.length > 1 ? 's foram bloqueados' : ' foi bloqueado'} por falta de liberação (abra a tarefa e libere)`, nav: 'tasks', n: blocked.length });
   for (const b of s.batches || []) {

@@ -12,6 +12,7 @@ import { auditHtml } from './audit-ui.js';
 import { socialCardHtml } from './social-ui.js';
 import { apisCardHtml } from './apis-ui.js';
 import { syncCardHtml } from './sync-ui.js';
+import { economyCardHtml } from './economy-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
@@ -239,6 +240,7 @@ export function viewUsage(ctx) {
   const timeoutMin = Math.round((lim.timeoutMs || 1200000) / 60000), est = estimateOf(ctx, runs), pr = ctx.state.prices || {};
   return `<div class="page">${hero('Consumo e limites', 'Acompanhe o uso de tokens, custos e limites de execução por projeto.', 'consumo')}
   <div class="cols c-2-1" style="grid-template-columns:minmax(0,1fr) 380px"><div>
+    ${economyCardHtml(ctx)}
     ${limitsCard(ctx, runs)}
     <div class="filters card" style="margin:0 0 14px;padding:12px"><label style="display:flex;gap:10px;align-items:center">Projeto <select id="usage-project" style="width:220px"><option value="">Todos os projetos</option>${ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${p.id === proj ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
       <label style="display:flex;gap:10px;align-items:center">Período <select id="usage-period" style="width:200px">${[['1', 'Hoje'], ['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['all', 'Todo o histórico']].map(([v, l]) => `<option value="${v}" ${period === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>

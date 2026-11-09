@@ -708,3 +708,7 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cv-node.st-running{box-shadow:0 0 0 1px #5fe3b0,0 0 18px -6px #5fe3b0}
 html .cv-wrap>.cv-expand{position:absolute;right:22px;top:8px;overflow:visible}html .cv-wrap.cv-big>.cv-expand{right:24px;top:12px}
 .sync-list{max-height:260px;overflow:auto;margin:8px 0;padding:6px 8px;border:1px solid var(--line);border-radius:10px}.sync-row{display:block;margin:4px 0;line-height:1.35}.sync-ias{margin:8px 0}
+
+/* Economia de tokens */
+.eco-rows li{margin:8px 0}.eco-line{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.eco-n{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600}.eco-sug li{margin:8px 0;line-height:1.4}
+.eco-days{display:flex;gap:6px;align-items:flex-end;height:70px;margin:8px 0}.eco-days span{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;max-width:46px}.eco-days i{display:block;width:100%;background:var(--accent-h,#7aa2ff);border-radius:4px 4px 0 0}.eco-days small{font-size:.7rem;color:var(--muted,#8b97b5)}

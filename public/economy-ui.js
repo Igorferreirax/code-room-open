@@ -1,0 +1,23 @@
+// Consumo: onde os tokens foram, sugestões para gastar menos (você marca e aplica; dá para desfazer) e teto diário de tokens.
+import { esc } from './views.js';
+
+const n = v => Number(v || 0).toLocaleString('pt-BR');
+const KIND = { model: 'modelo mais leve', effort: 'menos esforço', provider: 'outra IA', info: 'dica' };
+
+export function economyCardHtml(ctx) {
+  const e = ctx.economy; if (!e) return '';
+  const r = e.report, b = e.budget, max = Math.max(1, ...r.agents.map(a => a.tokens)), dmax = Math.max(1, ...r.perDay.map(d => d.tokens));
+  const rows = r.agents.length ? `<ul class="plain eco-rows">${r.agents.map(a => `<li><div class="eco-line"><b>${esc(a.name)}</b> <small class="muted">${esc(a.provider)}${a.model ? ' · ' + esc(a.model) : ''} · ${a.runs} execuç${a.runs === 1 ? 'ão' : 'ões'} · média ${n(a.avgInput)} de entrada e ${n(a.avgOutput)} de saída</small><span class="eco-n">${n(a.tokens)}</span></div><div class="api-bar" role="img" aria-label="${Math.round(a.tokens / max * 100)}% do maior consumo"><span style="width:${Math.max(2, Math.round(a.tokens / max * 100))}%"></span></div></li>`).join('')}</ul>` : '<p class="muted small">Ainda não há tarefas com consumo informado no período. Quando o Claude ou o Codex informarem os tokens, eles aparecem aqui.</p>';
+  const days = r.perDay.length ? `<div class="eco-days" role="img" aria-label="Tokens por dia">${r.perDay.map(d => `<span title="${esc(d.day)}: ${n(d.tokens)} tokens"><i style="height:${Math.max(4, Math.round(d.tokens / dmax * 100))}%"></i><small>${esc(d.day.slice(8))}</small></span>`).join('')}</div>` : '';
+  const sug = e.suggestions.length ? `<ul class="plain eco-sug">${e.suggestions.map(s => `<li><label class="check">${s.patch ? `<input type="checkbox" class="eco-pick" value="${esc(s.id)}" ${s.risky ? '' : 'checked'}>` : ''} <span class="pill ${s.risky ? 'warn' : s.patch ? 'ok' : 'off'}">${esc(KIND[s.kind] || s.kind)}</span> ${esc(s.text)}${s.patch ? ` <small class="muted">→ ${Object.entries(s.patch).map(([k, v]) => `${esc(k === 'model' ? 'modelo' : k === 'effort' ? 'esforço' : 'IA')}: ${esc(v || 'padrão')}`).join(', ')}</small>` : ''}</label></li>`).join('')}</ul>
+    <div class="btn-row">${e.suggestions.some(s => s.patch) ? '<button type="button" class="btn sm" data-act="eco-apply">Aplicar as marcadas</button>' : ''}${e.canUndo ? '<button type="button" class="btn ghost sm" data-act="eco-undo">Desfazer a última aplicação</button>' : ''}</div>
+    <p class="muted small">Nada muda sozinho. Sugestões “outra IA” vêm desmarcadas porque podem mudar a qualidade: teste nas primeiras tarefas.</p>` : `<p class="muted small">Sem sugestões agora: nenhum agente simples usando modelo caro ou esforço alto sem necessidade.${e.canUndo ? '' : ''}</p>${e.canUndo ? '<div class="btn-row"><button type="button" class="btn ghost sm" data-act="eco-undo">Desfazer a última aplicação</button></div>' : ''}`;
+  const pct = b.limit ? Math.min(100, Math.round(b.used / b.limit * 100)) : null;
+  const bud = `<form id="token-budget-form" class="form-grid"><label class="f">Teto diário de tokens (entrada + saída)<input name="limit" type="number" min="10000" step="1000" value="${esc(b.limit ?? '')}" placeholder="sem teto"></label><label class="f check" style="align-self:end"><input type="checkbox" name="enabled" ${b.enabled ? 'checked' : ''}> Não iniciar novas tarefas ao atingir o teto</label>
+    <div style="grid-column:1/-1"><small class="muted">Hoje: <b>${n(b.used)}</b>${b.limit ? ` de ${n(b.limit)} (${pct}%)` : ''}. O teto vale para <b>iniciar</b> tarefas; a que já está rodando termina. Só conta o que a IA informou.</small>${pct != null ? `<div class="api-bar"><span style="width:${pct}%"></span></div>` : ''}${b.reached ? '<p class="upd-err" role="alert">Teto atingido: novas tarefas estão aguardando. Aumente o teto ou espere o dia virar.</p>' : b.warn ? '<p class="small" style="color:var(--warn,#d9a441)" role="status">Mais de 80% do teto de hoje.</p>' : ''}</div>
+    <div class="btn-row" style="grid-column:1/-1"><button class="btn outline sm">Salvar teto</button></div></form>`;
+  return `<section class="card" id="economy-card" style="margin-bottom:14px"><div class="card-h"><h2>Onde os tokens foram</h2><span class="pill info">${r.days} dias · ${n(r.total)} tokens</span></div>
+    <p class="muted small">Entrada + saída informadas pelas IAs, por agente (cache não entra). Hoje: <b>${n(r.today)}</b>.</p>${days}${rows}
+    ${r.projects.length ? `<p class="small muted">Por projeto: ${r.projects.map(p => `${esc(p.name)} ${n(p.tokens)}`).join(' · ')}</p>` : ''}
+    <h3 style="margin:14px 0 6px">Sugestões para gastar menos</h3>${sug}<h3 style="margin:14px 0 6px">Teto diário</h3>${bud}</section>`;
+}
