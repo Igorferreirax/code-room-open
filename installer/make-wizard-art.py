@@ -1,4 +1,4 @@
-"""Gera as imagens do assistente de instalação a partir das referências em "Tela de Instalação/" (arte pixel do Igor).
+"""Gera as imagens do assistente de instalação a partir das referências em "Tela de Instalação/" (arte pixel do Igor). Essa pasta NÃO está no repositório (fica só no computador do autor); as imagens já geradas estão em installer/wizard/.
 Grava em installer/wizard/: painel lateral (boas-vindas e conclusão) em 3 tamanhos, selo pequeno em 3 tamanhos e a arte da tela de progresso.
 Os BMP gerados são versionados; as referências grandes (PNG de 1,5 MB) não precisam ir para o repositório.
 Uso: python installer/make-wizard-art.py"""

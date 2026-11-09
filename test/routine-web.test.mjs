@@ -7,10 +7,10 @@ import { panelRoutine, ROUTINE_TEMPLATES } from '../public/views2.js';
 import { sentHtml } from '../public/chat-ui.js';
 
 test('pesquisar na web: só entra nos argumentos do Claude quando o agente liga a opção; Codex não recebe', () => {
-  const off = command({ provider: 'claude', mode: 'read' }, 'oi').args; assert.ok(!off.includes('WebSearch'));
-  const on = command({ provider: 'claude', mode: 'read', web: true }, 'oi').args;
+  const cat = { catalog: [{ id: 'claude', path: 'claude-test' }, { id: 'codex', path: 'codex-test' }] }, off = command({ provider: 'claude', mode: 'read' }, 'oi', cat).args; assert.ok(!off.includes('WebSearch'));
+  const on = command({ provider: 'claude', mode: 'read', web: true }, 'oi', cat).args;
   assert.deepEqual([on[on.indexOf('WebSearch') - 1], on[on.indexOf('WebFetch') - 1]], ['--allowedTools', '--allowedTools']);
-  assert.ok(!command({ provider: 'codex', mode: 'read', web: true }, 'oi').args.includes('WebSearch'));
+  assert.ok(!command({ provider: 'codex', mode: 'read', web: true }, 'oi', cat).args.includes('WebSearch'));
 });
 
 test('pesquisar na web: projeto Financeiro recusa o agente', async () => {

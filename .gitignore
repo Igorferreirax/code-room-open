@@ -8,3 +8,6 @@ node_modules/
 .env.local
 docs/evidencias-ui/
 dist/
+
+# Referências de arte do instalador: ficam só no computador do autor (o instalador já foi feito)
+/Tela de Instalação/

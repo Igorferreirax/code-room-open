@@ -18,13 +18,13 @@ const inside = (a, b) => (resolve(a).toLowerCase() + sep).startsWith(resolve(b).
 export async function cleanRefs(input, projectPath) {
   if (!Array.isArray(input)) throw new Error('Informe a lista de pastas de referência.');
   if (input.length > LIMITS.maxDirs) throw new Error(`No máximo ${LIMITS.maxDirs} pastas de referência por projeto.`);
-  const out = [], labels = new Set(), seen = new Set();
+  const out = [], labels = new Set(), seen = new Set(), proj = await realpath(projectPath).catch(() => projectPath);   // compara caminhos canônicos (nome curto 8.3 x nome longo)
   for (const item of input) {
     const raw = String(item?.path ?? '').trim().replace(/[\\/]+$/, ''); if (!raw) continue;
     if (!isAbsolute(raw) || raw.length > 400 || /[\0\r\n]/.test(raw)) throw new Error('Cada pasta de referência precisa ser um caminho completo (ex.: C:\\Projetos\\meu-repo).');
     let real; try { real = await realpath(raw); if (!(await stat(real)).isDirectory()) throw 0; } catch { throw new Error(`A pasta não existe: ${raw}`); }
     if (forbiddenRef(real)) throw new Error('Esta pasta é protegida pelo sistema e não pode ser usada como referência.');
-    if (inside(real, projectPath) || inside(projectPath, real)) throw new Error('A pasta de referência não pode ser o próprio projeto, nem ficar dentro ou ao redor dele.');
+    if (inside(real, proj) || inside(proj, real)) throw new Error('A pasta de referência não pode ser o próprio projeto, nem ficar dentro ou ao redor dele.');
     if (seen.has(real.toLowerCase())) continue; seen.add(real.toLowerCase());
     let label = slug(item?.label) || slug(basename(real)) || 'referencia', n = 2; while (labels.has(label)) label = `${slug(basename(real)) || 'referencia'}-${n++}`; labels.add(label);
     out.push({ path: real, label });

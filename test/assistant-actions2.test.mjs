@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeAction, stateSummary, Assistant } from '../server/assistant.mjs';
@@ -87,7 +87,7 @@ test('aplicar: criar_canal e criar_rotina passam pelos mesmos caminhos do app e 
 });
 
 test('manual do Assistente: descreve as novas ações e continua dentro do limite de tamanho', () => {
-  const m = readFileSync(new URL('../docs/ASSISTENTE.md', import.meta.url), 'utf8');
+  const m = readFileSync(new URL('../docs/ASSISTENTE.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   for (const k of ['criar_canal', 'criar_rotina', '`navegador`', 'Orquestração', 'Agentes não criam tarefas para outros agentes por conta própria']) assert.ok(m.includes(k), `falta: ${k}`);
   assert.ok(Buffer.byteLength(m) <= 20000, `manual com ${Buffer.byteLength(m)} bytes (limite 20000)`);
 });
@@ -145,7 +145,7 @@ test('HTTP: criar projeto dentro de uma pasta existente cria subpasta nova; past
     await Promise.race([once(child.stdout, 'data'), new Promise((_, no) => setTimeout(() => no(new Error('Servidor não iniciou')), 8000))]);
     const key = readFileSync(join(dir, 'access.key'), 'utf8').trim(), post = b => fetch(`http://127.0.0.1:${port}/api/projects`, { method: 'POST', headers: { 'X-Code-Room-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
     const r = await post({ name: 'Meu Projeto Novo', path: pai, area: 'Vídeo', createSub: true }); assert.equal(r.status, 201); const pj = await r.json();
-    assert.ok(pj.path.toLowerCase().startsWith(pai.toLowerCase()) && /Meu-Projeto-Novo$/.test(pj.path), pj.path); await access(pj.path);
+    assert.ok(pj.path.toLowerCase().startsWith(realpathSync.native(pai).toLowerCase()) && /Meu-Projeto-Novo$/.test(pj.path), pj.path); await access(pj.path);
     const r2 = await post({ name: 'Meu Projeto Novo', path: pai, createSub: true }); assert.equal(r2.status, 201); assert.match((await r2.json()).path, /Meu-Projeto-Novo-2$/, 'não reaproveita pasta existente');
     for (const bad of ['C:\\Windows', 'C:\\Program Files', 'C:\\']) { const rb = await post({ name: 'X', path: bad, createSub: true }); assert.equal(rb.status, 400, bad); assert.match((await rb.json()).error, /protegida/); }
     const rn = await post({ name: 'X', path: join(pai, 'nao-existe'), createSub: true }); assert.equal(rn.status, 400); assert.match((await rn.json()).error, /não existe/);

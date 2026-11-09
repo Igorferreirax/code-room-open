@@ -74,7 +74,7 @@ Os itens abaixo descrevem o que foi conferido naquela rodada. Para recursos post
 
 ### Empacotamento (Windows)
 - ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos; rebuilt e smoke-tested em pasta temporária isolada em 06/11/2026 (SHA-256 no checklist de lançamento). Teste em outro computador, sem Node, com Smart App Control continua pendente.
-- ✅ UX visual do instalador implementada em `installer/code-room.iss` com base nas telas de `Tela de Instalação/`; decisões em [INSTALADOR-UX.md](INSTALADOR-UX.md). Registrar compilação e teste de instalação por release.
+- ✅ UX visual do instalador implementada em `installer/code-room.iss` com base nas telas de referência do autor (já aplicadas; as imagens não ficam no repositório); decisões em [INSTALADOR-UX.md](INSTALADOR-UX.md). Registrar compilação e teste de instalação por release.
 - ⬜ **Assinatura digital** do instalador (necessária para o Smart App Control): [SignPath Foundation](https://signpath.org/) (gratuito para código aberto), Azure Artifact Signing ou certificado pago.
 - ⬜ SHA-256 de cada arquivo publicado junto do Release.
 - ✅ **Atualização em um clique** (verificação opcional no GitHub, SHA-256, volta sozinha se a versão nova não abrir). Testes automatizados cobrem consulta, download e instalação; veja [LANCAMENTO-V1.md](LANCAMENTO-V1.md).

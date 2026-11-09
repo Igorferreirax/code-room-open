@@ -22,7 +22,7 @@ const VIEWS = { sala: 'room', projetos: 'projects', tarefas: 'tasks', equipes: '
 export const AGY_BUDGET = 24000;
 export const TASK_BUDGET = 29000;   // uma tarefa aceita no máximo 30000 caracteres no objetivo (tasks.mjs); o prompt do Assistente precisa caber
 const MAX_THREADS = 8, MAX_MANUAL = 20000, MAX_HISTORY = 8, MAX_MSG_IN_PROMPT = 1200, MAX_MESSAGES = 120, MAX_QUESTION = 2000, MAX_PROMPT = 28000, MAX_ACTIONS = 10;
-const noBom = s => String(s || '').replace(/^﻿/, '');
+const noBom = s => String(s || '').replace(/^﻿/, '').replace(/\r\n/g, '\n');   // CRLF (checkout no Windows) não pode estourar o limite do manual
 const short = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 export const isInternal = x => !!x?.internal;

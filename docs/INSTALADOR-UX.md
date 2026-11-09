@@ -4,7 +4,7 @@ Estado em 06/11/2026: referências analisadas; implementação visual e compila�
 
 ## Referências fornecidas
 
-As imagens originais estão na pasta `Tela de Instalação/`:
+As imagens originais de referência (a arte pixel do autor) não estão mais no repositório: o instalador já foi feito e as imagens geradas ficam em `installer/wizard/`. Eram quatro telas:
 
 1. `Tela de boas-vindas do Code Room-1.png` — apresentação e botão para começar.
 2. `Configuração do instalador Code Room-4.png` — local, atalhos e preferências iniciais.
