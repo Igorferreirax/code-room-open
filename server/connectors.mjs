@@ -36,8 +36,8 @@ export function connectors() {
 }
 
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
-export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs = 20 * 60 * 1000 } = {}) {
-  const provider = connectors().find(c => c.id === agent.provider);
+export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
+  const provider = (catalog || connectors()).find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
   if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
   const mode = agent.mode === 'write' ? 'workspace-write' : 'read-only';

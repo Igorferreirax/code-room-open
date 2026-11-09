@@ -226,6 +226,17 @@ test('conversas: cada uma tem o seu histórico e título; a resposta volta para 
   for (let i = 0; i < 7; i++) await asst.newThread(); await assert.rejects(() => asst.newThread(), /Limite de 8/);
 });
 
+test('contexto do Assistente: registra projeto, tela aberta e número de notas do Obsidian que realmente entraram no pedido', async () => {
+  const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const vault = await tempDir('asst-obsidian'); mkdirSync(join(vault, '.obsidian'), { recursive: true });
+  writeFileSync(join(vault, 'Contexto do Code Room.md'), 'Checklist de contexto do Code Room para desenvolvimento, vídeo e rotinas.', 'utf8');
+  store.put('settings', { id: 'obsidian', enabled: true, vault, exclude: ['.obsidian'], byProject: {}, maxNotes: 5 });
+  await asst.ask('Resuma o checklist de contexto do Code Room', { projectId: 'p-canal', screen: 'Tela: Entregas · Projeto: canal' });
+  const user = (await asst.status()).messages.at(-1);
+  assert.deepEqual(user.context, { project: 'canal', screen: true, obsidianNotes: 1 });
+  say('Contexto recebido.'); await done();
+});
+
 test('fluxo: a pasta de entrada proposta no chat é criada pelo mesmo caminho do app, depois do projeto e do agente', async () => {
   const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
   const made = []; asst.saveFolderJob = async p => { made.push(p); return { ...p, id: 'fj1', dir: p.dir }; };

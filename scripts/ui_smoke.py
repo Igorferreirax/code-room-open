@@ -1,4 +1,4 @@
-"""Roteiro de interface no navegador (Chrome instalado + Playwright do Python).
+"""Roteiro de interface no Chromium instalado pelo Playwright do Python.
 Sobe um serviço temporário com dados e pastas isolados, percorre as 11 telas em desktop e celular e confere:
 sem erro de console, sem imagem quebrada, sem rolagem horizontal, painéis, gaveta por teclado, temas e formulário de preços.
 Não chama nenhum provedor (não gasta cota). Uso: python scripts/ui_smoke.py"""
@@ -35,7 +35,8 @@ try:
     api('routines', {'name': 'Rotina UI', 'projectId': p['id'], 'target': {'type': 'agent', 'id': a2['id']}, 'objective': 'x', 'trigger': {'type': 'file', 'ext': 'mp4'}})
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(channel='chrome', headless=True)
+        try: browser = pw.chromium.launch(channel='chrome', headless=True)
+        except Exception: browser = pw.chromium.launch(headless=True)
         for label, size in (('desktop', {'width': 1586, 'height': 992}), ('celular', {'width': 390, 'height': 844})):
             ctx = browser.new_context(viewport=size); page = ctx.new_page(); errors = []
             page.on('console', lambda m: errors.append(m.text) if m.type == 'error' and 'favicon' not in m.text and 'status of 400' not in m.text else None)

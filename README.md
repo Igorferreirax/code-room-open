@@ -26,7 +26,7 @@ Se o Code Room te ajudou, **[deixe uma estrela ⭐](https://github.com/Igorferre
 - **Rotinas.** Por horário, manuais ou quando um arquivo aparece.
 - **Consumo honesto.** O que o provedor não informa aparece como “indisponível”, nunca como zero nem inventado.
 - **Uso por IA.** Cartões resumem as janelas de uso que cada provedor reporta, com o horário da leitura e o reset; a tabela detalhada existente continua abaixo.
-- **Assistente.** Conversas podem ser renomeadas; o contexto inclui o status atual das tarefas, equipes e pastas de entrada.
+- **Assistente.** Conversas podem ser renomeadas; o contexto inclui o status atual das tarefas, equipes e pastas de entrada. Cada pergunta também indica se usou o projeto, a tela aberta e referências do Obsidian.
 - **Modelos e esforço.** Configure no agente ou temporariamente para uma missão individual, respeitando as opções aceitas por cada IA.
 - **No celular.** Pareamento por QR (código de uso único, token por aparelho, revogável) pela rede local ou pelo Tailscale. Vem **desligado** por padrão.
 - **Conversa direta com o agente.** Clique em um agente (na Sala ou no Canvas): abre um balão ali do lado dele, com o estado, o que ele está fazendo ao vivo e uma caixa para dar a missão na hora. **Fixar em janela** leva a conversa para uma janela lateral; até 3 agentes lado a lado.

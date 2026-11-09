@@ -32,6 +32,8 @@ test('HTTP: Obsidian — config validada, busca, aprovar com "Só ler" não grav
     r = await post(`/api/tasks/t-gravar/approve`, { note: 'ótimo' }); const ap = await r.json(); assert.match(ap.obsidian, /^Code Room\/Achadinhos\/\d{4}-\d{2}-\d{2} Reel do suporte\.md$/); assert.equal(ap.obsidianError, null);
     const note = await readFile(join(vault, ...ap.obsidian.split('/')), 'utf8'); assert.match(note, /code-room: true/); assert.match(note, /reels\/reel\.mp4 \(2 KB\)/); assert.match(note, /ótimo/);
     r = await post('/api/obsidian/config', { enabled: false }); assert.equal((await r.json()).allowWrite, false, 'desligar também desliga a escrita');
-    r = await post('/api/projects/pj1/open', {}); assert.deepEqual(await r.json(), { ok: true, skipped: true });
+    r = await post('/api/projects/pj1/open', {});
+    if (process.platform === 'win32') assert.deepEqual(await r.json(), { ok: true, skipped: true });
+    else { assert.equal(r.status, 400); assert.match((await r.json()).error, /só está disponível no Windows/); }
   } finally { const closed = once(child, 'close'); child.kill(); await closed; await rm(dir, { recursive: true, force: true }); await rm(vault, { recursive: true, force: true }); await rm(projDir, { recursive: true, force: true }); }
 });

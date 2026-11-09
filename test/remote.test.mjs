@@ -10,7 +10,7 @@ import { hostAllowed, originAllowed, wantedAddresses, Throttle } from '../server
 import { Devices } from '../server/devices.mjs';
 import { Store } from '../server/store.mjs';
 
-const lanIp = () => Object.entries(networkInterfaces()).flatMap(([n, l]) => (l || []).filter(i => i.family === 'IPv4' && !i.internal && /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(i.address) && !/virtual|vethernet|vmware|wsl|docker|hyper-v|bluetooth|vbox/i.test(n)).map(i => i.address))[0];
+const lanIp = () => { try { return Object.entries(networkInterfaces()).flatMap(([n, l]) => (l || []).filter(i => i.family === 'IPv4' && !i.internal && /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(i.address) && !/virtual|vethernet|vmware|wsl|docker|hyper-v|bluetooth|vbox/i.test(n)).map(i => i.address))[0] || null; } catch { return null; } };
 
 test('rede: Host e Origin só valem para endereços realmente servidos (anti DNS rebinding)', () => {
   const bound = [{ ip: '192.168.1.5', kind: 'lan' }, { ip: '100.101.102.103', kind: 'tailscale' }];
@@ -20,6 +20,12 @@ test('rede: Host e Origin só valem para endereços realmente servidos (anti DNS
   assert.ok(!hostAllowed('evil.example.com:4780', 4780, bound)); assert.ok(!hostAllowed('192.168.1.5:9999', 4780, bound));
   assert.ok(originAllowed('http://192.168.1.5:4780', 4780, bound)); assert.ok(!originAllowed('https://192.168.1.5:4780', 4780, bound)); assert.ok(!originAllowed('http://evil.example', 4780, bound));
   assert.deepEqual(wantedAddresses({ lan: false, tailscale: false }), []);
+  assert.deepEqual(wantedAddresses({ lan: true, tailscale: true }, {
+    WiFi: [{ family: 'IPv4', internal: false, address: '192.168.1.20' }],
+    Tailscale: [{ family: 'IPv4', internal: false, address: '100.90.1.2' }],
+    Docker: [{ family: 'IPv4', internal: false, address: '10.0.0.2' }],
+    Loopback: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }],
+  }), [{ ip: '192.168.1.20', kind: 'lan', name: 'WiFi' }, { ip: '100.90.1.2', kind: 'tailscale', name: 'Tailscale' }]);
 });
 
 test('pareamento: código de uso único, expira, token próprio (hash), revogável e sem tentativas ilimitadas', () => {

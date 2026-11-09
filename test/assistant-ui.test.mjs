@@ -19,6 +19,21 @@ test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, des
   assert.match(assistantHtml({ ...base, manual: { available: false } }), /não foi encontrado/);
 });
 
+test('chat do Assistente: mostra e escapa quais fontes entraram no pedido', () => {
+  const h = assistantHtml({ ...base, messages: [{ role: 'user', text: 'resuma isso', at: '2026-01-01T10:00:00Z', context: { project: '<script>', screen: true, obsidianNotes: 2 } }] });
+  assert.match(h, /Contexto enviado: Projeto: &lt;script&gt; · tela aberta · 2 referências do Obsidian/);
+  assert.doesNotMatch(h, /<script>/);
+  assert.doesNotMatch(assistantHtml({ ...base, messages: [{ role: 'user', text: 'oi', at: '', context: { project: '', screen: false, obsidianNotes: 0 } }] }), /as-context/);
+});
+
+test('aviso do Modo Piloto: pode ser ocultado por botão acessível e reaparece apenas quando a preferência não foi salva', () => {
+  const h = assistantHtml({ ...base, autonomy: 'pilot' });
+  assert.match(h, /class="as-pilot-note"/);
+  assert.match(h, /data-act="asst-pilot-note-dismiss" aria-label="Ocultar aviso do Modo Piloto"/);
+  assert.doesNotMatch(assistantHtml({ ...base, autonomy: 'pilot', pilotNoticeDismissed: true }), /as-pilot-note/);
+  assert.doesNotMatch(assistantHtml({ ...base, autonomy: 'ask' }), /as-pilot-note/);
+});
+
 test('cartões de ação: válida tem Criar e Descartar; inválida só explica; aplicada mostra o resultado', () => {
   const m = (a) => ({ ...base, messages: [{ id: 'm1', role: 'assistant', text: 'ok', at: '2026-01-01T10:00:00Z', actions: [a] }] });
   const ok = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: true, status: 'pending', summary: 'Criar a equipe “X”' }));

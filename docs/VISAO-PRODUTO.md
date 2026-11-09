@@ -69,6 +69,20 @@ Ver projetos ativos, tarefas em curso, bloqueios, próximos passos e decisões p
 - Landing e social preview mantidos no repositório/site apropriado.
 - Doações opcionais, transparentes e sem bloqueio de recursos.
 
+## O que torna o Code Room tão útil quanto chamar a CLI diretamente
+
+O Code Room deve preservar o que cada CLI já faz bem e acrescentar coordenação sem esconder limitações. Para isso, cada conector deve declarar capacidades verificadas, sem assumir que todo provedor oferece as mesmas funções:
+
+- **Execução fiel:** usar os comandos e formatos suportados pelo CLI instalado, sem montar comandos por shell quando argumentos separados forem possíveis; mostrar versão, autenticação e motivo de falha sem expor credenciais.
+- **Controle da tarefa:** receber progresso e atividade, cancelar o processo completo, recuperar uma tarefa interrompida sem repetir efeitos incertos e retomar uma sessão somente quando provedor e projeto forem compatíveis.
+- **Capacidades explícitas:** indicar, por CLI, suporte a escrita, skills, ferramentas MCP, navegador, continuação de sessão, cancelamento, eventos e dados de uso. Recurso ausente deve aparecer como indisponível, não como promessa.
+- **Arquivos revisáveis:** registrar arquivos criados e alterados, comparar diffs, preservar versões anteriores e oferecer integração manual de worktrees. Mudanças em arquivos existentes devem poder ser revisadas e desfeitas.
+- **Critérios de conclusão:** permitir definir saídas esperadas e verificações por tarefa (por exemplo, arquivos, formato, resolução, duração e execução de um comando de validação), sem tratar uma resposta textual do modelo como prova de que o trabalho terminou.
+- **Fluxos reutilizáveis:** salvar receitas versionadas de agentes, skills, ferramentas, limites e critérios; reutilizá-las em desenvolvimento, edição de vídeo e rotinas, com resultado e falha por arquivo nos lotes.
+- **Extensão Open Source:** manter um contrato de conector documentado e uma suíte de conformidade com CLIs simuladas. Um novo provedor deve poder integrar sem depender de contas ou serviços exclusivos do mantenedor.
+
+Prioridade recomendada: primeiro segurança de arquivos, recuperação e visibilidade de capacidades; depois receitas e resultado por item; por último, novas integrações e mais concorrência. Assim a ferramenta ganha alcance sem transformar falhas silenciosas em automações difíceis de confiar.
+
 ## Critério de excelência
 
 Um projeto comum deve poder ser recebido, dividido, executado por CLIs reais, acompanhado, revisado e entregue sem perder contexto nem esconder falhas. Uma automação em lote deve ser possível de pausar, entender e retomar por arquivo. A pessoa deve conseguir confiar no que o painel mostra porque cada estado vem de dados reais, e deve saber sempre o que ainda depende dela.

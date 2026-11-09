@@ -32,8 +32,15 @@ const actionCard = (m, a) => {
 
 const allBar = m => { const p = (m.actions || []).filter(a => a.status === 'pending'); return p.length >= 2 ? `<div class="btn-row as-all"><button type="button" class="btn sm" data-act="asst-apply-all" data-id="${esc(m.id)}">Aprovar tudo, na ordem (${p.length})</button></div>` : ''; };
 const face = () => `<span class="as-face" aria-hidden="true">${mascot('feliz', 30)}</span>`;
+const contextLine = m => {
+  const c = m.context || {}, parts = [];
+  if (c.project) parts.push(`Projeto: ${c.project}`);
+  if (c.screen) parts.push('tela aberta');
+  if (Number(c.obsidianNotes) > 0) parts.push(`${c.obsidianNotes} referência${c.obsidianNotes === 1 ? '' : 's'} do Obsidian`);
+  return parts.length ? `<small class="as-context" title="Fontes de contexto incluídas no pedido enviado à IA">Contexto enviado: ${esc(parts.join(' · '))}</small>` : '';
+};
 const message = m => m.role === 'user'
-  ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}</div><small>${esc(hour(m.at))}</small></div>`
+  ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}</div><small>${esc(hour(m.at))}</small>${contextLine(m)}</div>`
   : `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}</div><small>${esc(hour(m.at))}</small></div></div>`;
 
 // O que merece atenção agora (falhas, fila parada, lote com problema, IA indisponível). "Me ajude" manda a pergunta pronta ao Assistente.
@@ -56,6 +63,6 @@ export function assistantHtml(a) {
   const staleBar = a.stale ? '<div class="as-stale" role="status"><span><b>O manual mudou.</b> O Assistente já usa a versão nova em cada resposta; reapresentar só atualiza o que fica gravado.</span><button type="button" class="btn ghost sm" data-act="asst-brief">Apresentar de novo</button></div>' : '';
   const errCount = msgs.filter(m => m.error).length, errBar = errCount ? `<div class="as-stale" role="status"><span>${errCount} mensagem${errCount > 1 ? 'ns' : ''} de erro nesta conversa.</span><button type="button" class="btn ghost sm" data-act="asst-clear-errors">Limpar erros</button></div>` : '';
   const intro = msgs.length ? '' : `<div class="as-empty">${face()}<div><p><b>Oi! Eu ajudo você a usar o Code Room.</b></p><p class="small muted">Conte o que quer fazer (um vídeo, um projeto, uma equipe) e eu proponho os passos. Nada acontece sem o seu clique.</p><div class="chips">${['/status', '/pendencias', 'Monte uma equipe de desenvolvimento e revisão', 'Quais skills combinam com um editor de vídeo?'].map(q => `<button type="button" class="chip" data-act="asst-suggest" data-id="${esc(q)}">${esc(q)}</button>`).join('')}</div></div></div>`;
-  const modeBar = a.autonomy === 'pilot' ? '<p class="as-pilot-note" role="status"><b>Piloto ligado.</b> Eu mexo nos arquivos do projeto em foco e uso as suas ferramentas. Nada é postado, enviado nem pago sem o seu “sim”.' + (a.provider && a.provider !== 'claude' ? ' Com esta IA o piloto não usa MCP nem o Chrome (só o Claude faz isso): para o piloto completo, escolha o Claude Code em “Qual IA responde”.' : '') + '</p>' : '';
+  const modeBar = a.autonomy === 'pilot' && !a.pilotNoticeDismissed ? '<div class="as-pilot-note" role="status"><span><b>Piloto ligado.</b> Eu mexo nos arquivos do projeto em foco e uso as suas ferramentas. Nada é postado, enviado nem pago sem o seu “sim”.' + (a.provider && a.provider !== 'claude' ? ' Com esta IA o piloto não usa MCP nem o Chrome (só o Claude faz isso): para o piloto completo, escolha o Claude Code em “Qual IA responde”.' : '') + '</span><button type="button" class="as-note-close" data-act="asst-pilot-note-dismiss" aria-label="Ocultar aviso do Modo Piloto" title="Ocultar aviso">×</button></div>' : '';
   return `${modeBar}${alertsHtml(a)}${staleBar}${errBar}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${busy ? `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble as-wait" role="status"><span class="as-dots" aria-hidden="true"><i></i><i></i><i></i></span> Pensando…${a.pending?.activity ? ` <small class="as-act">⚙ ${esc(a.pending.activity)}</small>` : ''}</div></div></div>` : ''}</div>${err}`;
 }

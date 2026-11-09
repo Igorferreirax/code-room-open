@@ -14,9 +14,10 @@ const inCgnat = ip => { const [a, b] = ip.split('.').map(Number); return a === 1
 const isPrivate = ip => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
 const VIRTUAL = /virtual|vethernet|vmware|wsl|docker|loopback|hyper-v|bluetooth|vbox/i;
 
-export function wantedAddresses(cfg) {
+export function wantedAddresses(cfg, interfaces = null) {
   const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const i of list || []) {
+  try { interfaces ??= os.networkInterfaces(); } catch { return out; }
+  for (const [name, list] of Object.entries(interfaces)) for (const i of list || []) {
     if (i.family !== 'IPv4' || i.internal) continue;
     if (inCgnat(i.address)) { if (cfg.tailscale) out.push({ ip: i.address, kind: 'tailscale', name }); }
     else if (cfg.lan && isPrivate(i.address) && !VIRTUAL.test(name)) out.push({ ip: i.address, kind: 'lan', name });
@@ -66,7 +67,7 @@ export class Throttle {
 
 // Diagnóstico do acesso remoto: lê o estado real (só leitura, nada é alterado) e diz, em frases simples, o que impediria o celular de conectar.
 // Cada item: { id, ok: true|false|null (informativo), label, hint }.
-export async function diagnoseNetwork({ cfg, port, bound, tailscale, probe = defaultProbe, firewall = windowsFirewall }) {
+export async function diagnoseNetwork({ cfg, port, bound, tailscale, probe = defaultProbe, firewall = windowsFirewall, platform = process.platform }) {
   const out = [];
   if (!cfg.lan && !cfg.tailscale) out.push({ id: 'off', ok: false, label: 'O acesso remoto está desligado', hint: 'Ligue o Tailscale (recomendado) ou a rede local abaixo; sem isso o serviço só atende neste computador.' });
   if (cfg.tailscale) {
@@ -80,7 +81,7 @@ export async function diagnoseNetwork({ cfg, port, bound, tailscale, probe = def
     const r = await probe(b.ip, port);
     out.push({ id: `probe-${b.ip}`, ok: r.ok, label: `${b.kind === 'tailscale' ? 'Tailscale' : 'Rede local'} (${b.ip}): ${r.ok ? 'o serviço responde' : 'o serviço não respondeu'}`, hint: r.ok ? `No celular, abra http://${b.ip}:${port}/ ou escaneie o QR.` : `O serviço não atendeu em ${b.ip}:${port} (${r.error || 'sem resposta'}). Reinicie o Code Room.` });
   }
-  if (process.platform === 'win32' && bound.length) {
+  if (platform === 'win32' && bound.length) {
     const fw = await firewall(process.execPath, port, { profile: !!cfg.lan });
     if (fw) {
       if (fw.error) out.push({ id: 'fw', ok: null, label: 'Não consegui ler o Firewall do Windows', hint: 'Sem problema: se o celular não abrir a página, libere o Node.js no Firewall do Windows.' });

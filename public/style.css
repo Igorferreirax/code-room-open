@@ -1,5 +1,5 @@
 [hidden]{display:none!important}
-:root{--bg:#08101f;--bg2:#0b1527;--panel:#0e1a31;--panel2:#12213d;--line:#1d3055;--text:#e8eefc;--muted:#8fa3c7;--accent:#2b7bff;--accent-h:#4a8fff;--accent-soft:rgba(43,123,255,.16);--on-accent:#fff;--ok:#2dd4a0;--warn:#f5b73b;--bad:#ef5b5b;--viol:#8b7fe0;--code:#06101f;--art-filter:none;--shadow:0 8px 28px rgba(0,0,0,.35);font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;--display:"Poppins","Century Gothic","Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--text);color-scheme:dark;font-size:15px}
+:root{--bg:#08101f;--bg2:#0b1527;--panel:#0e1a31;--panel2:#12213d;--line:#1d3055;--text:#e8eefc;--muted:#8fa3c7;--accent:#2b7bff;--accent-h:#4a8fff;--accent-soft:rgba(43,123,255,.16);--on-accent:#fff;--ok:#2dd4a0;--warn:#f5b73b;--bad:#ef5b5b;--viol:#8b7fe0;--code:#06101f;--art-filter:none;--shadow:0 8px 28px rgba(0,0,0,.35);font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;--display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);color-scheme:dark;font-size:15px}
 :root[data-theme=amanhecer]{--bg:#17121f;--bg2:#1b1525;--panel:#221a2e;--panel2:#2a2038;--line:#45304f;--text:#fdeee6;--muted:#cdaab8;--accent:#ff8a4c;--accent-h:#ff9d68;--accent-soft:rgba(255,138,76,.16);--code:#140f1b;--art-filter:sepia(.55) hue-rotate(-28deg) saturate(1.7) brightness(1.12)}
 :root[data-theme=minimal]{--bg:#eef1f6;--bg2:#fff;--panel:#fff;--panel2:#f3f6fb;--line:#d6deeb;--text:#14203a;--muted:#55657f;--accent:#2468e8;--accent-h:#3a7bf2;--accent-soft:rgba(36,104,232,.1);--code:#f3f6fb;--art-filter:grayscale(.5) brightness(1.55) contrast(.85);--shadow:0 6px 20px rgba(20,32,58,.1);color-scheme:light}
 :root[data-font=small]{font-size:13.5px}:root[data-font=large]{font-size:17px}
@@ -342,7 +342,7 @@ ul.plain{list-style:none;margin:8px 0 10px;padding:0;display:grid;gap:6px}ul.pla
 @media (max-width:760px){.update-bar{padding:8px 14px}.update-bar .grow{display:none}}
 
 /* ---- Marca: gato no monitor + nome em pixels ---- */
-.brand{min-width:0}.brand .wm{display:inline-flex;align-items:center}.logo-mark{flex:none;image-rendering:pixelated}.brand .wordmark{display:block}
+.brand{min-width:0}.brand .wm{display:inline-flex;align-items:center}.logo-mark{flex:none;image-rendering:pixelated}.brand .wordmark{display:block}.brand-mark{width:28px;height:28px;object-fit:contain;flex:none}
 @media (max-width:560px){.brand .wm{display:none}}
 
 /* ---- Canvas ao vivo: quem está trabalhando fica verde, quem espera fica âmbar, o trabalho viaja pela linha ---- */
@@ -367,6 +367,7 @@ html[data-motion=on] .cv-typing i{animation:cvdot 1s ease-in-out infinite}html[d
 .asst-btn{margin-right:4px}.asst-btn[aria-pressed=true]{border-color:var(--accent,#5fe3b0)}
 .as-log{flex:1;min-height:120px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:2px}
 .as-msg{display:flex;flex-direction:column;gap:2px;max-width:94%}.as-msg.me{align-self:flex-end;align-items:flex-end}.as-msg small{color:var(--muted);font-size:.72rem}
+.as-msg .as-context{max-width:100%;text-align:right;line-height:1.35;overflow-wrap:anywhere;color:var(--muted);opacity:.85}
 .as-bubble{border:1px solid var(--line);background:var(--panel2);border-radius:12px;padding:8px 12px;font-size:.92rem;line-height:1.45;overflow-wrap:anywhere}
 .as-msg.me .as-bubble{background:rgba(95,227,176,.12);border-color:rgba(95,227,176,.35)}
 .as-bubble p{margin:.3em 0}.as-bubble ul{margin:.3em 0;padding-left:1.2em}.as-code{background:rgba(0,0,0,.25);border-radius:8px;padding:8px;overflow:auto;font-size:.82rem;white-space:pre-wrap}
@@ -439,7 +440,7 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cw-rename{width:130px;font-size:.76rem;padding:.2em .6em;border-radius:999px;background:var(--bg);border:1px solid var(--accent);color:var(--text)}
 
 /* Marca: só o nome "Code Room" (sem ícone), igual no app, na landing e no instalador */
-.brand .brand-name{display:inline!important;font-family:var(--display);font-size:1.35rem;font-weight:500;letter-spacing:.02em;white-space:nowrap}.brand .brand-name b{color:var(--accent-h);font-weight:500}
+.brand .brand-name{display:inline!important;font-family:var(--display);font-size:1.35rem;font-weight:650;letter-spacing:.005em;white-space:nowrap}.brand .brand-name b{color:var(--accent-h);font-weight:700}
 /* Barra do topo no celular: o seletor de projeto precisa de espaço (o balão do chat já abre o Assistente) */
 @media (max-width:560px){.asst-btn{display:none}.brand .brand-name{font-size:1.02rem}}
 @media (max-width:400px){.top-right .pill{display:none}}
@@ -481,8 +482,10 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cw-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px 8px}
 .cw-tools .cw-prov{margin-left:auto}
 .cw-mode{font-size:.76rem;padding:.28em .7em .28em .4em}
-.as-pilot-note{margin:0 0 6px;padding:5px 10px;border-radius:8px;background:rgba(245,183,59,.1);color:var(--muted);font-size:.76rem;line-height:1.35}
+.as-pilot-note{margin:0 0 6px;padding:7px 8px 7px 10px;border-radius:8px;background:rgba(245,183,59,.1);color:var(--muted);font-size:.76rem;line-height:1.4;display:flex;align-items:flex-start;gap:8px}
 .as-pilot-note b{color:var(--warn)}
+.as-note-close{flex:none;width:24px;height:24px;margin:-3px -3px 0 0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:1.2rem;line-height:1;cursor:pointer}
+.as-note-close:hover,.as-note-close:focus-visible{background:rgba(255,255,255,.1);color:var(--text);outline:2px solid var(--accent);outline-offset:1px}
 .cw-body{padding:10px 12px;gap:6px}
 .as-alerts{margin-bottom:6px;gap:6px}
 .as-alert{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:10px;background:var(--panel)}
@@ -490,6 +493,8 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .as-alert .btn-row{gap:6px;flex-wrap:wrap}.as-alert .btn.sm{padding:.2em .7em;font-size:.76rem}
 .as-stale{border-style:solid;border-color:transparent;background:var(--panel);font-size:.76rem;padding:5px 10px}
 .as-bubble{font-size:.9rem;border-radius:14px}
+.cw-body .as-stale{gap:6px}.cw-body .as-msg{max-width:100%}.cw-body .as-bubble{overflow-wrap:anywhere}
+@media(max-width:420px){.chat{right:0;left:0;top:60px;bottom:calc(60px + env(safe-area-inset-bottom));width:100vw;height:auto;border-radius:0;border:0}.cw-top{gap:8px;padding:8px 9px}.cw-face{width:34px;height:34px}.cw-threads{padding:0 8px 7px}.cw-foot .composer-bar{padding:6px}.cw-foot .composer textarea{font-size:.88rem}.as-pilot-note{font-size:.73rem}}
 .as-msg small{opacity:.7}
 .agent-menu{position:fixed;z-index:80;display:flex;flex-direction:column;gap:6px;min-width:190px;max-width:260px;padding:10px;border-radius:14px;background:var(--panel2,#12213d);border:1px solid var(--line,#1d3055);box-shadow:0 18px 50px #000a}
 .agent-menu .am-name{font-size:1rem}.agent-menu .am-role{font-size:.8rem;color:var(--muted,#8fa3c7);margin:-4px 0 4px}

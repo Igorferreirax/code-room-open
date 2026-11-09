@@ -30,3 +30,11 @@ jobs:
         run: npm test
       - name: Auditoria de segurança (ataques reais contra um serviço isolado)
         run: node scripts/audit-security.mjs
+      - name: Instalar Playwright para os testes visuais
+        run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+      - name: Testes da interface e onboarding
+        run: |
+          python scripts/ui_smoke.py
+          python scripts/ui_onboarding.py

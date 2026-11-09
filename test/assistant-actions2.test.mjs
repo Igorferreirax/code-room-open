@@ -117,14 +117,15 @@ test('o prompt do Assistente nunca passa do limite de 30000 caracteres de uma ta
 import { command } from '../server/connectors.mjs';
 test('agente Claude com ferramentas MCP liberadas: vira --allowedTools mcp__<servidor>; sem lista, nada é liberado', () => {
   const base = { provider: 'claude', mode: 'read', commands: [], browser: 'off' };
-  const withMcp = command({ ...base, mcpTools: ['flow-studio', 'elevenlabs'] }, 'oi', {});
+  const options = { catalog: [{ id: 'claude', path: 'claude-test' }] };
+  const withMcp = command({ ...base, mcpTools: ['flow-studio', 'elevenlabs'] }, 'oi', options);
   const args = withMcp.args || [];
   assert.ok(args.includes('mcp__flow-studio') && args.includes('mcp__elevenlabs'), 'libera os servidores pedidos');
-  assert.ok(!(command(base, 'oi', {}).args || []).some(a => String(a).startsWith('mcp__')), 'sem lista, nenhuma ferramenta MCP');
+  assert.ok(!(command(base, 'oi', options).args || []).some(a => String(a).startsWith('mcp__')), 'sem lista, nenhuma ferramenta MCP');
   assert.ok(!args.some(a => /^mcp__.*[;&| ]/.test(String(a))), 'nome simples');
   assert.equal(args[args.indexOf('--permission-mode') + 1], 'acceptEdits', 'com MCP, o agente de leitura sai do modo de planejamento (que nega MCP)');
   assert.equal(args[args.indexOf('--disallowedTools') + 1], 'Edit,Write,NotebookEdit', 'mas continua sem editar arquivos');
-  assert.equal((command(base, 'oi', {}).args || [])[(command(base, 'oi', {}).args || []).indexOf('--permission-mode') + 1], 'plan', 'sem MCP, segue em planejamento');
+  assert.equal((command(base, 'oi', options).args || [])[(command(base, 'oi', options).args || []).indexOf('--permission-mode') + 1], 'plan', 'sem MCP, segue em planejamento');
 });
 
 import { spawn } from 'node:child_process';

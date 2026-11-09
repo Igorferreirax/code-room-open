@@ -318,7 +318,7 @@ function renderAsst() {
   if (!open) { ctx.ui._liveFor = null; return; }
   const tgNow = String(V.targetOf(ctx) || '');
   if (ctx.ui._liveFor !== tgNow) { ctx.ui._liveFor = tgNow; ctx.live = null; refreshLive().then(renderAsst); }   // trocou de agente: busca a tarefa dele
-  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml(ctx.asst) : targetBodyHtml(ctx);
+  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml({ ...ctx.asst, pilotNoticeDismissed: store.get('cr.pilot-note-dismissed', false) }) : targetBodyHtml(ctx);
   if (ctx.ui._ch !== head) { $('chat-head').innerHTML = head; ctx.ui._ch = head; }
   if (ctx.ui._cb !== body) {
     const log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0, keep = $('asst').scrollTop;
@@ -507,6 +507,7 @@ const actions = {
   'close-panel': () => { ctx.ui.panel = null; render(); },
   'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } render(); },
   'asst-autonomy': id => { if (id === 'pilot' && !confirm('Ligar o modo piloto?\n\nO Assistente passa a agir como a sua IA no terminal: cria e edita arquivos na pasta do projeto em foco, roda programas liberados (node, git, ffmpeg…), usa skills, ferramentas MCP e o seu Chrome.\n\nNada é postado, enviado ou pago sem o seu “sim”, mas ele pode mexer nos seus arquivos. Use só em pastas que você aceita que sejam alteradas. Você pode voltar ao modo consulta quando quiser.')) return; return asstCall('autonomy', { mode: id }); },
+  'asst-pilot-note-dismiss': () => { store.set('cr.pilot-note-dismissed', true); renderAsst(); },
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
   'retention-preview': async () => { ctx.retention = 'busy'; render(); try { ctx.retention = await api('retention?days=7'); } catch (e) { ctx.retention = null; notify(e.message, true); } render(); },
   'retention-purge': async () => { if (!confirm('Apagar de vez os itens da lista? Isso não pode ser desfeito. Suas entregas, projetos e conversas não são afetados.')) return; try { const r = await api('retention/purge', { days: 7 }); ctx.retention = null; const mb = r.freedBytes ? ` ${(r.freedBytes / 1048576).toFixed(1).replace('.', ',')} MB liberados.` : ''; notify('Limpeza concluída.' + mb); } catch (e) { notify(e.message, true); } render(); },

@@ -2,19 +2,23 @@
 
 Legenda: ✅ feito · ⬜ a fazer
 
-Atualizado em 07/11/2026. Para validação e distribuição deste commit, veja [STATUS-2026-11-06.md](STATUS-2026-11-06.md).
+Atualizado em 09/11/2026, considerando o código e o [CHANGELOG.md](../CHANGELOG.md) até a versão 0.3.1. O arquivo [STATUS-2026-11-06.md](STATUS-2026-11-06.md) registra a validação daquela data, não o estado atual.
 Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.md).
 
-## Publicado em 07/11/2026
+## Entregas recentes
+- ✅ **v0.3.1 (09/11/2026):** Obsidian opcional, cartões de aprovação no chat, contexto da tela e do projeto para o Assistente, conversas e Modo Piloto. Consulte o changelog para a lista completa. A publicação da release deve ser confirmada na página de Releases.
+- ✅ **v0.3.0 (09/11/2026):** Modo Piloto opcional, sessão ao vivo de agentes no chat, servidor MCP, navegador opcional por agente e acompanhamento de tarefas. Consulte o changelog para a lista completa. A publicação da release deve ser confirmada na página de Releases.
+- ✅ **v0.2.2 (07/11/2026)**, **v0.2.1 (07/11/2026)** e **v0.2.0 (06/11/2026):** janela de app, primeiros releases públicos e melhorias de chat/acesso remoto.
 - ✅ **v0.2.1 no ar** (Release + landing): mencionar agente por clique, `/celular`, botão de firewall, limpar erros do chat, limpeza de dados antigos com prévia (Configurações › Execução), correção do Antigravity. Notas em [RELEASE-NOTES-v0.2.1.md](RELEASE-NOTES-v0.2.1.md).
 - ✅ **v0.2.0 no ar**: repositório público, Release (zip portátil + Setup.exe + SHA256SUMS) e landing em produção. Checklist e últimas verificações em [ROADMAP-FINAL.md](ROADMAP-FINAL.md).
 - ✅ **Assistente × Antigravity**: o "prompt grande demais" vinha das respostas do Assistente gravadas como "entregas" do projeto interno e reinseridas em todo prompt; agora ficam de fora, e o orçamento do prompt do Antigravity é 24 mil caracteres.
 - ✅ **Acesso remoto, passo a passo**: botão **Diagnosticar o acesso**, botão **Liberar no firewall do Windows** (regra só para este programa e porta, só para rede local e Tailscale; o Windows pede a permissão), comando **/celular** no Assistente e prompt para Claude Code/Codex em [CELULAR-PROMPT.md](CELULAR-PROMPT.md). O QR prefere o IP do Tailscale. ⚠️ Ainda falta testar com um celular de verdade.
 - ✅ Canvas: a tela não é atualizada no meio do toque no cartão. ⚠️ O teste de toque do ponto de saída ainda falha de vez em quando.
 - ✅ **Mencionar agente por clique**: clicar em um agente (Sala, Canvas ou gaveta) abre um menu com "@ Mencionar no chat" e "Ver detalhes"; o `@Nome` vai para a barra do chat. Comandos locais (`/status`, `/celular`…) agora funcionam e aparecem antes da apresentação do Assistente. Teste: `scripts/ui_mention.py`.
-- ⬜ Pendentes: assinatura digital do Setup.exe (SignPath), domínio da Bytelab na landing (trocar o endereço no SEO), retenção de outros tipos de dado (hoje só tarefas internas do Assistente), sessão ao vivo por tarefa no chat.
+- ⬜ Pendentes: assinatura digital e validação limpa do instalador; teste em celular real; retenção por tipo de dado; prévia de diff no Modo Piloto; várias janelas e histórico de equipe no chat; linha do tempo com filtros; ferramentas locais cadastráveis; modo de lote configurável; aplicar e conferir a identidade na fonte da landing. O padrão atual está em [IDENTIDADE-VISUAL.md](IDENTIDADE-VISUAL.md).
 
-## Estado confirmado nesta atualização
+## Registro histórico da atualização de 07/11/2026
+Os itens abaixo descrevem o que foi conferido naquela rodada. Para recursos posteriores, use as entregas recentes e a lista de pendências atual.
 - ✅ Modelo e esforço configuráveis por agente e por missão; testes cobrem validação, isolamento do perfil e argumentos dos três conectores locais.
 - ✅ Renomear conversas do Assistente pelo lápis ou duplo clique; Enter salva, Esc cancela. Cobertura de renderização e persistência adicionada.
 - ✅ Status ao vivo no contexto do Assistente, com detalhe por projeto, equipe, agente e pasta de entrada; cobertura automatizada adicionada.
@@ -39,7 +43,7 @@ Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.m
 - ✅ **Assistente**: um chat só (janela estilo mensageiro). A IA da pessoa lê o manual, e o que entendeu fica gravado na máquina. Propõe projeto, agentes, equipe, skills (inclusive criar uma), ligações e tarefa; cada passo só roda com aprovação.
 
 - ✅ **Instalador com o visual do Code Room**: assistente do Inno Setup em modo escuro, com a arte pixel das referências (boas-vindas e conclusão), selo do "R", textos em português e arte na tela de progresso. Compilado e conferido na tela (boas-vindas, licença, escolhas e resumo); as telas de progresso e conclusão não foram capturadas porque exigem instalar de verdade. Fica de fora, de propósito: "Todos os usuários" e "Abrir ao entrar no Windows" (ver INSTALADOR-UX.md).
-- ✅ **Marca padronizada**: só o nome "Code Room" (texto) no app, na landing e no instalador, com ícone simples "CR" (favicon, atalho e selo do instalador; `installer/make-brand-icons.py`). O gato segue só como rosto do Assistente. ⬜ Um logotipo definitivo fica para depois (o Igor tem uma versão com "R" e porta em branco; falta o arquivo).
+- ✅ **Marca nas fontes disponíveis**: nome "Code Room", monograma "CR" no app e instalador e pilha de sistema tipográfica alinhada. ⬜ Falta decidir se o símbolo porta/CR substitui o monograma atual e conferir/aplicar o padrão na fonte atual da landing. Regras: [IDENTIDADE-VISUAL.md](IDENTIDADE-VISUAL.md).
 
 - ✅ **Mascote do Assistente**: cabecinha de robô com olhos de LED que muda de humor (feliz, pensando, dormindo, preocupado, alerta, surpreso), acompanha o ponteiro e "fala" um balão ao lado do ícone do chat quando nota algo (ideia vinda do vídeo de referência "Meet every mood"). Comandos `/status`, `/pendencias`, `/ajuda` e avisos proativos com "Me ajude com isso".
 
@@ -55,7 +59,7 @@ Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.m
 - ✅ **Várias conversas** com o Assistente (até 8), em abas, cada uma com seu histórico; a resposta volta para a conversa que perguntou. ⬜ Várias janelas abertas ao mesmo tempo e uma conversa por equipe com histórico próprio.
 
 ### Fase 2: conectar o Code Room ao mundo
-- ⬜ **Servidor MCP do Code Room**: ainda não implementado. Para a IA da pessoa (Claude, Codex…) controlar o Code Room por conexão MCP quando o terminal não for opção. Somente leitura por padrão; criar e iniciar exigem aprovação.
+- ✅ **Servidor MCP do Code Room** (`server/mcp.mjs`): leitura por padrão; escrita depende de permissão; aprovar e apagar não são expostos. Ampliar ferramentas somente com revisão de segurança.
 - ⬜ **Ferramentas locais** (ex.: HyperFrames aberto no navegador, ffmpeg, scripts): cadastrar nome, comando ou endereço local e pasta de saída; o agente recebe a ferramenta liberada e a pessoa vê o que ele rodou.
 - ⬜ **Configuração guiada do Hermes na VPS**: o conector remoto de leitura já existe e usa `~/bin/hermes.bat`; falta o assistente de configuração/teste por SSH e a apresentação dele na triagem inicial.
 - ✅ **Conectar outra IA** (Conexões › Outras IAs): lista com Gemini CLI, OpenCode, Qwen Code, Amp, Copilot CLI, Aider e Goose, ou uma IA própria (programa, argumentos, `{prompt}` ou entrada padrão), com botão **Testar** que roda de verdade. Roda sem shell. Os argumentos de cada IA da lista são sugestões a confirmar com o Testar.
@@ -70,8 +74,7 @@ Direção do produto e prioridades por fluxo: [VISAO-PRODUTO.md](VISAO-PRODUTO.m
 
 ### Empacotamento (Windows)
 - ✅ Zip portátil com Node embutido, dados em `%LOCALAPPDATA%\CodeRoom\data`, ícone e atalhos; rebuilt e smoke-tested em pasta temporária isolada em 06/11/2026 (SHA-256 no checklist de lançamento). Teste em outro computador, sem Node, com Smart App Control continua pendente.
-- ⬜ Instalador `.exe`: não foi reconstruído em 06/11/2026 porque Inno Setup 6 não está instalado neste ambiente. A busca por `ISCC.exe` foi ajustada para ignorar caminhos sem acesso.
-- ⬜ UX do instalador baseada nas quatro telas de `Tela de Instalação/`; especificação e decisões de segurança em [INSTALADOR-UX.md](INSTALADOR-UX.md). A implementação e compilação ainda estão pendentes.
+- ✅ UX visual do instalador implementada em `installer/code-room.iss` com base nas telas de `Tela de Instalação/`; decisões em [INSTALADOR-UX.md](INSTALADOR-UX.md). Registrar compilação e teste de instalação por release.
 - ⬜ **Assinatura digital** do instalador (necessária para o Smart App Control): [SignPath Foundation](https://signpath.org/) (gratuito para código aberto), Azure Artifact Signing ou certificado pago.
 - ⬜ SHA-256 de cada arquivo publicado junto do Release.
 - ✅ **Atualização em um clique** (verificação opcional no GitHub, SHA-256, volta sozinha se a versão nova não abrir). Testes automatizados cobrem consulta, download e instalação; veja [LANCAMENTO-V1.md](LANCAMENTO-V1.md).

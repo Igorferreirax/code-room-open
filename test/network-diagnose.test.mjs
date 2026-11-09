@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { diagnoseNetwork } from '../server/network.mjs';
 
 const ts = { installed: true, state: 'Running', ip: '100.1.2.3' };
-const run = (cfg, extra = {}) => diagnoseNetwork({ cfg, port: 4780, bound: [{ kind: 'tailscale', ip: '100.1.2.3' }], tailscale: ts, probe: async () => ({ ok: true }), firewall: async () => ({ anyEnabled: false, allowed: false, publicLan: true }), ...extra });
+const run = (cfg, extra = {}) => diagnoseNetwork({ cfg, port: 4780, bound: [{ kind: 'tailscale', ip: '100.1.2.3' }], tailscale: ts, probe: async () => ({ ok: true }), firewall: async () => ({ anyEnabled: false, allowed: false, publicLan: true }), platform: 'win32', ...extra });
 
 test('diagnóstico: devolve itens com rótulo e não quebra quando o firewall não pode ser lido', async () => {
   const a = await run({ lan: false, tailscale: true });
@@ -47,7 +47,7 @@ test('firewall rápido: como administrador faz a leitura detalhada', async () =>
 
 test('diagnóstico: só consulta o perfil de rede quando a rede local está ligada', async () => {
   const seen = [];
-  const mk = lan => diagnoseNetwork({ cfg: { lan, tailscale: true }, port: 4780, bound: [{ kind: 'tailscale', ip: '100.1.2.3' }], tailscale: { installed: true, state: 'Running', name: 'pc' }, probe: async () => ({ ok: true }), firewall: async (e, p, o) => { seen.push(o); return { anyEnabled: true, allowed: true, publicLan: false }; } });
+  const mk = lan => diagnoseNetwork({ cfg: { lan, tailscale: true }, port: 4780, bound: [{ kind: 'tailscale', ip: '100.1.2.3' }], tailscale: { installed: true, state: 'Running', name: 'pc' }, probe: async () => ({ ok: true }), platform: 'win32', firewall: async (e, p, o) => { seen.push(o); return { anyEnabled: true, allowed: true, publicLan: false }; } });
   await mk(false); await mk(true);
   assert.deepEqual(seen, [{ profile: false }, { profile: true }]);
 });

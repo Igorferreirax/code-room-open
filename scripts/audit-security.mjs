@@ -12,7 +12,7 @@ import { once } from 'node:events';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dir = await mkdtemp(join(tmpdir(), 'code-room-audit-')), port = 21000 + Math.floor(Math.random() * 8000);
 const child = spawn(process.execPath, ['server/main.mjs'], { cwd: root, env: { ...process.env, CODE_ROOM_DATA: dir, CODE_ROOM_PORT: String(port) }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-let fails = 0, total = 0;
+let fails = 0, total = 0, skipped = 0;
 const check = (name, ok, extra = '') => { total++; if (!ok) fails++; console.log(`${ok ? 'OK   ' : 'FALHA'} ${name}${ok ? '' : ' ' + extra}`); };
 // Cliente HTTP cru: permite mandar Host, Origin e caminhos "estranhos" exatamente como estão.
 const req = (method, path, { headers = {}, body } = {}) => new Promise(res => {
@@ -79,12 +79,14 @@ try {
 
   // Só escuta em 127.0.0.1 por padrão
   const { networkInterfaces } = await import('node:os');
-  const lan = Object.values(networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address;
+  let lan = null;
+  try { lan = Object.values(networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || null; }
+  catch { skipped++; console.log('PULOU sem permissão do ambiente para enumerar interfaces de rede'); }
   if (lan) {
     const probe = await new Promise(res => { const s = http.request({ host: lan, port, path: '/', agent: false, timeout: 2000 }, () => res('respondeu')); s.on('error', e => res(e.code)); s.on('timeout', () => { s.destroy(); res('timeout'); }); s.end(); });
     check(`o serviço não responde pelo IP de rede (rede local ou Tailscale) (${lan}) sem liberação`, probe !== 'respondeu', `resultado: ${probe}`);
   } else console.log('PULOU sem IP de rede local para testar');
 } catch (e) { check('execução da auditoria', false, e.message); }
 finally { const done = once(child, 'close'); child.kill(); await done; await rm(dir, { recursive: true, force: true }); }
-console.log(`\n${total - fails} de ${total} verificações ok${fails ? `, ${fails} FALHA(S)` : ''}`);
+console.log(`\n${total - fails} de ${total} verificações ok${fails ? `, ${fails} FALHA(S)` : ''}${skipped ? `, ${skipped} verificação(ões) pulada(s)` : ''}`);
 process.exit(fails ? 1 : 0);

@@ -35,7 +35,8 @@ try:
     URL = f'http://127.0.0.1:{PORT}/#{key}'
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(channel='chrome', headless=True)
+        try: browser = pw.chromium.launch(channel='chrome', headless=True)
+        except Exception: browser = pw.chromium.launch(headless=True)
 
         def new_page(size, mobile=False):
             ctx = browser.new_context(viewport=size, has_touch=mobile, is_mobile=mobile); pg = ctx.new_page(); errs = []

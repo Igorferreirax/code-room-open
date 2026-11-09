@@ -33,6 +33,9 @@ do meio (0.**3**.0).
 - **Versionamento com Git/GitHub no projeto:** no painel do projeto (Contexto), veja a branch, as alterações ainda sem commit, o remoto e os últimos commits; "Iniciar o Git neste projeto" cria o repositório; se o GitHub CLI (`gh`) estiver logado, aparecem também os pull requests abertos e as últimas verificações. Em Entregas, **"Commitar no Git"** cria um commit local só com os arquivos da entrega, e a opção **"Commitar automaticamente quando eu aprovar uma entrega"** faz isso ao aprovar. Nada é enviado (push) e nenhuma chave é guardada: usa o login que você já tem. Projetos Financeiro nunca commitam sozinhos.
 - **Voz no chat (fase 1):** botão de microfone para ditar em vez de digitar (o texto aparece no campo e você revisa antes de enviar) e interruptor **Voz** que lê um resumo curto das respostas do Assistente. Usa só o navegador (sem chave nem servidor); o microfone exige localhost ou https.
 - **Novo projeto dentro de uma pasta que você cita:** "crie o projeto X dentro de C:\Trabalho" (Assistente, ação `criar_projeto` com `pasta_pai`) e a caixa "Criar uma subpasta nova com o nome do projeto" no formulário. A pasta precisa existir; pastas do sistema (Windows, Arquivos de Programas, .ssh…) são recusadas.
+- O chat do Assistente informa em cada pergunta quais fontes de contexto foram incluídas: projeto, tela aberta e quantidade de referências do Obsidian. Isso não altera o conteúdo enviado; torna o contexto visível no histórico.
+- O roadmap foi reconciliado com os recursos das versões 0.3.0 e 0.3.1 e agora separa itens entregues de pendências reais.
+- O app usa o mesmo monograma `CR` gerado para o ícone do instalador e aplica uma pilha tipográfica de sistema consistente, sem depender de Poppins ou Century Gothic instaladas.
 
 ## [0.3.1] - 2026-11-09
 
