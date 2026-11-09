@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
 
+# Permissão mínima: o CI só lê o código. Não publica, não comenta, não mexe em nada do repositório.
 permissions:
   contents: read
 
@@ -14,18 +15,18 @@ concurrency:
 
 jobs:
   verificar:
+    # O Code Room é feito para Windows (PowerShell, árvore de processos, atalhos), então os testes rodam no Windows.
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      # Ações presas a um commit exato (não a uma etiqueta que pode ser movida).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-      - name: ffmpeg (usado pelos testes de vídeo)
-        run: choco install ffmpeg --no-progress -y
-      - name: Sintaxe
+      - name: Sintaxe de todos os arquivos
         run: node scripts/check.mjs
-      - name: Testes do servidor
-        run: node --test test/*.test.mjs
-      - name: Auditoria de segurança
+      - name: Testes automáticos
+        run: npm test
+      - name: Auditoria de segurança (ataques reais contra um serviço isolado)
         run: node scripts/audit-security.mjs

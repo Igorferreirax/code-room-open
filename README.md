@@ -85,7 +85,13 @@ Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais 
 - **Uma IA aparece como "não encontrada".** Instale o CLI dela e entre na conta; a triagem do primeiro uso mostra o comando exato.
 
 ## Privacidade e segurança
-O serviço escuta só em `127.0.0.1`, a chave fica em `.data/access.key` e nunca é versionada, e o acesso remoto vem desligado. Veja [SECURITY.md](SECURITY.md) para relatar uma falha.
+- **Local por padrão.** O serviço escuta só em `127.0.0.1` e toda chamada exige a chave de acesso (`.data/access.key`, nunca versionada). Celular, rede local e Tailscale vêm **desligados**.
+- **Sem telemetria e sem servidor nosso.** Não há conta, análise de uso nem envio automático para a Bytelab. A única chamada que não depende de você é a verificação de versão no GitHub, que dá para desligar.
+- **O que sai do computador** (para a IA que você escolheu, para uma rede social que você conectou, para o GitHub) está listado campo a campo em [docs/PRIVACIDADE.md](docs/PRIVACIDADE.md), com quando acontece e o que vai.
+- **Segredos nunca voltam para a tela.** Senhas de aplicativo, tokens e chaves de API ficam só neste computador; a tela nunca os devolve (a Biblioteca de APIs mostra só os 4 últimos caracteres).
+- **O que age fora do app vem desligado e pede o seu “sim”:** modo piloto, programas, MCP, navegador e pesquisa na web por agente, publicar em redes (uma postagem por vez), instalar skills em outras IAs, acesso pelo celular. Programas que dão controle total do computador nunca são liberados.
+- **Verificável:** `npm run audit` ataca um serviço isolado (62 verificações) e o CI do GitHub roda testes, sintaxe e auditoria a cada pull request, com permissão mínima.
+- Para relatar uma falha de segurança, veja [SECURITY.md](SECURITY.md) (sem issue pública).
 
 ## Aviso
 O Code Room é independente e não é afiliado à OpenAI, à Anthropic nem ao Google. Ele usa os CLIs que você já tem; o uso de cada IA segue os termos e a cota da sua conta.

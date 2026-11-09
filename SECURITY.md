@@ -5,7 +5,7 @@
 - Toda chamada à API exige a **chave de acesso** (`.data/access.key`). Pedidos com `Host` ou `Origin` forjados são recusados.
 - Cada celular pareado tem **token próprio** (guardado como hash), revogável, com menos poder que o dono. Tentativas erradas vindas de fora do computador são bloqueadas.
 - O Code Room usa os CLIs já logados no seu computador e **não guarda nem mostra credenciais**.
-- `npm run audit` roda 27 ataques reais contra um serviço isolado (chave errada, `Host`/`Origin` forjados, travessia de pasta, vazamento da chave, ids maliciosos, corpo gigante, escuta fora do 127.0.0.1).
+- `npm run audit` roda 62 verificações, incluindo ataques reais contra um serviço isolado (chave errada, `Host`/`Origin` forjados, travessia de pasta, vazamento da chave, ids maliciosos, corpo gigante, escuta fora do 127.0.0.1).
 
 - **MCP:** usa um token de aparelho (nunca a chave principal), é somente leitura por padrão e jamais expõe aprovar, reprovar, apagar ou mudar configurações. Desativar revoga o token na hora ([docs/MCP.md](docs/MCP.md)).
 - **Navegador para agentes:** desligado por padrão e por agente. O modo separado usa um perfil descartável, sem as suas contas. O modo "seu Chrome" age onde você está logado, então use só com agentes e projetos de confiança; páginas maliciosas podem tentar dar ordens ao agente. Não vale para projetos Financeiro.

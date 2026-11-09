@@ -9,7 +9,7 @@ Obrigado por querer ajudar. O Code Room é um projeto aberto (licença MIT).
 
 ## Ambiente
 - Windows 10 ou 11, Node.js 24 ou superior. Não há dependências para instalar (`package.json` não tem pacotes).
-- `npm test`, `npm run audit` e `npm run check` devem passar antes de qualquer *pull request*.
+- `npm test`, `npm run audit` e `npm run check` devem passar antes de qualquer *pull request* (o CI do GitHub roda os três no Windows).
 - `npm run test:ui` precisa de Chrome e Playwright para Python. O teste de toque do Canvas é intermitente (já conhecido).
 
 ## Regras do projeto
@@ -19,6 +19,8 @@ Obrigado por querer ajudar. O Code Room é um projeto aberto (licença MIT).
 - **Português do Brasil** na interface e nos textos, com acentuação correta.
 - Sem dependências novas sem uma boa razão: o projeto é propositalmente leve.
 - Testes não podem chamar provedores de IA nem gastar cota.
+- **Privacidade:** um pull request que adiciona ou muda algo que **sai do computador** (chamada de rede, envio a uma IA, nova chave guardada) atualiza [docs/PRIVACIDADE.md](docs/PRIVACIDADE.md) no mesmo PR. A revisão confere a lista contra o código.
+- Tudo que age fora do app (publicar, instalar em outra IA, rodar programa) **vem desligado** e exige o “sim” da pessoa.
 
 ## Pull request
 1. Faça um fork e crie uma branch.
