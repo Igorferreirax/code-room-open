@@ -45,7 +45,7 @@ let selectedAgent = null, officeHost = null, lastFocus = null;
 
 // ---------- API ----------
 async function api(path, body) {
-  const r = await fetch('/api/' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Code-Room-Key': key, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await fetch('/api/' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Code-Room-Key': key, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) }).catch(() => { throw new Error('Sem conexão com o Code Room (ele pode estar reiniciando). Nada foi aplicado; tente de novo em alguns segundos.'); });
   const v = await r.json().catch(() => ({}));
   if (!r.ok) { if (r.status === 401) logout('Chave inválida ou ausente.'); throw new Error(v.error || 'Não foi possível concluir.'); }
   return v;
