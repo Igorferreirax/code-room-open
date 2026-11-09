@@ -360,7 +360,7 @@ export class Assistant {
     }
   }
   // O que a IA está fazendo agora (última ferramenta usada), para o chat não parecer travado em pedidos longos do piloto.
-  #activity(t) { try { if (!t?.currentAttemptId) return ''; const ev = this.store.events(t.currentAttemptId); for (let i = ev.length - 1; i >= 0; i--) if (ev[i].type === 'activity' && ev[i].text) return short(ev[i].text, 90); } catch {} return ''; }
+  #activity(t) { try { if (!t?.currentAttemptId) return ''; const ev = this.store.events(t.currentAttemptId); for (let i = ev.length - 1; i >= 0; i--) if (ev[i].type === 'activity' && /^Ferramentas:/.test(ev[i].text || '')) return short(ev[i].text, 90); } catch {} return ''; }
   #answer(task) { const att = task?.result?.attemptId ? this.store.get('runs', task.result.attemptId) : null; return att?.answer || task?.result?.summary || ''; }
   #writeKnowledge(text, provider, hash) {
     mkdirSync(this.dir, { recursive: true });

@@ -17,7 +17,7 @@ O zip já leva o Node dentro: **você não precisa instalar o Node**. Seus dados
 2. Como o instalador **ainda não tem assinatura digital**, o Windows pode reagir de dois jeitos:
    - **“O Windows protegeu o seu PC” (SmartScreen):** é esperado, e não significa que um vírus foi encontrado. Clique em **Mais informações** e depois em **Executar assim mesmo**.
    - **“Uma política de Controle de Aplicativo bloqueou este arquivo” (Smart App Control, comum no Windows 11):** esse bloqueio **não tem a opção de executar assim mesmo**. Nesse caso, use a **opção A (zip portátil)**, que funciona com o Smart App Control ligado.
-   - Para conferir o arquivo antes, compare o SHA-256 com o publicado na página do Release: `Get-FileHash .\Code-Room-0.3.0-Setup.exe -Algorithm SHA256`.
+   - Para conferir o arquivo antes, compare o SHA-256 com o publicado na página do Release: `Get-FileHash .\Code-Room-0.3.1-Setup.exe -Algorithm SHA256`.
 3. Termine a instalação (não precisa de administrador). O assistente cria o **ícone do Code Room na área de trabalho** (você pode desmarcar) e no menu Iniciar, junto com o atalho **Fechar o Code Room**.
 
 ## C. Peça para a sua IA instalar

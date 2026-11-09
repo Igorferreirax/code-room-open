@@ -29,8 +29,8 @@ test('Assistente usa o Obsidian: só ligado, só trechos, nunca com projeto Fina
 test('piloto: o status do chat traz a última ferramenta usada pela IA (atividade ao vivo)', async () => {
   const { asst, store } = await make(); await asst.ask('faça algo');
   assert.equal((await asst.status()).pending.activity, '');
-  store.event('att1', { type: 'status', text: 'running' }); store.event('att1', { type: 'activity', text: 'Bash, Read' }); store.event('att1', { type: 'answer', text: 'parcial' });
-  assert.equal((await asst.status()).pending.activity, 'Bash, Read');
+  store.event('att1', { type: 'status', text: 'running' }); store.event('att1', { type: 'activity', text: 'Ferramentas: Bash, Read' }); store.event('att1', { type: 'activity', text: 'Texto da resposta chegando…' }); store.event('att1', { type: 'answer', text: 'parcial' });
+  assert.equal((await asst.status()).pending.activity, 'Ferramentas: Bash, Read', 'só linhas de ferramenta, não o texto da resposta');
 });
 
 test('chat: aviso do piloto fora do Claude e atividade ao vivo no balão "Pensando…"', () => {

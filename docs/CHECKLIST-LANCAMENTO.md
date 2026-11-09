@@ -1,4 +1,4 @@
-# Checklist de lançamento (Code Room 0.3.0)
+# Checklist de lançamento (Code Room 0.3.1)
 
 Marque cada item antes de divulgar. **[x]** = já verificado (com a data); **[ ]** = falta testar.
 

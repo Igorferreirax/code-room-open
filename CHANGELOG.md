@@ -9,6 +9,8 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.1] - 2026-11-09
+
 ### Adicionado
 - **Obsidian (opcional, em Conexões):** vincule o seu cofre para os agentes usarem as suas notas como referência. A cada tarefa, o Code Room envia à IA só um trecho curto das notas mais parecidas com o pedido (com pasta do cofre por projeto e pastas ignoradas; projetos Financeiro nunca recebem). Escolha entre **"Só ler"** (padrão) e **"Permitir alimentar o Obsidian"**: ao aprovar uma entrega, cria uma nota nova numa pasta de destino sua, sem nunca editar ou apagar as suas notas. Há também "Salvar no Obsidian" em Entregas.
 - **Cartões de aprovação no chat do Assistente:** vídeo, imagens e prévias de lote aparecem no chat com Aprovar, Pedir ajustes e Abrir. Aprovar nunca publica.
