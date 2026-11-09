@@ -415,6 +415,7 @@ const handle = async (req, res) => {
           if (a === 'thread/rename') return send(res, 200, await assistant.renameThread(text(b.id, 40), text(b.title, 60)));
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
           if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));
+          if (a === 'autonomy') return send(res, 200, await assistant.setAutonomy(b.mode));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
         }
