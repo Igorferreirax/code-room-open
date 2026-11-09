@@ -304,10 +304,10 @@ export class Assistant {
     const id = `assistant-${provider}`, base = { id, name: 'Assistente', role: 'Ajuda dentro do Code Room', room: 'Assistente', provider, model: '', instructions: '', internal: true };
     // Leitura (padrão) ou piloto: o agente interno é regravado a cada pergunta para refletir a escolha atual da pessoa.
     const want = pilot
-      ? { mode: 'write', skillIds: [], commands: PILOT_COMMANDS, mcpTools: provider === 'claude' ? this.mcpFn() : [], browser: provider === 'claude' ? 'chrome' : provider === 'codex' ? 'isolado' : 'off', capabilities: [] }
-      : { mode: 'read', skillIds: [], commands: [], mcpTools: [], browser: 'off', capabilities: [] };
+      ? { mode: 'write', skillIds: [], commands: PILOT_COMMANDS, mcpTools: provider === 'claude' ? this.mcpFn() : [], browser: provider === 'claude' ? 'chrome' : provider === 'codex' ? 'isolado' : 'off', skillTool: provider === 'claude', capabilities: [] }
+      : { mode: 'read', skillIds: [], commands: [], mcpTools: [], browser: 'off', skillTool: false, capabilities: [] };
     const old = this.store.get('agents', id);
-    if (!old || JSON.stringify(['mode', 'commands', 'mcpTools', 'browser'].map(k => old[k])) !== JSON.stringify(['mode', 'commands', 'mcpTools', 'browser'].map(k => want[k]))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
+    if (!old || JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool'].map(k => old[k])) !== JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool'].map(k => want[k]))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
     return id;
   }
   #task(provider, objective, tag, { pilot = false, projectId = null } = {}) {

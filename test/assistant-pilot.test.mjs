@@ -61,6 +61,7 @@ test('modo piloto: o comando do Claude libera escrita, os programas, o MCP e o C
   const args = command(store.get('agents', 'assistant-claude'), 'oi', {}).args || [];
   assert.equal(args[args.indexOf('--permission-mode') + 1], 'acceptEdits');
   for (const t of ['Bash(node:*)', 'PowerShell(ffmpeg:*)', 'mcp__flow-studio', 'mcp__notion', 'mcp__claude-in-chrome']) assert.ok(args.includes(t), t);
-  assert.ok(args.includes('--chrome'));
+  assert.ok(args.includes('--chrome')); assert.ok(args.includes('Skill'), 'libera a ferramenta Skill');
+  assert.ok(!(command({ provider: 'claude', mode: 'read', commands: [], browser: 'off' }, 'oi', {}).args || []).includes('Skill'), 'agente comum não ganha Skill');
   assert.ok(!args.some(a => /Remove-Item|rm:|del:/.test(String(a))), 'não libera apagar');
 });
