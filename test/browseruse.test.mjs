@@ -44,6 +44,14 @@ test('navegador: projeto Financeiro não aceita agente com navegador (página ma
   assert.ok(mk(geral, com, 4).task, 'em outras áreas vale');
 });
 
+test('MCP por agente: projeto Financeiro recusa agente com ferramentas MCP; sem MCP e em outras áreas continua valendo', async () => {
+  const { store } = await setup(); const fin = await addProject(store, 'fin', 'Financeiro'), geral = await addProject(store, 'geral', 'Geral');
+  const mcp = addAgent(store, 'mcp', { provider: 'claude', mcpTools: ['flow-studio'] }), sem = addAgent(store, 'sem', { provider: 'claude', mcpTools: [] });
+  const mk = (p, a, i) => createTask(store, { projectId: p.id, agentId: a.id, requestId: 'm' + i, objective: 'faça' });
+  assert.throws(() => mk(fin, mcp, 1), /Projeto financeiro: agentes com ferramentas MCP externas não são permitidos/);
+  assert.ok(mk(fin, sem, 2).task); assert.ok(mk(geral, mcp, 3).task);
+});
+
 // Integração com o comando real: só roda onde o Claude Code e o Codex estão instalados.
 const has = id => !!connectors().find(c => c.id === id)?.path;
 test('navegador: comando do Claude Code leva os argumentos certos e nunca o navegador por padrão', { skip: !has('claude') && 'Claude Code não instalado aqui' }, () => {
