@@ -252,21 +252,13 @@ const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach
 
 // ---------- Rádio da Sala ----------
 let radio = null;
-// Player recolhível: começa só como um botão redondo; clicar abre o player completo, e ele se recolhe sozinho depois de um tempo sem uso.
-let radioIdle = null;
-function setRadioOpen(open, { remember = true } = {}) {
-  const w = $('radio-ctl'), fab = $('radio-fab'); if (!w) return;
-  w.classList.toggle('min', !open); fab.setAttribute('aria-expanded', String(open)); clearTimeout(radioIdle);
-  if (open) radioIdle = setTimeout(() => { if (!w.matches(':hover') && !w.contains(document.activeElement)) setRadioOpen(false); else setRadioOpen(true); }, 7000);
-}
-$('radio-fab')?.addEventListener('click', () => { setRadioOpen(true); setTimeout(() => $('radio-btn')?.focus(), 30); });
-$('radio-min')?.addEventListener('click', () => { setRadioOpen(false); $('radio-fab')?.focus(); });
-$('radio-ctl')?.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('radio-ctl').classList.contains('min')) { setRadioOpen(false); $('radio-fab')?.focus(); } });
-for (const ev of ['pointerenter', 'pointerdown', 'input', 'focusin']) $('radio-ctl')?.addEventListener(ev, () => { if (!$('radio-ctl').classList.contains('min')) setRadioOpen(true); });
+// O radinho é o botão: clicar liga (sobem notinhas), clicar de novo desliga. Enquanto toca, aparece uma barrinha de volume ao lado dele.
 function updateRadioUi() {
-  const on = !!radio?.playing, w = $('radio-ctl'), b = $('radio-btn'), v = $('radio-vol'); if (!b) return;
-  w.classList.toggle('on', on); $('radio-fab')?.setAttribute('aria-label', on ? 'Rádio lo-fi tocando: abrir o player' : 'Abrir a rádio lo-fi'); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Pausar a rádio lo-fi' : 'Ligar a rádio lo-fi');
-  v.hidden = !on; $('radio-next').hidden = !on; if (!on) $('radio-track').textContent = 'Toque para ligar'; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
+  const on = !!radio?.playing, w = $('radio-ctl'), f = $('radio-fab'), v = $('radio-vol'); if (!f) return;
+  w.classList.toggle('on', on); f.setAttribute('aria-pressed', String(on)); $('radio-bar').hidden = !on;
+  const faixa = $('radio-track').textContent;
+  f.setAttribute('aria-label', on ? 'Parar a rádio lo-fi' : 'Ligar a rádio lo-fi'); f.title = on ? `Rádio Lo-Fi tocando${faixa ? ' (' + faixa + ')' : ''}. Clique para parar.` : 'Rádio Lo-Fi: clique para ligar (lo-fi original gerado no seu navegador, sem internet)';
+  if (!on) $('radio-track').textContent = ''; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
 }
 $('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { ...store.get('cr.radio', {}), volume: x }); });
 document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
@@ -569,7 +561,7 @@ const actions = {
   'radio-next': () => radio?.nextTrack(),
   'radio-toggle': async () => {
     if (radio?.playing) { radio.stop(); radio = null; }
-    else { radio = new LofiRadio({ track: store.get('cr.radio', {}).track ?? 0, onTrack: (t, i) => { $('radio-track').textContent = `faixa ${i + 1}/${TRACKS.length}: ${t.name}`; store.set('cr.radio', { ...store.get('cr.radio', {}), track: i }); } }); radio.vol = store.get('cr.radio', {}).volume ?? 0.7; try { await radio.start(); } catch (e) { radio = null; notify(e.message, true); } }
+    else { radio = new LofiRadio({ track: store.get('cr.radio', {}).track ?? 0, onTrack: (t, i) => { $('radio-track').textContent = `faixa ${i + 1}/${TRACKS.length}: ${t.name}`; updateRadioUi(); store.set('cr.radio', { ...store.get('cr.radio', {}), track: i }); } }); radio.vol = store.get('cr.radio', {}).volume ?? 0.7; try { await radio.start(); } catch (e) { radio = null; notify(e.message, true); } }
     updateRadioUi();
   },
   // ---- Atualização: verificar, adiar, baixar com SHA-256 e instalar (só o computador) ----

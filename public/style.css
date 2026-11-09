@@ -603,7 +603,6 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .radio-pill .rp-fab:hover,.radio-pill .rp-fab:focus-visible{opacity:1;color:var(--text,#e8eefc);transform:scale(1.06)}.radio-pill .rp-fab:focus-visible{outline:2px solid #bcd6ff;outline-offset:2px}
 .radio-pill.on .rp-fab{opacity:1;color:#8fb8ff;border-color:rgba(74,143,255,.55)}
 .radio-pill .rp-fab .rp-eq{display:none;height:16px}.radio-pill.on .rp-fab .i-note{display:none}.radio-pill.on .rp-fab .rp-eq{display:flex}
-.radio-pill.min .rp-panel{display:none}.radio-pill:not(.min) .rp-fab{display:none}
 .radio-pill .rp-panel .rp-eq{display:none}
 .radio-pill .rp-min{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:0;background:transparent;color:var(--muted,#8fa3c7);cursor:pointer;flex:0 0 auto}.radio-pill .rp-min:hover{color:var(--text,#e8eefc);background:var(--accent-soft,rgba(43,123,255,.16))}
 @media (max-width:760px){.radio-pill .rp-fab{width:36px;height:36px}.radio-pill .rp-panel{padding-right:6px}}
@@ -731,3 +730,11 @@ html[data-motion=off] .radio-pill.on .rp-glow{opacity:.45}
 @keyframes rp-glow{0%,100%{opacity:.2}50%{opacity:.75}}
 @keyframes rp-note{0%{opacity:0;transform:translate(0,4px) scale(.8)}20%{opacity:1}100%{opacity:0;transform:translate(10px,-30px) scale(1.1)}}
 @media (max-width:760px){.radio-pill .rp-fab{--rs:42px;width:50px;height:50px}}
+
+/* Radinho como botão: a barrinha de volume fica grudada nele e só aparece enquanto toca */
+.radio-pill{display:flex;align-items:center;gap:4px}
+.radio-pill .rp-bar{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(11,21,39,.82);border:1px solid var(--line,#1d3055);box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.radio-pill .rp-bar[hidden]{display:none}
+.radio-pill .rp-vol{width:72px;height:14px;accent-color:var(--accent,#2b7bff);margin:0}
+.radio-pill .rp-next{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:0;background:transparent;color:var(--muted,#8fa3c7);cursor:pointer;padding:0}.radio-pill .rp-next:hover{color:var(--text,#e8eefc)}
+.radio-pill .rp-fab:active{transform:scale(.94)}
