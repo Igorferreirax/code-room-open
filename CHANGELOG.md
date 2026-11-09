@@ -10,6 +10,7 @@ do meio (0.**3**.0).
 ## [Não lançado]
 
 ### Adicionado
+- **Modo piloto do Assistente (opcional, desligado por padrão).** Com ele ligado, o Assistente trabalha como a sua IA no terminal: cria e edita arquivos na pasta do projeto em foco, roda programas liberados (node, git, ffmpeg…), usa skills, as ferramentas MCP da sua conta e o seu Chrome. Nada é postado, enviado ou pago sem o seu "sim", e ele não roda com projeto financeiro em foco. Liga e desliga na barra do chat.
 - **"Precisa de você agora" completo:** além dos lotes, o cartão da Sala mostra entregas para revisar (últimos 14 dias), planos do Supervisor para aceitar e receitas esperando aprovação, cada um com botão Abrir. A barra lateral ganha contador (Sala e Entregas), o título da aba mostra o total e o Assistente avisa no sino, com resposta local que não gasta cota.
 - **"Trazer pontos do revisor":** em Entregas, preenche o campo de ajustes com os problemas que o revisor listou. Você confere e clica em Solicitar ajustes.
 - **Ferramentas MCP liberadas por agente (só Claude Code):** no formulário do agente, o campo "Ferramentas MCP liberadas" aceita nomes de servidores que já estão no seu Claude (ex.: `flow-studio`). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP. Agente de leitura com MCP liberado continua sem editar arquivos. Não vale em projeto Financeiro.
