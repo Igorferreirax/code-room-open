@@ -90,6 +90,7 @@ Nenhum teste chama um provedor de IA nem gasta cota. Os roteiros com CLIs reais 
 - **O que sai do computador** (para a IA que você escolheu, para uma rede social que você conectou, para o GitHub) está listado campo a campo em [docs/PRIVACIDADE.md](docs/PRIVACIDADE.md), com quando acontece e o que vai.
 - **Segredos nunca voltam para a tela.** Senhas de aplicativo, tokens e chaves de API ficam só neste computador; a tela nunca os devolve (a Biblioteca de APIs mostra só os 4 últimos caracteres).
 - **O que age fora do app vem desligado e pede o seu “sim”:** modo piloto, programas, MCP, navegador e pesquisa na web por agente, publicar em redes (uma postagem por vez), instalar skills em outras IAs, acesso pelo celular. Programas que dão controle total do computador nunca são liberados.
+- **Você confere o que saiu:** Conexões › “O que o Code Room enviou” mostra as últimas chamadas das redes sociais e da Biblioteca de APIs, com segredos mascarados.
 - **Verificável:** `npm run audit` ataca um serviço isolado (62 verificações) e o CI do GitHub roda testes, sintaxe e auditoria a cada pull request, com permissão mínima.
 - Para relatar uma falha de segurança, veja [SECURITY.md](SECURITY.md) (sem issue pública).
 

@@ -42,6 +42,7 @@ import { approveSubtask, dismissSubtask } from './subtasks.mjs';
 import { ApiLibrary } from './apilib.mjs';
 import { applyUnblocks } from './unblock.mjs';
 import { SyncIas } from './sync-ias.mjs';
+import { Outbox, loggedFetch } from './outbound.mjs';
 import { usageReport, suggest as economySuggest, applySuggestions, undoEconomy } from './economy.mjs';
 import { Social, CATALOG as SOCIAL_CATALOG } from './social.mjs';
 import { cleanRefs, scanReference } from './referencias.mjs';
@@ -167,8 +168,9 @@ orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
 const publisher = new Publisher(store, { dataDir: data });
-const social = new Social(store, { dataDir: data, publisher });
-const apiLib = new ApiLibrary(store, { dataDir: data });
+const outbox = new Outbox(store);
+const social = new Social(store, { dataDir: data, publisher, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Redes sociais') });
+const apiLib = new ApiLibrary(store, { dataDir: data, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Biblioteca de APIs') });
 const economyCtx = () => ({ connected: new Set(connectors().filter(c => c.path).map(c => c.id)), claudeWindows: store.get('settings', 'limits:claude')?.windows || [] });
 const syncIas = () => new SyncIas({ codexPath: connectors().find(c => c.id === 'codex')?.path || null });
 orchestrator.social = social;   // propostas de postagem dos agentes
@@ -379,6 +381,7 @@ const handle = async (req, res) => {
         return send(res, 200, gitGet[2] === 'git' ? { ...(await gitInfo(pr.path)), projectId: pr.id, config: gitCfg() } : await githubInfo(pr.path));
       }
       if (get && p === '/api/economy') { masterOnly(auth); const report = usageReport(store); return send(res, 200, { report, suggestions: economySuggest(store, { ...economyCtx(), report }), canUndo: !!store.get('settings', 'economy:undo')?.items?.length, budget: runner.budget().tokens }); }
+      if (get && p === '/api/outbound') { masterOnly(auth); return send(res, 200, outbox.list()); }
       if (get && p === '/api/sync-ias') { masterOnly(auth); return send(res, 200, await syncIas().overview()); }
       if (get && p === '/api/apis') { masterOnly(auth); return send(res, 200, { catalog: apiLib.catalog(), keys: apiLib.list() }); }
       if (get && p === '/api/social') { masterOnly(auth); return send(res, 200, { catalog: SOCIAL_CATALOG, accounts: social.accounts(), posts: social.posts() }); }
@@ -658,6 +661,7 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
           masterOnly(auth); const limit = b.limit === '' || b.limit == null ? null : Math.round(Number(b.limit)); if (limit != null && !(limit >= 10000 && limit <= 1e9)) throw new Error('Teto diário: de 10.000 a 1.000.000.000 de tokens.');
           store.put('settings', { ...(store.get('settings', 'limits') || { id: 'limits', timeoutMs: 1200000, budgetDays: 30 }), id: 'limits', budgetTokens: limit, budgetTokensEnabled: b.enabled === true && limit != null }); void runner.pump(); return send(res, 200, runner.budget().tokens);
         }
+        if (p === '/api/outbound/clear') { masterOnly(auth); outbox.clear(); return send(res, 200, { ok: true }); }
         if (p === '/api/sync-ias/apply') { masterOnly(auth); return send(res, 200, await syncIas().apply(b)); }
         if (p === '/api/apis') { masterOnly(auth); return send(res, 200, await apiLib.save(b)); }
         if ((m = p.match(/^\/api\/apis\/([a-zA-Z0-9-]+)\/(delete|check)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'delete' ? await apiLib.remove(m[1]) : await apiLib.check(m[1])); }

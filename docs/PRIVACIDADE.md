@@ -49,6 +49,7 @@ Estas funções agem no seu computador ou fora dele, e **vêm desligadas**. Cada
 - **Obsidian em modo “Alimentar”** e **Git** (commits locais; nunca envia ao GitHub sozinho).
 
 ## Como conferir
+- **Conexões › O que o Code Room enviou:** mostra as últimas 40 chamadas para fora das **redes sociais** e dos testes da **Biblioteca de APIs** (método, endereço, cabeçalhos, conteúdo e código da resposta). Senhas, tokens e chaves aparecem como `***`, e a resposta do serviço não é guardada. **Ainda não aparecem aí:** os pedidos às IAs (que saem pelos CLIs delas), o upload de vídeo do YouTube e a verificação de atualização.
 - `npm run audit` roda ataques reais contra um serviço isolado (chave errada, `Host` e `Origin` forjados, travessia de pasta, vazamento da chave).
 - Toda chamada de rede do código fica em `server/` e usa `fetch(` ou os CLIs das IAs: `grep -rn "fetch(" server/`.
 - **Regra para quem contribui:** um pull request que adiciona ou muda algo que sai do computador **atualiza esta lista no mesmo PR**, e a revisão confere a lista contra o código.

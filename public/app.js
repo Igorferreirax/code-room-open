@@ -283,6 +283,7 @@ async function loadObsidian() { try { ctx.obsidian = await api('obsidian'); } ca
 async function loadAudit() { try { ctx.audit = await api('audit'); } catch { ctx.audit = { entries: [] }; } if (ctx.view === 'settings') render(); }
 async function loadSocial() { try { ctx.social = await api('social'); } catch { ctx.social = null; } if (ctx.view === 'connections' || ctx.ui.asstOpen) render(); }
 async function loadEconomy() { try { ctx.economy = await api('economy'); } catch { ctx.economy = null; } if (ctx.view === 'usage') render(); }
+async function loadOutbound() { try { ctx.outbound = await api('outbound'); } catch { ctx.outbound = null; } if (ctx.view === 'connections') render(); }
 async function loadSync() { try { ctx.sync = await api('sync-ias'); } catch { ctx.sync = null; } if (ctx.view === 'connections') render(); }
 async function loadApis() { try { ctx.apis = await api('apis'); } catch { ctx.apis = null; } if (ctx.view === 'connections') render(); }
 async function loadHermes() { try { ctx.hermes = await api('hermes'); } catch { ctx.hermes = null; } if (ctx.view === 'connections') render(); }
@@ -414,7 +415,7 @@ async function go(view) {
   if (view === 'skills') loadSkills(true);
   if (view === 'usage') loadEconomy();
   if (view === 'routines' || view === 'tasks') refresh();   // lotes e tarefas criados por fora (Assistente, outro aparelho) aparecem ao abrir a tela, sem esperar os 15 s do relógio
-  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); loadSocial(); loadApis(); loadSync(); }
+  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); loadSocial(); loadApis(); loadSync(); loadOutbound(); }
   if (view === 'deliveries' && !ctx.obsidian) loadObsidian();
   if (view === 'deliveries' && ctx.project && ctx.gitInfo?.projectId !== ctx.project) loadGit(ctx.project, false);
   if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
@@ -661,13 +662,13 @@ const actions = {
   'ap-post-sched': (id, el) => { ctx.ui.apSched = { ...(ctx.ui.apSched || {}), [id]: !!el.checked }; renderAsst(); },
   'ap-post-approve': async id => {
     const text = $('pt-' + id)?.value || '', sched = $('pw-' + id)?.value, body = { confirm: true, text }; if (sched) { const t = new Date(sched); if (Number.isNaN(+t)) throw new Error('Escolha um horário válido.'); body.when = t.toISOString(); }
-    const r = await api(`social/posts/${id}/approve`, body); await Promise.all([refresh(), loadSocial()]);
+    const r = await api(`social/posts/${id}/approve`, body); await Promise.all([refresh(), loadSocial(), loadOutbound()]);
     notify(r.status === 'agendado' ? `Agendada para ${new Date(r.scheduledAt).toLocaleString('pt-BR')}. O Code Room publica nesse horário (com o computador ligado).` : r.status === 'publicado' ? 'Publicada.' : r.status === 'manual' ? 'Pacote pronto: veja em Conexões › Redes sociais para copiar e postar.' : r.status === 'falhou' ? `Não foi possível publicar: ${r.error}` : 'Aprovada.', r.status === 'falhou'); renderAsst();
   },
   'ap-post-dismiss': async id => { await api(`social/posts/${id}/dismiss`, {}); await Promise.all([refresh(), loadSocial()]); renderAsst(); },
   'api-edit': id => { ctx.ui.apiForm = id ? { id } : null; render(); },
   'api-del': async id => { if (!confirm('Remover esta chave? Ela é apagada deste computador.')) return; await api(`apis/${id}/delete`, {}); ctx.ui.apiForm = null; await loadApis(); notify('Chave removida.'); },
-  'api-check': async id => { notify('Testando…'); const r = await api(`apis/${id}/check`, {}); await loadApis(); notify(r.ok ? 'Chave funcionando.' : 'A chave tem problema: ' + r.detail, !r.ok); },
+  'api-check': async id => { notify('Testando…'); const r = await api(`apis/${id}/check`, {}); await Promise.all([loadApis(), loadOutbound()]); notify(r.ok ? 'Chave funcionando.' : 'A chave tem problema: ' + r.detail, !r.ok); },
   unblock: async (id, el) => {
     const box = el.closest('.unblock-box'), items = [...box.querySelectorAll('.unb:checked')].map(x => ({ kind: x.dataset.kind, value: x.dataset.value })); if (!items.length) return notify('Marque o que liberar.', true);
     const t = ctx.state.runs.find(x => x.id === id) || (ctx.detail?.id === id ? ctx.detail : null), r = await api(`tasks/${id}/unblock`, { items }); notify('Liberado: ' + r.released.join(', ') + '.');
@@ -682,6 +683,7 @@ const actions = {
   },
   'eco-apply': async () => { const ids = [...document.querySelectorAll('.eco-pick:checked')].map(x => x.value); if (!ids.length) return notify('Marque o que aplicar.', true); const r = await api('economy/apply', { ids }); notify(`Aplicado em ${r.applied} agente(s): ${r.agents.join(', ')}. Dá para desfazer.`); await Promise.all([refresh(), loadEconomy()]); },
   'eco-undo': async () => { const r = await api('economy/undo', {}); notify(`Desfeito em ${r.restored} agente(s).`); await Promise.all([refresh(), loadEconomy()]); },
+  'outbound-clear': async () => { await api('outbound/clear', {}); await loadOutbound(); notify('Lista limpa.'); },
   'ap-nav': id => { ctx.ui.apIdx = Math.max(0, (Number(ctx.ui.apIdx) || 0) + Number(id)); ctx.ui.apChanges = null; renderAsst(); },
   'ap-toggle': () => { ctx.ui.apCollapsed = !ctx.ui.apCollapsed; renderAsst(); },
   'ap-approve': async id => { const r = await api(`tasks/${id}/approve`, { note: '' }); notify(approvedMsg(r)); await refresh(); renderAsst(); },

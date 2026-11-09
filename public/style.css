@@ -712,3 +712,5 @@ html .cv-wrap>.cv-expand{position:absolute;right:22px;top:8px;overflow:visible}h
 /* Economia de tokens */
 .eco-rows li{margin:8px 0}.eco-line{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.eco-n{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600}.eco-sug li{margin:8px 0;line-height:1.4}
 .eco-days{display:flex;gap:6px;align-items:flex-end;height:70px;margin:8px 0}.eco-days span{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;max-width:46px}.eco-days i{display:block;width:100%;background:var(--accent-h,#7aa2ff);border-radius:4px 4px 0 0}.eco-days small{font-size:.7rem;color:var(--muted,#8b97b5)}
+
+.out-list li{margin:8px 0;line-height:1.4}.out-list pre.out{max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:.78rem}

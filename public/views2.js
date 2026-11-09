@@ -13,6 +13,7 @@ import { socialCardHtml } from './social-ui.js';
 import { apisCardHtml } from './apis-ui.js';
 import { syncCardHtml } from './sync-ui.js';
 import { economyCardHtml } from './economy-ui.js';
+import { outboundCardHtml } from './outbound-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
 
@@ -130,7 +131,7 @@ export function viewConnections(ctx) {
     <h3 style="margin:16px 0 8px">Autenticação</h3><p class="small ${info.authenticated ? '' : 'muted'}">${info.authenticated == null ? 'Login não verificado.' : info.authenticated ? `Login ativo${info.method ? ' (' + esc(info.method) + ')' : ''}.` : 'Login inativo.'}</p>
     <button class="btn block" data-act="copy" data-id="${esc(cmd.login)}" ${cmd.login && info.installed ? '' : 'disabled'} style="margin-top:8px">${icon('copy', 18)} Copiar comando de login</button><p class="muted small" style="text-align:center;margin-top:8px">Rode <code>${esc(cmd.login || '—')}</code> no terminal e conclua o acesso no fluxo oficial do provedor. O Code Room não captura senha.</p>
     <h3 style="margin:16px 0 8px">Recursos disponíveis</h3><div class="chips"><span class="chip">${icon('file', 16)} Arquivos</span><span class="chip">${icon('terminal', 16)} Comandos</span></div></aside></div>
-  ${providersCardHtml(ctx)}${hermesCardHtml(ctx)}${obsidianCardHtml(ctx)}${apisCardHtml(ctx)}${socialCardHtml(ctx)}${syncCardHtml(ctx)}
+  ${providersCardHtml(ctx)}${hermesCardHtml(ctx)}${obsidianCardHtml(ctx)}${apisCardHtml(ctx)}${socialCardHtml(ctx)}${syncCardHtml(ctx)}${outboundCardHtml(ctx)}
   ${channelsCard(ctx)}
   <section class="card"><h2>Módulos e capacidades</h2>${mods ? mods.map(m => `<div class="module"><strong>${esc(m.name)}</strong> ${Object.entries(m.capabilities).map(([k, v]) => `<span class="pill ${s[v.status][0]}" title="${esc(v.detail)}" style="margin-left:6px">${esc(CAPS[k] || k)}: ${s[v.status][1]}</span>`).join('')}</div>`).join('') : empty('Verificando…')}<p class="muted small" style="margin-top:8px">Uma capacidade só aparece como verificada depois de uma sonda real neste computador.</p></section>
   <div class="composer-bar" style="display:flex;align-items:center;gap:14px;margin:14px -26px 0"><span class="muted" style="flex:1;display:flex;gap:10px;align-items:center">${icon('info', 18)} API e assinatura podem ter cobranças diferentes.</span><button class="btn" data-nav="${cur === 1 ? 'teams' : cur === 2 ? 'projects' : 'room'}">Continuar ${icon('arrow', 18)}</button></div></div>`;
