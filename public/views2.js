@@ -16,6 +16,7 @@ import { economyCardHtml } from './economy-ui.js';
 import { outboundCardHtml } from './outbound-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
+import { brandIcon } from './brand-icons.js';
 
 export const COMMANDS = {
   codex: { name: 'Codex CLI', desc: 'Codificação e automação via terminal', install: 'npm install -g @openai/codex', login: 'codex login', update: 'npm install -g @openai/codex@latest' },
@@ -46,7 +47,7 @@ export function viewTeams(ctx) {
   <div class="cols c-2-1"><section class="card"><label class="f" for="team-name" style="margin:0">Nome da equipe</label><div class="input-icon"><input id="team-name" value="${esc(d.name)}" maxlength="100"><span class="iconbtn" aria-hidden="true">${icon('edit', 18)}</span></div>
     <div style="margin-top:14px">${rows || empty('Adicione papéis à equipe: o papel vem da equipe; ferramenta, modelo, skills e permissões vêm do agente.')}</div>
     <div class="btn-row" style="margin-top:6px"><button class="btn outline" data-act="add-member" ${st.agents.length ? '' : 'disabled'}>${icon('plus', 18)} Adicionar papel</button></div>
-    ${st.teams.length ? `<h3 style="margin-top:18px">Equipes salvas</h3>${st.teams.map(t => `<div class="setting"><span class="grow"><b>👥 ${esc(t.name)}</b><br><small class="muted">${t.members.map(m => `${esc(ROLES[m.role])}: ${esc(agentOf(m.agentId)?.name || '?')}`).join(' · ')}</small></span><button class="btn ghost sm" data-act="load-team" data-id="${esc(t.id)}">Editar</button><button class="btn ghost sm danger" data-act="team-delete" data-id="${esc(t.id)}" aria-label="Excluir a equipe ${esc(t.name)}">Excluir</button></div>`).join('')}<button class="btn ghost sm" data-act="new-team" style="margin-top:8px">${icon('plus', 16)} Nova equipe</button>` : ''}</section>
+    ${st.teams.length ? `<h3 style="margin-top:18px">Equipes salvas</h3>${st.teams.map(t => `<div class="setting team-saved"><span class="grow"><b>👥 ${esc(t.name)}</b><small class="muted">${t.members.map(m => `${esc(ROLES[m.role])}: ${esc(agentOf(m.agentId)?.name || '?')}`).join(' · ')}</small></span><button class="btn ghost sm" data-act="load-team" data-id="${esc(t.id)}">Editar</button><button class="btn ghost sm danger" data-act="team-delete" data-id="${esc(t.id)}" aria-label="Excluir a equipe ${esc(t.name)}">Excluir</button></div>`).join('')}<button class="btn ghost sm" data-act="new-team" style="margin-top:8px">${icon('plus', 16)} Nova equipe</button>` : ''}</section>
   <aside><section class="card"><h2>Fluxo da missão</h2><p class="muted small" style="margin-bottom:12px">O fluxo real é sequencial: o desenvolvedor produz a entrega e o revisor a inspeciona.</p>
     ${dev && rev ? `<div class="flow-step"><span class="n">1</span><div class="b"><b>Executar</b><br><span class="small" style="color:var(--accent-h)">${esc(agentOf(dev.agentId)?.name || '—')}</span> <span class="muted small">Produz a entrega e registra os arquivos.</span></div></div><div class="flow-step"><span class="n">2</span><div class="b"><b>Revisar</b><br><span class="small" style="color:var(--accent-h)">${esc(agentOf(rev.agentId)?.name || '—')}</span> <span class="muted small">Depende de: Executar. Valida a entrega.</span></div></div>` : empty('Inclua um desenvolvedor e um revisor para montar o fluxo.')}
     <h2 style="margin-top:16px">Configurações da execução</h2>
@@ -89,11 +90,12 @@ export function viewAgents(ctx) {
 // Canais: identidade, estilo, contas e cadência de cada perfil. O Postador de cada canal prepara os pacotes; quem publica é código, com a sua confirmação.
 export function channelsCard(ctx) {
   const chs = ctx.state.channels || [], ST = { vhs: 'VHS / realista', cordel: 'Xilogravura / cordel', outro: 'Outro' }, e = ctx.ui.channelEdit, cur = e === 'new' ? {} : chs.find(c => c.id === e) || null;
-  const list = chs.map(c => `<article class="batch"><div class="card-h"><h3>${esc(c.name)}</h3><span class="pill info">${ST[c.style] || ''}</span></div>
-    <p class="small muted">${esc(c.niche || 'nicho não definido')} · ${c.perDay} post(s)/dia${c.windows ? ' · ' + esc(c.windows) : ''}</p>
-    <p class="small">${['youtube', 'instagram', 'tiktok'].map(n => `<span class="chip">${n === 'youtube' ? 'YouTube' : n === 'instagram' ? 'Instagram' : 'TikTok'}: ${c.networks?.[n] ? '@' + esc(c.networks[n]) : '<i>sem perfil ainda</i>'}</span>`).join(' ')}</p>
-    <p class="small muted">${c.postadorId ? 'Postador criado (aba Agentes).' : 'Sem Postador ainda.'}</p>
-    <div class="btn-row"><button class="btn outline sm" data-act="channel-edit" data-id="${esc(c.id)}">Editar</button><button class="btn outline sm" data-act="channel-del" data-id="${esc(c.id)}">Remover</button></div></article>`).join('');
+  const networks = [['youtube', 'YouTube'], ['instagram', 'Instagram'], ['tiktok', 'TikTok']];
+  const list = chs.map(c => `<article class="channel-card"><div class="channel-head"><span class="channel-mark">${brandIcon('youtube', 24)}</span><div class="grow"><div class="card-h"><h3>${esc(c.name)}</h3><span class="pill info">${ST[c.style] || 'Outro'}</span></div><p class="small muted">${esc(c.niche || 'nicho não definido')}</p></div></div>
+    <div class="channel-meta"><span>${icon('calendar', 15)} ${c.perDay} post(s)/dia</span>${c.windows ? `<span>${icon('clock', 15)} ${esc(c.windows)}</span>` : ''}</div>
+    <div class="channel-networks">${networks.map(([id, label]) => `<div class="channel-network ${c.networks?.[id] ? 'connected' : 'empty'}">${brandIcon(id, 19)}<span><b>${label}</b><small>${c.networks?.[id] ? '@' + esc(c.networks[id]) : 'perfil não definido'}</small></span></div>`).join('')}</div>
+    <p class="small muted channel-postador">${c.postadorId ? 'Postador criado (aba Agentes).' : 'Sem Postador ainda.'}</p>
+    <div class="btn-row"><button class="btn outline sm" data-act="channel-edit" data-id="${esc(c.id)}">Editar canal</button><button class="btn outline sm" data-act="channel-del" data-id="${esc(c.id)}">Remover</button></div></article>`).join('');
   const form = cur ? `<form id="channel-form" class="rt-form"><input type="hidden" name="id" value="${esc(cur.id || '')}">
     <div class="form-grid"><label class="f">Nome do canal<input name="name" required maxlength="60" value="${esc(cur.name || '')}"></label>
     <label class="f">Estilo visual<select name="style">${Object.entries(ST).map(([k, v]) => `<option value="${k}" ${cur.style === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
@@ -106,9 +108,9 @@ export function channelsCard(ctx) {
     <div class="form-grid"><label class="f">Posts por dia (1 a 4)<input name="perDay" type="number" min="1" max="4" value="${cur.perDay || 2}"></label><label class="f">Horários preferidos<input name="windows" maxlength="120" value="${esc(cur.windows || '')}" placeholder="Ex.: 12h, 19h, 21h"></label></div>
     ${cur.postadorId ? '' : '<label class="f" style="flex-direction:row;gap:8px;align-items:center"><input type="checkbox" name="createPostador" value="1" checked style="width:auto"> Criar o agente Postador deste canal</label>'}
     <div class="btn-row"><button class="btn">Salvar canal</button><button type="button" class="btn outline" data-act="channel-close">Fechar</button></div></form>` : '';
-  return `<section class="card" style="margin-top:16px"><div class="card-h"><h2>Canais</h2>${cur ? '' : `<button class="btn sm" data-act="channel-new">${icon('plus', 16)} Novo canal</button>`}</div>
+  return `<section class="card channel-section" style="margin-top:16px"><div class="card-h"><h2>Canais</h2>${cur ? '' : `<button class="btn sm" data-act="channel-new">${icon('plus', 16)} Novo canal</button>`}</div>
   <p class="small muted">Cada perfil tem a sua identidade, estilo e cadência. Os links entre os canais e as redes ficam aqui; o login de cada rede é autorizado por você, nunca guardado em texto.</p>
-  ${list || '<p class="muted">Nenhum canal ainda.</p>'}${form}</section>`;
+  ${list ? `<div class="channel-grid">${list}</div>` : '<p class="muted">Nenhum canal ainda.</p>'}${form}</section>`;
 }
 export function viewConnections(ctx) {
   const sel = ctx.ui.toolSel || 'codex', cmd = COMMANDS[sel], info = toolInfo(ctx, sel);
@@ -217,7 +219,7 @@ export function viewDeliveries(ctx) {
 }
 export function changesDialog(ctx, task) {
   const files = task?.deliverables?.files || [];
-  return `<div class="card-h"><h2>Alterações da entrega</h2><button class="iconbtn" data-close="changes-dialog" aria-label="Fechar">${icon('x', 22)}</button></div><p class="muted small">Arquivos criados ou alterados por esta tarefa no projeto (sem diff linha a linha; o projeto não é um repositório Git).</p>${files.length ? `<div class="tbl"><table><thead><tr><th>Arquivo</th><th>Mudança</th><th>Tamanho</th><th>sha256</th></tr></thead><tbody>${files.map(f => `<tr><td>${esc(f.path)}</td><td>${esc({ created: 'criado', modified: 'alterado', deleted: 'removido' }[f.change] || f.change)}</td><td>${kb(f.bytes)}</td><td><code>${esc((f.sha256 || '—').slice(0, 12))}</code></td></tr>`).join('')}</tbody></table></div>` : empty('Nenhum arquivo registrado.')}`;
+  return `<div class="card-h"><h2>Alterações da entrega</h2><button class="iconbtn" data-close="changes-dialog" aria-label="Fechar">${icon('x', 22)}</button></div><p class="muted small">Arquivos criados, alterados ou removidos por esta tarefa. A comparação textual está disponível para arquivos pequenos de texto.</p>${files.length ? `<div class="tbl"><table><thead><tr><th>Arquivo</th><th>Mudança</th><th>Tamanho</th><th>sha256</th></tr></thead><tbody>${files.map(f => `<tr><td>${esc(f.path)}</td><td>${esc({ created: 'criado', modified: 'alterado', deleted: 'removido' }[f.change] || f.change)}</td><td>${kb(f.bytes)}</td><td><code>${esc((f.sha256 || '—').slice(0, 12))}</code></td></tr>`).join('')}</tbody></table></div>${files.filter(f => f.diff).map(f => `<details class="diff-file"><summary>${esc(f.path)} · diff textual</summary><pre class="pv-text">${esc(f.diff)}</pre></details>`).join('')}${files.some(f => !f.diff) ? '<p class="muted small">Alguns arquivos não têm prévia textual (formato binário, arquivo grande ou sem conteúdo anterior registrado).</p>' : ''}` : empty('Nenhum arquivo registrado.')}`;
 }
 
 // ---------- Consumo e limites ----------
@@ -408,6 +410,7 @@ export function viewSettings(ctx) {
   const rt = ctx.state.runtime, c = rt.concurrency || { global: 1, provider: {}, video: 1 }, lim = ctx.state.limits || {};
   let body;
   if (tab === 'aparencia') body = `<h2 style="font-size:1.5rem">Aparência</h2><p class="muted">Escolha o tema, ajuste a interface e deixe seu espaço do seu jeito.</p>
+    <section class="card" style="margin-top:14px"><h2>Seu Workspace</h2><p class="muted small">O nome é salvo apenas neste navegador e não é enviado aos agentes.</p><div class="onb-name"><label class="sr-only" for="workspace-name">Como quer ser chamado?</label><input id="workspace-name" maxlength="40" autocomplete="nickname" placeholder="Como quer ser chamado?" value="${esc(p.displayName || '')}"><button type="button" class="btn sm" data-act="save-prefs">Salvar</button></div></section>
     <div class="cols" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:14px"><div><section class="card"><h2>Tema visual</h2><p class="muted small" style="margin-bottom:10px">Altere as cores e o clima da interface.</p><div class="themes">${themes.map(([id, n, d]) => `<button class="theme theme-${id} ${p.theme === id || (!p.theme && id === 'noite') ? 'on' : ''}" data-act="theme" data-id="${id}" aria-pressed="${p.theme === id || (!p.theme && id === 'noite')}"><div class="pv">${themeImg(id)}</div>${p.theme === id || (!p.theme && id === 'noite') ? `<span class="ck">${icon('check', 16)}</span>` : ''}<b>${n}</b><br><small class="muted">${d}</small></button>`).join('')}</div></section>
       <section class="card"><h2>Interface</h2><div class="setting">${icon('sparkle', 22)}<span class="grow">Animações<br><small class="muted">Animações do escritório e dos personagens.</small></span>${toggle('pref-anim', p.anim !== false, 'Animações')}</div>
         <div class="setting">${icon('eyeoff', 22)}<span class="grow">Reduzir movimento<br><small class="muted">Diminui animações e transições. Por padrão segue o sistema.</small></span>${toggle('pref-reduce', !!p.reduce, 'Reduzir movimento')}</div>

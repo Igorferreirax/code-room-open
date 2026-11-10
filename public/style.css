@@ -142,6 +142,9 @@ img.avatar{object-fit:cover;object-position:center top;image-rendering:pixelated
 .scene-tools{position:absolute;top:10px;right:12px;z-index:3;padding:0;background:rgba(8,16,31,.72);border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(4px)}
 .scene-tools .small{display:none}.scene-tools select{padding:.3em 1.8em .3em .6em;font-size:.84rem}.scene-tools .btn{border:0}
 .scene-card .status-strip{padding:14px 18px}
+.handoff-chain{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.handoff-step{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:5px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--text);font:inherit;font-size:.82rem;cursor:pointer}
+.handoff-step:hover{border-color:var(--accent-h)}.handoff-arrow{color:var(--muted);font-size:.9rem}.handoff-note{margin:4px 0 8px}
 .hero{min-height:132px;align-items:flex-start;padding-top:22px}
 .hero .copy h1{margin-bottom:8px}
 .hero .art-wrap{width:min(640px,50%);-webkit-mask-image:linear-gradient(to right,transparent 0,#000 30%);mask-image:linear-gradient(to right,transparent 0,#000 30%)}
@@ -220,6 +223,8 @@ pre{max-width:100%}img,svg,iframe,video{max-width:100%}
 
 /* Pose "cochilando": pixels da própria cena, redesenhados por scripts/extract-sleep.py */
 .ps-sleep{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;image-rendering:pixelated;border-radius:10px}
+html[data-motion=on] .ps-sleep{transform-origin:50% 86%;animation:ps-breathe 4.5s ease-in-out infinite}
+@keyframes ps-breathe{0%,100%{transform:translateY(0) scaleY(1)}50%{transform:translateY(-.15cqw) scaleY(.995)}}
 
 /* Sala cabe na janela: a altura da cena respeita a altura disponível, para o campo de missão ficar sempre à vista */
 .scene-card .office-host{display:flex;justify-content:center;background:#0b1426}
@@ -736,6 +741,18 @@ html[data-motion=off] .radio-pill.on .rp-glow{opacity:.45}
 @keyframes rp-note{0%{opacity:0;transform:translate(0,4px) scale(.8)}20%{opacity:1}100%{opacity:0;transform:translate(10px,-30px) scale(1.1)}}
 @media (max-width:760px){.radio-pill .rp-fab{--rs:42px;width:50px;height:50px}}
 
+/* Ícones oficiais das redes usados ao lado dos nomes, sem depender de fontes ou serviços externos. */
+.brand-icon{display:inline-block;vertical-align:-.2em;flex:0 0 auto}
+.soc-network{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.channel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px;margin-top:12px}
+.channel-card{min-width:0;padding:16px;border:1px solid var(--line,#1d3055);border-radius:16px;background:linear-gradient(160deg,var(--panel2,#12213d),var(--bg2,#0b1527));box-shadow:0 8px 22px rgba(0,0,0,.18)}
+.channel-head{display:flex;align-items:center;gap:12px}.channel-mark{display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line,#1d3055);border-radius:13px;background:rgba(255,255,255,.035)}
+.channel-head .card-h{margin:0;gap:8px}.channel-head h3{margin:0;min-width:0;overflow-wrap:anywhere}.channel-head p{margin:4px 0 0}
+.channel-meta{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0;color:var(--muted,#8fa3c7);font-size:.78rem}.channel-meta span{display:inline-flex;align-items:center;gap:5px}
+.channel-networks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.channel-network{display:flex;align-items:center;gap:7px;min-width:0;padding:8px 7px;border:1px solid var(--line,#1d3055);border-radius:11px;background:rgba(5,12,26,.24)}
+.channel-network span{display:grid;min-width:0}.channel-network b{font-size:.72rem}.channel-network small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted,#8fa3c7);font-size:.65rem}.channel-network.empty{opacity:.58}.channel-postador{margin:12px 0 8px}
+@media(max-width:560px){.channel-card{padding:13px}.channel-networks{gap:4px}.channel-network{gap:5px;padding:7px 5px}.channel-network .brand-icon{width:16px;height:16px}}
+
 /* Radinho como botão: a barrinha de volume fica grudada nele e só aparece enquanto toca */
 .radio-pill{display:flex;align-items:center;gap:4px}
 .radio-pill .rp-bar{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(11,21,39,.82);border:1px solid var(--line,#1d3055);box-shadow:0 4px 14px rgba(0,0,0,.35)}
@@ -743,6 +760,38 @@ html[data-motion=off] .radio-pill.on .rp-glow{opacity:.45}
 .radio-pill .rp-vol{width:72px;height:14px;accent-color:var(--accent,#2b7bff);margin:0}
 .radio-pill .rp-next{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:0;background:transparent;color:var(--muted,#8fa3c7);cursor:pointer;padding:0}.radio-pill .rp-next:hover{color:var(--text,#e8eefc)}
 .radio-pill .rp-fab:active{transform:scale(.94)}
+
+/* Mobile: layouts can shrink inside the viewport instead of clipping their contents. */
+#view,.page,.page>.cols,.page .card,.agents-grid>*{min-width:0}
+.card-h h2,.card-h h3{min-width:0;overflow-wrap:anywhere}
+.team-saved{min-width:0}
+.team-saved .grow{min-width:0;overflow-wrap:anywhere}
+.team-saved .grow small{display:block;margin-top:3px;line-height:1.4}
+@media(max-width:760px){
+  .agents-grid{grid-template-columns:minmax(0,1fr)}
+  .agent-card .chips{min-width:0}
+  .agent-card .chips .chip{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+  .team-saved{display:grid;grid-template-columns:minmax(0,1fr) minmax(76px,auto) minmax(76px,auto);gap:8px;align-items:start}
+  .team-saved .grow{grid-column:1/-1}
+  .team-saved>.btn{width:100%;min-width:0;min-height:44px;justify-content:center;padding-inline:8px}
+}
+
+/* The radio stays compact; desktop hover and the touch toggle reveal its controls. */
+.radio-pill .rp-volume-toggle{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border:1px solid var(--line,#1d3055);border-radius:50%;background:rgba(11,21,39,.72);color:var(--muted,#8fa3c7);padding:0;cursor:pointer;transition:color .16s,background .16s,transform .18s}
+.radio-pill .rp-volume-toggle[hidden]{display:none}
+.radio-pill .rp-volume-toggle:hover,.radio-pill .rp-volume-toggle:focus-visible{color:var(--text,#e8eefc);background:var(--accent-soft,rgba(43,123,255,.16))}
+.radio-pill .rp-volume-toggle svg{transform:rotate(-90deg);transition:transform .18s}
+.radio-pill.on.expanded .rp-volume-toggle svg{transform:rotate(0)}
+.radio-pill .rp-bar:not([hidden]){width:0;min-width:0;max-width:0;flex:0 0 auto;gap:0;overflow:hidden;padding:0;border-width:0;opacity:0;visibility:hidden;box-shadow:none;transition:width .2s ease,max-width .2s ease,padding .2s ease,border-width .2s ease,opacity .15s ease,visibility 0s linear .2s}
+.radio-pill .rp-bar:not([hidden]) .rp-vol{width:0;min-width:0;flex:1 1 auto;transition:width .2s ease}
+.radio-pill.on.expanded .rp-bar:not([hidden]){width:122px;max-width:calc(100vw - 145px);gap:5px;padding:4px 7px;border-width:1px;opacity:1;visibility:visible;transition-delay:0s}
+.radio-pill.on.expanded .rp-bar:not([hidden]) .rp-vol{width:72px;min-width:40px}
+@media(hover:hover) and (pointer:fine){
+  .radio-pill.on:hover .rp-volume-toggle svg{transform:rotate(0)}
+  .radio-pill.on:hover .rp-bar:not([hidden]){width:122px;max-width:calc(100vw - 145px);gap:5px;padding:4px 7px;border-width:1px;opacity:1;visibility:visible;transition-delay:0s}
+  .radio-pill.on:hover .rp-bar:not([hidden]) .rp-vol{width:72px;min-width:40px}
+}
+@media(max-width:760px){.radio-pill .rp-volume-toggle{width:34px;height:34px;flex-basis:34px}}
 
 /* Barras de rolagem finas e discretas (o trilho some; só o "dedo" aparece, e fica mais claro ao passar o mouse) */
 *{scrollbar-width:thin;scrollbar-color:rgba(143,163,199,.32) transparent}
@@ -753,3 +802,26 @@ html[data-motion=off] .radio-pill.on .rp-glow{opacity:.45}
 *::-webkit-scrollbar-button{display:none;width:0;height:0}
 
 .star{color:var(--warn,#f5b73b)}
+
+.onb-name{display:flex;align-items:center;gap:8px;margin:10px 0 16px}.onb-name input{flex:1;min-width:0;max-width:340px}.onb-card h3{margin:18px 0 6px}.workspace-greeting{margin-left:14px;padding-left:14px;border-left:1px solid var(--line);color:var(--muted);font-size:.78rem;white-space:nowrap}.workspace-greeting span{color:var(--text)}@media(max-width:820px){.workspace-greeting{display:none}}
+
+.update-settings-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}.update-settings-head h3{margin:0 0 3px}.update-settings-head p{margin:0}.update-settings-icon{display:grid;place-items:center;width:42px;height:42px;flex:0 0 auto;border-radius:13px;border:1px solid var(--line);background:rgba(43,123,255,.12);color:var(--accent);font-size:1.35rem;font-weight:700}.update-settings-card .kv{max-width:480px}
+
+/* No celular, os filtros da sala ficam em linhas próprias e o botão não cobre os agentes. */
+@media(max-width:760px){
+  .scene-card:has(#canvas-slot) .scene-tools{align-items:stretch;flex-direction:column;gap:8px;padding:10px}
+  .scene-card:has(#canvas-slot) .scene-tools>label{display:flex!important;flex-direction:column;align-items:stretch;gap:4px;width:100%;min-width:0}
+  .scene-card:has(#canvas-slot) .scene-tools>label select{width:100%!important;margin-left:0!important}
+  .scene-card:has(#canvas-slot) .scene-tools>.seg{width:100%;justify-content:stretch}
+  .scene-card:has(#canvas-slot) .scene-tools>.seg button{flex:1 1 0;min-width:0;padding:8px 6px}
+  .cv-wrap>.cv-expand{position:static!important;display:block;width:max-content;margin:0 0 8px auto}
+  .cv{max-height:min(52vh,420px);min-height:220px;overscroll-behavior:contain}
+  .cv-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+  .cv-form>span:first-child,.cv-form>#lf-from,.cv-form>#lf-to,.cv-form>#lf-when,.cv-form>button{grid-column:1/-1}
+  .cv-form>span:nth-of-type(2),.cv-form>span:nth-of-type(4){display:none}
+  .cv-form>#lf-hops{grid-column:2;width:100%;max-width:120px}
+  .cv-form select{width:100%;min-width:0}
+  .cv-wrap.cv-big{padding:calc(48px + env(safe-area-inset-top)) 10px calc(78px + env(safe-area-inset-bottom))}
+  .cv-wrap.cv-big>.cv-expand{position:fixed!important;right:12px;top:calc(8px + env(safe-area-inset-top))}
+  .cv-wrap.cv-big .cv{max-height:calc(100dvh - 300px);min-height:calc(100dvh - 400px)}
+}

@@ -41,7 +41,7 @@ const contextLine = m => {
 };
 const message = m => m.role === 'user'
   ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}</div><small>${esc(hour(m.at))}</small>${contextLine(m)}</div>`
-  : `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}</div><small>${esc(hour(m.at))}</small></div></div>`;
+  : `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p>` : mdLite(m.text)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}${m.taskId && !m.error ? `<button type="button" class="btn ghost sm" data-act="asst-task" data-id="${esc(m.taskId)}" data-tab="arquivos">Ver arquivos e diff da execução</button>` : ''}</div><small>${esc(hour(m.at))}</small></div></div>`;
 
 // O que merece atenção agora (falhas, fila parada, lote com problema, IA indisponível). "Me ajude" manda a pergunta pronta ao Assistente.
 const alertsHtml = a => (a.alerts || []).length ? `<div class="as-alerts" role="region" aria-label="O que merece atenção">${a.alerts.map(x => `<div class="as-alert ${esc(x.level)}"><div><b>${esc(x.title)}</b><p>${esc(x.text)}</p></div><div class="btn-row"><button type="button" class="btn sm" data-act="asst-help" data-id="${esc(x.id)}">Me ajude com isso</button><button type="button" class="btn ghost sm" data-act="asst-alert-dismiss" data-id="${esc(x.id)}">Dispensar</button></div></div>`).join('')}</div>` : '';

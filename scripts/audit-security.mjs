@@ -10,9 +10,15 @@ import http from 'node:http';
 import { once } from 'node:events';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const dir = await mkdtemp(join(tmpdir(), 'code-room-audit-')), port = 21000 + Math.floor(Math.random() * 8000);
+const dir = await mkdtemp(join(tmpdir(), 'code-room-audit-'));
+// Ask Windows for an ephemeral port instead of guessing in a range that Hyper-V may reserve.
+const probe = http.createServer();
+await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve); });
+const port = probe.address().port;
+await new Promise((resolve, reject) => probe.close(e => e ? reject(e) : resolve()));
 const child = spawn(process.execPath, ['server/main.mjs'], { cwd: root, env: { ...process.env, CODE_ROOM_DATA: dir, CODE_ROOM_PORT: String(port) }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-let fails = 0, total = 0, skipped = 0;
+let fails = 0, total = 0, skipped = 0, bootError = '';
+child.stderr.on('data', chunk => { bootError = (bootError + chunk).slice(-1000); });
 const check = (name, ok, extra = '') => { total++; if (!ok) fails++; console.log(`${ok ? 'OK   ' : 'FALHA'} ${name}${ok ? '' : ' ' + extra}`); };
 // Cliente HTTP cru: permite mandar Host, Origin e caminhos "estranhos" exatamente como estão.
 const req = (method, path, { headers = {}, body } = {}) => new Promise(res => {
@@ -24,12 +30,16 @@ try {
   await new Promise(r => setTimeout(r, 800));
   const key = (await readFile(join(dir, 'access.key'), 'utf8')).trim(), K = { 'X-Code-Room-Key': key }, J = { ...K, 'Content-Type': 'application/json' };
 
-  check('sem chave: /api/state responde 401', (await req('GET', '/api/state')).status === 401);
-  check('chave errada: 401', (await req('GET', '/api/state', { headers: { 'X-Code-Room-Key': 'x'.repeat(64) } })).status === 401);
-  check('chave certa: 200', (await req('GET', '/api/state', { headers: K })).status === 200);
-  check('Host forjado (DNS rebinding): 403', (await req('GET', '/api/state', { headers: { ...K, Host: 'evil.example.com' } })).status === 403);
-  check('Origin de outro site: 403', (await req('POST', '/api/projects', { headers: { ...J, Origin: 'https://evil.example.com' }, body: '{}' })).status === 403);
-  check('POST sem JSON: 415', (await req('POST', '/api/projects', { headers: { ...K, 'Content-Type': 'text/plain' }, body: 'x' })).status === 415);
+  const noKey = await req('GET', '/api/state'), badKey = await req('GET', '/api/state', { headers: { 'X-Code-Room-Key': 'x'.repeat(64) } }), goodKey = await req('GET', '/api/state', { headers: K });
+  check('sem chave: /api/state responde 401', noKey.status === 401, `status ${noKey.status} ${noKey.error || ''}`);
+  check('chave errada: 401', badKey.status === 401, `status ${badKey.status} ${badKey.error || ''}`);
+  check('chave certa: 200', goodKey.status === 200, `status ${goodKey.status} ${goodKey.error || ''}`);
+  const badHost = await req('GET', '/api/state', { headers: { ...K, Host: 'evil.example.com' } });
+  check('Host forjado (DNS rebinding): 403', badHost.status === 403, `status ${badHost.status} ${badHost.error || ''}`);
+  const badOrigin = await req('POST', '/api/projects', { headers: { ...J, Origin: 'https://evil.example.com' }, body: '{}' });
+  check('Origin de outro site: 403', badOrigin.status === 403, `status ${badOrigin.status} ${badOrigin.error || ''}`);
+  const noJson = await req('POST', '/api/projects', { headers: { ...K, 'Content-Type': 'text/plain' }, body: 'x' });
+  check('POST sem JSON: 415', noJson.status === 415, `status ${noJson.status} ${noJson.error || ''}`);
 
   // Travessia de pasta: nada fora de public/ pode sair, nem codificado de formas diferentes.
   for (const p of ['/../server/main.mjs', '/%2e%2e/server/main.mjs', '/..%2fserver/main.mjs', '/%2e%2e%2fserver%2fmain.mjs', '/..\\server\\main.mjs', '/assets/../../server/main.mjs', '/%252e%252e/server/main.mjs']) {
@@ -86,7 +96,7 @@ try {
     const probe = await new Promise(res => { const s = http.request({ host: lan, port, path: '/', agent: false, timeout: 2000 }, () => res('respondeu')); s.on('error', e => res(e.code)); s.on('timeout', () => { s.destroy(); res('timeout'); }); s.end(); });
     check(`o serviço não responde pelo IP de rede (rede local ou Tailscale) (${lan}) sem liberação`, probe !== 'respondeu', `resultado: ${probe}`);
   } else console.log('PULOU sem IP de rede local para testar');
-} catch (e) { check('execução da auditoria', false, e.message); }
+} catch (e) { check('execução da auditoria', false, `${e.message}${bootError ? ` · ${bootError.trim().slice(-400)}` : ''}`); }
 finally { const done = once(child, 'close'); child.kill(); await done; await rm(dir, { recursive: true, force: true }); }
 console.log(`\n${total - fails} de ${total} verificações ok${fails ? `, ${fails} FALHA(S)` : ''}${skipped ? `, ${skipped} verificação(ões) pulada(s)` : ''}`);
 process.exit(fails ? 1 : 0);

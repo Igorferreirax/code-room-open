@@ -47,5 +47,6 @@ export async function killTree(pid, { deadlineMs = 10000 } = {}) {
     if (!remaining.length) return { ok: true, ms: Date.now() - started, tree, survivors: [] };
     await sleep(100);
   }
-  return { ok: false, ms: Date.now() - started, tree, survivors: tree.filter(alive) };
+  const survivors = tree.filter(alive);
+  return { ok: survivors.length === 0, ms: Date.now() - started, tree, survivors };
 }

@@ -20,6 +20,16 @@ const setup = (over = {}) => {
   const u = new Updates({ store, version: '0.2.0', dataDir: join(dir, 'data'), appDir: app, ...over, fetchImpl: over.fetchImpl || fakeFetch({ [`https://api.github.com/repos/${REPO}/releases/latest`]: JSON.stringify(release()), [`${base}/SHA256SUMS.txt`]: `${SHA}  ${ZIP}\n`, [`${base}/${ZIP}`]: ZIPDATA }, calls) });
   return { u, store, dir, app, calls };
 };
+const waitForDownload = async (u, expected, timeoutMs = 5000) => {
+  const deadline = Date.now() + timeoutMs;
+  let d = u.status().download;
+  while (d.state === 'downloading' && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 10));
+    d = u.status().download;
+  }
+  assert.equal(d.state, expected, JSON.stringify(d));
+  return d;
+};
 
 test('versões: ordem correta (0.2.0 < 0.2.1 < 0.10.0), pré-lançamento e entradas inválidas', () => {
   assert.equal(compareVersions('0.2.0', '0.2.1'), -1); assert.equal(compareVersions('0.10.0', '0.9.9'), 1); assert.equal(compareVersions('v1.0.0', '1.0.0'), 0);
@@ -70,14 +80,14 @@ test('interruptor, cache e adiar: desligado não consulta; consulta repetida usa
 });
 
 test('download: confere o SHA-256, grava o arquivo e descarta o que não bate', async () => {
-  const { u, dir } = setup(); await u.check({ force: true }); await u.download(); await new Promise(r => setTimeout(r, 150));
-  const d = u.status().download; assert.equal(d.state, 'ready', JSON.stringify(d)); assert.equal(d.sha256, SHA); assert.ok(existsSync(join(dir, 'data', 'updates', ZIP))); assert.deepEqual(readFileSync(join(dir, 'data', 'updates', ZIP)), ZIPDATA);
+  const { u, dir } = setup(); await u.check({ force: true }); await u.download();
+  const d = await waitForDownload(u, 'ready'); assert.equal(d.sha256, SHA); assert.ok(existsSync(join(dir, 'data', 'updates', ZIP))); assert.deepEqual(readFileSync(join(dir, 'data', 'updates', ZIP)), ZIPDATA);
   const url = `https://api.github.com/repos/${REPO}/releases/latest`;
   const bad = setup({ fetchImpl: fakeFetch({ [url]: JSON.stringify(release()), [`${base}/SHA256SUMS.txt`]: `${'0'.repeat(64)}  ${ZIP}\n`, [`${base}/${ZIP}`]: ZIPDATA }) });
-  await bad.u.check({ force: true }); await bad.u.download(); await new Promise(r => setTimeout(r, 150));
-  assert.equal(bad.u.status().download.state, 'error'); assert.match(bad.u.status().download.error, /NÃO confere/); assert.ok(!existsSync(join(bad.dir, 'data', 'updates', ZIP)) && !existsSync(join(bad.dir, 'data', 'updates', ZIP + '.part')), 'arquivo ruim é apagado');
+  await bad.u.check({ force: true }); await bad.u.download(); const badDownload = await waitForDownload(bad.u, 'error');
+  assert.match(badDownload.error, /NÃO confere/); assert.ok(!existsSync(join(bad.dir, 'data', 'updates', ZIP)) && !existsSync(join(bad.dir, 'data', 'updates', ZIP + '.part')), 'arquivo ruim é apagado');
   const nolist = setup({ fetchImpl: fakeFetch({ [url]: JSON.stringify(release()), [`${base}/SHA256SUMS.txt`]: `${SHA}  outro-arquivo.zip\n`, [`${base}/${ZIP}`]: ZIPDATA }) });
-  await nolist.u.check({ force: true }); await nolist.u.download(); await new Promise(r => setTimeout(r, 100)); assert.match(nolist.u.status().download.error, /não lista este arquivo/);
+  await nolist.u.check({ force: true }); await nolist.u.download(); assert.match((await waitForDownload(nolist.u, 'error')).error, /não lista este arquivo/);
   const nosums = setup({ fetchImpl: fakeFetch({ [url]: JSON.stringify(release({ assets: [{ name: ZIP, browser_download_url: `${base}/${ZIP}`, size: 1 }] })) }) });
   await nosums.u.check({ force: true }); await assert.rejects(() => nosums.u.download(), /não publica o SHA256SUMS/);
   const none = setup(); await assert.rejects(() => none.u.download(), /Não há versão nova/);
@@ -85,13 +95,13 @@ test('download: confere o SHA-256, grava o arquivo e descarta o que não bate', 
 
 test('instalar: só com pacote do Windows, só arquivo conferido e inalterado; roda o script de fora da pasta', async () => {
   const { u, dir } = setup(); await u.check({ force: true }); assert.throws(() => u.install(), /Baixe e confira/);
-  await u.download(); await new Promise(r => setTimeout(r, 150));
+  await u.download(); await waitForDownload(u, 'ready');
   const spawned = []; u.spawnImpl = (cmd, args, o) => { spawned.push({ cmd, args, o }); return { unref() {} }; };
   const st = u.install(); assert.equal(st.download.state, 'installing'); const s = spawned[0], wrapper = s.args[s.args.indexOf('-Command') + 1];
   assert.equal(s.cmd, 'powershell.exe'); assert.match(wrapper, /Win32_Process/, 'criado pelo WMI, fora do grupo de processos do serviço');
   assert.ok(wrapper.includes('-Zip') && wrapper.includes(join(dir, 'data', 'updates', ZIP)) && wrapper.includes('-Version 0.3.0') && wrapper.includes('-AppDir') && wrapper.includes('-Data'), wrapper);
   const scriptArg = /-File "([^"]+)"/.exec(wrapper)[1]; assert.ok(!scriptArg.startsWith(u.appDir), 'o script roda de uma cópia fora da pasta que será trocada'); assert.ok(!s.o.detached && s.o.stdio === 'ignore');
-  const t = setup(); await t.u.check({ force: true }); await t.u.download(); await new Promise(r => setTimeout(r, 150)); t.u.spawnImpl = () => ({ unref() {} });
+  const t = setup(); await t.u.check({ force: true }); await t.u.download(); await waitForDownload(t.u, 'ready'); t.u.spawnImpl = () => ({ unref() {} });
   writeFileSync(join(t.dir, 'data', 'updates', ZIP), 'adulterado'); assert.throws(() => t.u.install(), /mudou depois da conferência/);
   const src = setup({ appDir: join(tmpdir(), 'nao-existe-' + Date.now()) }); await src.u.check({ force: true }); assert.equal(src.u.status().canInstall, false); assert.throws(() => src.u.install(), /código-fonte/);
 });

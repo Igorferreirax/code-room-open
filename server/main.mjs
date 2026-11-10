@@ -103,8 +103,20 @@ const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: ro
 setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
 const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
+let assistantSkillsCache = null;
+async function assistantSkills() {
+  const roots = store.get('settings', 'skillRoots')?.roots || [], key = JSON.stringify(roots);
+  if (!assistantSkillsCache || assistantSkillsCache.key !== key) assistantSkillsCache = { key, value: null, expires: 0, pending: null };
+  const cache = assistantSkillsCache;
+  if (cache.value && Date.now() < cache.expires) return cache.value;
+  if (!cache.pending) cache.pending = scanSkills(undefined, { extraRoots: roots }).then(all => {
+    cache.value = all.map(k => ({ id: k.id, name: k.name, description: k.description, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
+    cache.expires = Date.now() + 15000; return cache.value;
+  }).finally(() => { cache.pending = null; });
+  return cache.pending;
+}
 const assistantWorld = async () => {
-  const skills = (await scanSkills(undefined, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] })).map(k => ({ id: k.id, name: k.name, description: k.description, recognized: k.recognized, blocked: usable(k, 'claude').blocked || null }));
+  const skills = await assistantSkills();
   const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => ({ id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', updatedAt: t.updatedAt, createdAt: t.createdAt, files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').length, review: !!t.review, step: t.step || null }));
   const focusInfo = id => { const pr = store.get('projects', id); return pr && !isInternal(pr) ? folderLine(describeFolder(pr.path)) : ''; };
   return { focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
@@ -521,7 +533,7 @@ const handle = async (req, res) => {
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
           if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '' }));
           if (a === 'reset') return send(res, 200, await assistant.reset());
-          if (a === 'thread/new') return send(res, 200, await assistant.newThread());
+          if (a === 'thread/new') return send(res, 200, await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null }));
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
           if (a === 'errors/clear') return send(res, 200, await assistant.clearErrors());
           if (a === 'alerts/dismiss') return send(res, 200, await assistant.dismissAlert(text(b.id, 100)));
@@ -719,7 +731,7 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
       return send(res, 404, { error: 'Rota não encontrada' });
     }
     if (req.method === 'GET' && url.pathname === '/manifest.webmanifest') { res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', 'manifest.webmanifest'))); }
-    if (req.method === 'GET' && /^\/assets\/[a-z0-9-]+\.(png|jpg)$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': url.pathname.endsWith('.jpg') ? 'image/jpeg' : 'image/png', 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', url.pathname.slice(1)))); }
+    if (req.method === 'GET' && /^\/assets\/[a-z0-9-]+\.(png|jpg|webp)$/.test(url.pathname)) { const ext = url.pathname.split('.').pop(); res.writeHead(200, { 'Content-Type': ({ jpg: 'image/jpeg', webp: 'image/webp' }[ext] || 'image/png'), 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', url.pathname.slice(1)))); }
     // Só nomes simples de arquivo (sem barras nem pontos duplos) dentro de public/.
     const name = url.pathname === '/' ? 'index.html' : /^\/[a-z0-9-]+\.(js|css)$/.test(url.pathname) ? url.pathname.slice(1) : null;
     const files = { [url.pathname]: name };

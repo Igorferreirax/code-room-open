@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { socialCardHtml } from '../public/social-ui.js';
+import { channelsCard } from '../public/views2.js';
 import { approvalItems, approvalHtml } from '../public/approval-cards.js';
 import { CATALOG } from '../server/social.mjs';
 
@@ -27,6 +28,12 @@ test('formulário: mostra os campos da rede escolhida, senha em campo de senha e
   assert.match(novo, /name="f_botToken"[^>]*type="password"|type="password"[^>]*name="f_botToken"/); assert.match(novo, /Adicionar conta/);
   const ed = socialCardHtml({ ui: { socialForm: { id: 'a1', network: 'bluesky' } }, social: base });
   assert.match(ed, /Salvar alterações/); assert.match(ed, /guardado \(deixe vazio para manter\)/); assert.match(ed, /value="eu\.bsky\.social"/);
+});
+
+test('canais: cartões mostram identidade, perfis e ícones próprios por rede', () => {
+  const h = channelsCard({ state: { channels: [{ id: 'c1', name: 'Causos', style: 'cordel', niche: 'Lendas brasileiras', perDay: 2, networks: { youtube: 'causos', instagram: 'causos.ig', tiktok: '' }, postadorId: 'ag1' }] }, ui: {} });
+  assert.match(h, /class="channel-card"/); assert.match(h, /class="channel-grid"/); assert.match(h, /brand-youtube/); assert.match(h, /brand-instagram/); assert.match(h, /brand-tiktok/);
+  assert.match(h, /@causos/); assert.match(h, /@causos\.ig/); assert.match(h, /perfil não definido/); assert.match(h, /Postador criado/);
 });
 
 test('cartão de aprovação do chat: proposta de postagem aparece com texto editável, agendar e botões; rede manual vira “Preparar pacote”', () => {

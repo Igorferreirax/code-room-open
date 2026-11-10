@@ -20,3 +20,12 @@ test('janela de app: o index liga o manifesto e o ícone grande; o servidor entr
   const srv = readFileSync(new URL('../server/main.mjs', import.meta.url), 'utf8');
   assert.match(srv, /url\.pathname === '\/manifest\.webmanifest'[\s\S]{0,160}application\/manifest\+json/);
 });
+
+test('rádio: animações WebP do player existem e são servidas com MIME correto', () => {
+  for (const name of ['radio-tocando.webp', 'radio-volume.webp', 'radio-next.webp']) {
+    const b = readFileSync(pub(`assets/${name}`)); assert.equal(b.toString('ascii', 0, 4), 'RIFF'); assert.equal(b.toString('ascii', 8, 12), 'WEBP');
+  }
+  const html = readFileSync(pub('index.html'), 'utf8'), srv = readFileSync(new URL('../server/main.mjs', import.meta.url), 'utf8');
+  assert.match(html, /data-playing-src="\/assets\/radio-tocando\.webp"/); assert.match(html, /data-volume-src="\/assets\/radio-volume\.webp"/); assert.match(html, /data-next-src="\/assets\/radio-next\.webp"/);
+  assert.match(srv, /png\|jpg\|webp/); assert.match(srv, /webp: 'image\/webp'/);
+});

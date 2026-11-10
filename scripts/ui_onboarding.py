@@ -47,7 +47,7 @@ try:
         # ---------- desktop: instalação nova ----------
         ctx, pg, errs = new_page({'width': 1440, 'height': 900})
         pg.goto(URL); pg.wait_for_selector('.onb-card', timeout=10000); time.sleep(0.6)
-        check('triagem abre sozinha na instalação nova (sem projetos nem agentes)', pg.locator('.onb-card #onb-title').inner_text() == 'Vamos conectar as suas IAs')
+        check('primeiro acesso abre sozinho com o Workspace e pergunta como chamar a pessoa', pg.locator('.onb-card #onb-title').inner_text() == 'Olá! Este é o seu Workspace' and pg.locator('#workspace-name').count() == 1)
         rows = pg.locator('.onb-row').all_inner_texts()
         check('triagem: Codex aparece Conectado', 'Conectado' in rows[0] and 'Codex' in rows[0], rows[0])
         check('triagem: Claude mostra "falta entrar" e o comando de login', 'Instalado: falta entrar' in rows[1] and 'claude auth login' in rows[1], rows[1])
@@ -87,7 +87,7 @@ try:
 
         # reabrir pelo menu do usuário e pular com Esc
         pg.click('[data-act=who]'); pg.click('[data-act=onb-open]'); pg.wait_for_selector('.onb-card', timeout=5000)
-        check('menu do usuário › Guia de boas-vindas reabre a triagem', pg.locator('#onb-title').inner_text() == 'Vamos conectar as suas IAs')
+        check('menu do usuário › Guia de boas-vindas reabre o primeiro acesso', pg.locator('#onb-title').inner_text() == 'Olá! Este é o seu Workspace' and pg.locator('#workspace-name').count() == 1)
         pg.keyboard.press('Escape'); time.sleep(0.4)
         check('Esc pula a triagem', pg.locator('.onb-card').count() == 0)
         check('sem erro de console no fluxo completo (desktop)', not errs, errs[:2])

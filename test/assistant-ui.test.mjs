@@ -34,6 +34,11 @@ test('aviso do Modo Piloto: pode ser ocultado por botão acessível e reaparece 
   assert.doesNotMatch(assistantHtml({ ...base, autonomy: 'ask' }), /as-pilot-note/);
 });
 
+test('chat do Assistente: resposta do piloto permite abrir os arquivos e o diff da execução', () => {
+  const h = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Feito', at: '2026-01-01T10:00:00Z', taskId: 't1' }] });
+  assert.match(h, /data-act="asst-task" data-id="t1" data-tab="arquivos">Ver arquivos e diff/);
+});
+
 test('cartões de ação: válida tem Criar e Descartar; inválida só explica; aplicada mostra o resultado', () => {
   const m = (a) => ({ ...base, messages: [{ id: 'm1', role: 'assistant', text: 'ok', at: '2026-01-01T10:00:00Z', actions: [a] }] });
   const ok = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: true, status: 'pending', summary: 'Criar a equipe “X”' }));
@@ -60,6 +65,7 @@ test('janela do chat: interruptor Conversa/Piloto no cabeçalho do Assistente (a
 
 test('janela do chat: cabeçalho muda com quem se fala (Assistente, agente, equipe) e mostra as conversas só no Assistente', () => {
   assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · só propõe/); assert.match(chatHeaderHtml(cctx()), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
+  const scoped = cctx(); scoped.asst.threads[0].projectName = 'Canal de vídeo'; assert.match(whoIs(scoped).sub, /Canal de vídeo/, 'o projeto da conversa ativa fica visível');
   const two = cctx(); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false, waiting: true }, { id: 't2', title: '<b>Código</b>', active: true }];
   const h = chatHeaderHtml(two); assert.match(h, /aria-selected="true"[^>]*data-id="t2"|data-id="t2"[^>]*>/); assert.match(h, /esperando resposta/); assert.match(h, /asst-thread-del" data-id="t2"/); assert.ok(!h.includes('<b>Código</b>'));
   const ag = chatHeaderHtml(cctx({ ui: { target: 'a:a1' } })); assert.match(ag, /Diretor[\s\S]*missão direta/); assert.ok(!ag.includes('asst-new-thread'), 'conversas só no Assistente');

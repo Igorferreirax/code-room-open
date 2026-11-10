@@ -110,7 +110,9 @@ ctx.currentMission = () => {
   const t = ctx.state.runs.find(x => (!ctx.project || x.project.id === ctx.project) && x.kind === 'work');
   if (!t) return null;
   if (t.flowId) { const f = ctx.flows[t.flowId]; if (!f) { loadFlow(t.flowId); return { kind: 'task', task: t, title: t.prompt.slice(0, 80) }; } return { kind: 'flow', title: f.objective.slice(0, 80), steps: f.steps.map(s => ({ id: s.taskId, agent: s.agent, status: s.status })), verdict: f.review?.verdict }; }
-  return { kind: 'task', task: t, title: t.prompt.slice(0, 80) };
+  const byId = new Map(ctx.state.runs.filter(x => x.project?.id === t.project?.id).map(x => [x.id, x])), chain = [], seen = new Set(); let current = t;
+  while (current && chain.length < 8 && !seen.has(current.id)) { chain.unshift(current); seen.add(current.id); current = current.linkFrom ? byId.get(current.linkFrom) : null; }
+  return { kind: 'task', task: t, title: t.prompt.slice(0, 80), handoffs: chain };
 };
 ctx.flowPosition = d => { const f = d.flowId && ctx.flows[d.flowId]; if (!f) return null; const i = f.steps.findIndex(s => s.taskId === d.id); return i < 0 ? null : { i: i + 1, n: f.steps.length }; };
 async function loadFlow(id) { if (ctx.flows['_' + id]) return; ctx.flows['_' + id] = 1; try { ctx.flows[id] = await api('flows/' + id); } catch {} delete ctx.flows['_' + id]; render(); }
@@ -253,15 +255,42 @@ const tickClocks = () => document.querySelectorAll('.clock[data-since]').forEach
 
 // ---------- Rádio da Sala ----------
 let radio = null;
+let radioArtTimer = null;
+let radioControlsExpanded = false;
+let radioHover = false;
+const radioArtFailed = new Set();
+function setRadioArtwork(mode) {
+  const img = $('radio-fab')?.querySelector('.rp-img'); if (!img) return;
+  const reduced = document.documentElement.dataset.motion !== 'on' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const key = reduced ? 'idle' : mode, attr = ({ idle: 'idleSrc', playing: 'playingSrc', volume: 'volumeSrc', next: 'nextSrc' })[key] || 'idleSrc';
+  if (key !== 'idle' && radioArtFailed.has(key)) { img.dataset.art = 'idle'; img.onerror = null; img.src = img.dataset.idleSrc; return; }
+  if (img.dataset.art === key) return;
+  img.onerror = null; img.dataset.art = key;
+  if (key !== 'idle') img.onerror = () => {
+    if (img.dataset.art !== key) return;
+    radioArtFailed.add(key); img.onerror = null; img.dataset.art = 'idle'; img.src = img.dataset.idleSrc;
+  };
+  img.src = img.dataset[attr] || img.dataset.idleSrc;
+}
+function flashRadioArtwork(mode) {
+  clearTimeout(radioArtTimer); setRadioArtwork(mode);
+  radioArtTimer = setTimeout(() => { radioArtTimer = null; updateRadioUi(); }, 1800);
+}
 // O radinho é o botão: clicar liga (sobem notinhas), clicar de novo desliga. Enquanto toca, aparece uma barrinha de volume ao lado dele.
 function updateRadioUi() {
-  const on = !!radio?.playing, w = $('radio-ctl'), f = $('radio-fab'), v = $('radio-vol'); if (!f) return;
-  w.classList.toggle('on', on); f.setAttribute('aria-pressed', String(on)); $('radio-bar').hidden = !on;
+  const on = !!radio?.playing, w = $('radio-ctl'), f = $('radio-fab'), v = $('radio-vol'), toggle = $('radio-volume-toggle'); if (!f) return;
+  const hoverOpen = on && radioHover;
+  w.classList.toggle('on', on); w.classList.toggle('expanded', on && radioControlsExpanded); f.setAttribute('aria-pressed', String(on)); $('radio-bar').hidden = !on;
+  toggle.hidden = !on; toggle.setAttribute('aria-expanded', String(on && (radioControlsExpanded || hoverOpen))); toggle.setAttribute('aria-label', on && (radioControlsExpanded || hoverOpen) ? 'Recolher controles de volume' : 'Mostrar controles de volume'); toggle.title = toggle.getAttribute('aria-label');
+  if (!radioArtTimer) setRadioArtwork(on ? 'playing' : 'idle');
   const faixa = $('radio-track').textContent;
   f.setAttribute('aria-label', on ? 'Parar a rádio lo-fi' : 'Ligar a rádio lo-fi'); f.title = on ? `Rádio Lo-Fi tocando${faixa ? ' (' + faixa + ')' : ''}. Clique para parar.` : 'Rádio Lo-Fi: clique para ligar (lo-fi original gerado no seu navegador, sem internet)';
   if (!on) $('radio-track').textContent = ''; if (on) v.value = Math.round((radio.vol ?? 0.7) * 100);
 }
-$('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { ...store.get('cr.radio', {}), volume: x }); });
+$('radio-vol')?.addEventListener('pointerdown', () => flashRadioArtwork('volume'));
+$('radio-vol')?.addEventListener('input', e => { const x = Number(e.target.value) / 100; radio?.setVolume(x); store.set('cr.radio', { ...store.get('cr.radio', {}), volume: x }); flashRadioArtwork('volume'); });
+$('radio-ctl')?.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse' && matchMedia('(hover:hover) and (pointer:fine)').matches) { radioHover = true; updateRadioUi(); } });
+$('radio-ctl')?.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { radioHover = false; updateRadioUi(); } });
 document.addEventListener('visibilitychange', () => { if (!radio) return; if (document.hidden && ctx.prefs.musicHidden) radio.pause(); else if (!document.hidden) radio.resume(); });
 
 // ---------- Atualização ----------
@@ -499,12 +528,22 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // ---------- Ações ----------
 const actions = {
   agent: id => openDrawer(id), task: (id, el) => openTask(id, el?.dataset.tab), tab: id => { ctx.execTab = id; render(); },
+  'asst-task': (id, el) => openTask(id, el?.dataset.tab || 'arquivos'),
   'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
   'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'list' ? 'scene' : 'list'; savePrefs(); render(); }, 'view-mode': id => { ctx.prefs.mode = ['scene', 'list', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
-  retry: id => { const d = $('confirm-dialog'); d.dataset.id = id; d.showModal(); },
+  retry: id => {
+    const d = $('confirm-dialog'), task = ctx.state.runs.find(x => x.id === id), interrupted = task?.status === 'interrupted';
+    d.dataset.id = id;
+    $('retry-title').textContent = interrupted ? 'Execução interrompida' : 'Tentar de novo?';
+    $('retry-warning').textContent = interrupted
+      ? 'A tarefa parou sem confirmar o que chegou a fazer. Confira os arquivos do projeto e qualquer efeito externo antes de repetir; a nova tentativa começa do zero e pode duplicar trabalho.'
+      : 'A tentativa anterior pode ter deixado arquivos no projeto. Confira a pasta antes de repetir: repetir pode duplicar efeitos.';
+    $('retry-confirm').textContent = interrupted ? 'Conferi, iniciar nova tentativa' : 'Entendi, tentar de novo';
+    d.showModal();
+  },
   'accept-plan': async id => { await api(`plans/${id}/accept`, {}); notify('Plano aceito. As tarefas foram criadas.'); await refresh(); renderAsst(); },
   opts: async () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; const tg = V.targetOf(ctx); if (ctx.ui.optsOpen && tg.startsWith('a:')) { const ag = ctx.state.agents.find(x => x.id === tg.slice(2)); if (ag && !ctx.models?.[tg]) { try { const info = await api('models?provider=' + encodeURIComponent(ag.provider)); ctx.models = { ...(ctx.models || {}), [tg]: info.models }; ctx.efforts = { ...(ctx.efforts || {}), [tg]: info.efforts }; } catch {} } } render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
   'new-project': () => { ctx.ui.panel = 'new-project'; render(); $('panel').querySelector('input')?.focus(); },
@@ -575,9 +614,10 @@ Os agentes dela continuam existindo; só a equipe (papéis e ordem) é apagada. 
   'skill-fav': id => skillPref('fav', id), 'skill-hide': id => skillPref('hide', id),
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
   // ---- Rádio da Sala: lo-fi gerado no navegador. Desligada por padrão; só toca quando a pessoa clica (o navegador não permite tocar sozinho). ----
-  'radio-next': () => radio?.nextTrack(),
+  'radio-next': () => { radio?.nextTrack(); if (radio?.playing) flashRadioArtwork('next'); },
+  'radio-volume-toggle': () => { if (!radio?.playing) return; radioControlsExpanded = !radioControlsExpanded; updateRadioUi(); },
   'radio-toggle': async () => {
-    if (radio?.playing) { radio.stop(); radio = null; }
+    if (radio?.playing) { radio.stop(); radio = null; radioControlsExpanded = false; }
     else { radio = new LofiRadio({ track: store.get('cr.radio', {}).track ?? 0, onTrack: (t, i) => { $('radio-track').textContent = `faixa ${i + 1}/${TRACKS.length}: ${t.name}`; updateRadioUi(); store.set('cr.radio', { ...store.get('cr.radio', {}), track: i }); } }); radio.vol = store.get('cr.radio', {}).volume ?? 0.7; try { await radio.start(); } catch (e) { radio = null; notify(e.message, true); } }
     updateRadioUi();
   },
@@ -621,7 +661,7 @@ Descubra a causa e proponha a correção como ação para eu aprovar (por exempl
     if (perm !== 'granted') return notify('O navegador não liberou os avisos. Libere nas permissões do site (ícone ao lado do endereço) e tente de novo.', true);
     ctx.prefs.desktopNotify = true; savePrefs(); for (const n of ctx.state?.notices || []) seenNotify.add('n:' + n.id); renderAsst(); notify('Avisos do Windows ligados: você será avisado de lote concluído, falha e resposta do Assistente quando o app estiver em segundo plano.');
   },
-  'asst-new-thread': () => asstCall('thread/new'),
+  'asst-new-thread': () => asstCall('thread/new', { projectId: ctx.project || undefined }),
   'asst-thread': id => asstCall('thread/select', { id }),
   'asst-thread-del': id => { if (confirm('Apagar esta conversa? O histórico dela some.')) return asstCall('thread/delete', { id }); },
   'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
@@ -647,6 +687,7 @@ Descubra a causa e proponha a correção como ação para eu aprovar (por exempl
   'onb-open': () => { ctx.ui.whoOpen = false; openSetup(); },
   'onb-recheck': async () => { ctx.ui.onb = { ...ctx.ui.onb, msg: '' }; ctx.checks = null; render(); await loadChecks(true); },
   'onb-video-check': async () => { ctx.ui.onb = { ...ctx.ui.onb, videoBusy: true, videoCheck: null }; render(); try { ctx.ui.onb.videoCheck = await api('preflight?projectId=' + encodeURIComponent(ctx.project || '')); } catch (e) { ctx.ui.onb.videoCheck = { summary: 'falha', items: [{ label: 'Verificação', status: 'falha', detail: e.message }] }; } finally { ctx.ui.onb.videoBusy = false; render(); } },
+  'onb-name-save': () => { ctx.prefs.displayName = String($('workspace-name')?.value || '').trim().slice(0, 40); savePrefs(); render(); notify(ctx.prefs.displayName ? `Prazer, ${ctx.prefs.displayName}!` : 'Nome removido.'); },
   'onb-create': async () => {
     const plan = O.starterPlan(ctx); if (!plan.agents.length && !plan.team) return;
     ctx.ui.onb = { ...ctx.ui.onb, busy: true, msg: '' }; render();
@@ -768,7 +809,7 @@ Descubra a causa e proponha a correção como ação para eu aprovar (por exempl
   'routine-toggle': async id => { const r = ctx.state.routines.find(x => x.id === id); await api(`routines/${id}/${r.status === 'active' ? 'pause' : 'resume'}`, {}); ctx.ui.routineMenu = null; await refresh(); },
   'routine-del': async id => { ctx.ui.routineMenu = null; await api(`routines/${id}/delete`, {}); notify('Rotina excluída.'); await refresh(); },
   'routine-test': async () => { const r = await saveRoutine(); await api(`routines/${r.id}/run`, {}); notify('Rotina salva e iniciada.'); ctx.ui.panel = null; await refresh(); },
-  theme: id => { ctx.prefs.theme = id; savePrefs(); render(); }, 'save-prefs': () => { savePrefs(); notify('Preferências salvas neste navegador.'); },
+  theme: id => { ctx.prefs.theme = id; savePrefs(); render(); }, 'save-prefs': () => { const n = $('workspace-name'); if (n) ctx.prefs.displayName = n.value.trim().slice(0, 40); savePrefs(); render(); notify('Preferências salvas neste navegador.'); },
   'settings-tab': id => { ctx.ui.settingsTab = id; if (id === 'historico') loadAudit(); if (id === 'armazenamento') loadStorage(); if (id === 'acesso') loadRemote(); if (id === 'atualizacoes') loadUpdates(); render(); },
   'pair-submit': async () => { const code = ($('pair-code')?.value || '').trim(); if (!code) { ctx.ui.loginError = 'Digite o código de pareamento.'; renderLogin(); return; } try { await pairWith(code); } catch (e) { ctx.ui.loginError = e.message; renderLogin(); } },
   'refresh-limits': async () => { notify('Lendo os limites do Claude (uma chamada mínima)…'); try { ctx.limits = await api('usage/refresh', {}); notify('Leitura atualizada.'); } catch (e) { notify(e.message, true); } render(); },
@@ -846,6 +887,7 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('input', e => {
   const t = e.target, m = { 'proj-q': 'projQuery', 'tool-q': 'toolQ', 'skill-q': 'skillQ', 'routine-q': 'routineQ', 'review-note': 'reviewNote' }[t.id];
+  if (t.id === 'workspace-name') return;
   if (m) { ctx.ui[m] = t.value; if (t.id !== 'review-note') render(); else { const c = t.parentElement.querySelector('.muted.small'); if (c) c.textContent = `${t.value.length}/500`; } }
 });
 

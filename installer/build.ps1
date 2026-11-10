@@ -11,8 +11,13 @@ Set-Location $repo
 $version = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
 if (-not $NodePath) { $NodePath = (Get-Command node.exe -ErrorAction Stop).Source }
 $out = Join-Path $repo $OutDir; $stage = Join-Path $out 'CodeRoom'
-if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
-New-Item -ItemType Directory -Path $stage -Force | Out-Null
+New-Item -ItemType Directory -Path $out -Force | Out-Null
+# Substitui somente a área de staging e os artefatos desta versão. Não apaga
+# arquivos independentes que o usuário possa manter no diretório de saída.
+if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+$zip = Join-Path $out "Code-Room-$version-portatil-win-x64.zip"
+$versionSetup = Join-Path $out "Code-Room-$version-Setup.exe"
+if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 
 # 1) Só o que o app precisa para rodar (sem testes, docs de desenvolvimento nem scripts de teste).
 foreach ($d in 'server', 'public') { Copy-Item -LiteralPath $d -Destination (Join-Path $stage $d) -Recurse }
@@ -29,7 +34,6 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE-node.txt') -Destination
 $nodeVersion = (& $NodePath -v).Trim()
 
 # 3) Zip portátil
-$zip = Join-Path $out "Code-Room-$version-portatil-win-x64.zip"
 Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
 Write-Host ("zip: {0} ({1:N1} MB, Node {2})" -f $zip, ((Get-Item $zip).Length / 1MB), $nodeVersion)
 
@@ -42,6 +46,7 @@ foreach ($candidate in $candidates) {
 }
 $setup = $null
 if ($iscc) {
+  if (Test-Path -LiteralPath $versionSetup) { Remove-Item -LiteralPath $versionSetup -Force }
   & $iscc "/DAppVersion=$version" "/DStageDir=$stage" "/DOutDir=$out" (Join-Path $PSScriptRoot 'code-room.iss')
   if ($LASTEXITCODE -ne 0) { throw 'O Inno Setup falhou.' }
   $setup = Join-Path $out "Code-Room-$version-Setup.exe"

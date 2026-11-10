@@ -86,13 +86,17 @@ test('aprovar: limite de caracteres da rede, rede sem publicação automática v
 });
 
 test('agendamento: aprovado com horário futuro fica "agendado"; o relógio publica quando vence (e só então); passado é recusado; limite por dia vale', async () => {
-  const net = fakeNet([[/createSession/, { accessJwt: 'J', did: 'd' }], [/createRecord/, { uri: 'at://d/app.bsky.feed.post/k9' }]]); const { social, store } = await setup(net); const acc = await social.saveAccount({ ...BSKY, maxPerDay: 2 });
-  const mk = txt => social.createPost({ accountId: acc.id, text: txt });
-  const futuro = new Date(Date.now() + 3600e3).toISOString(), p1 = await mk('para mais tarde'); await assert.rejects(() => social.approve(p1.id, { confirm: true, when: new Date(Date.now() - 3600e3).toISOString() }), /horário futuro/); await assert.rejects(() => social.approve(p1.id, { confirm: true, when: 'quando der' }), /horário futuro/);
-  const ag = await social.approve(p1.id, { confirm: true, when: futuro }); assert.equal(ag.status, 'agendado'); assert.equal(net.calls.length, 0); assert.equal(await social.tick(), 0, 'ainda não venceu');
-  store.put('socialPosts', { ...store.get('socialPosts', p1.id), scheduledAt: new Date(Date.now() - 1000).toISOString() }); assert.equal(await social.tick(), 1); assert.equal(store.get('socialPosts', p1.id).status, 'publicado', store.get('socialPosts', p1.id).error); assert.equal(await social.tick(), 0, 'não publica de novo');
-  const p2 = await mk('segundo'); await social.approve(p2.id, { confirm: true, when: futuro }); const p3 = await mk('terceiro'); await assert.rejects(() => social.approve(p3.id, { confirm: true, when: futuro }), /Limite de 2 postagem/);
-  assert.equal(social.dismiss(p3.id).status, 'descartada'); assert.equal(social.dismiss(p2.id).status, 'descartada', 'agendado ainda pode ser cancelado'); assert.throws(() => social.dismiss(p1.id), /já foi enviada/);
+  const ActualDate = globalThis.Date, now = ActualDate.parse('2025-06-02T15:00:00.000Z');
+  globalThis.Date = class extends ActualDate { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } };
+  try {
+    const net = fakeNet([[/createSession/, { accessJwt: 'J', did: 'd' }], [/createRecord/, { uri: 'at://d/app.bsky.feed.post/k9' }]]); const { social, store } = await setup(net); const acc = await social.saveAccount({ ...BSKY, maxPerDay: 2 });
+    const mk = txt => social.createPost({ accountId: acc.id, text: txt });
+    const futuro = new Date(Date.now() + 3600e3).toISOString(), p1 = await mk('para mais tarde'); await assert.rejects(() => social.approve(p1.id, { confirm: true, when: new Date(Date.now() - 3600e3).toISOString() }), /horário futuro/); await assert.rejects(() => social.approve(p1.id, { confirm: true, when: 'quando der' }), /horário futuro/);
+    const ag = await social.approve(p1.id, { confirm: true, when: futuro }); assert.equal(ag.status, 'agendado'); assert.equal(net.calls.length, 0); assert.equal(await social.tick(), 0, 'ainda não venceu');
+    store.put('socialPosts', { ...store.get('socialPosts', p1.id), scheduledAt: new Date(Date.now() - 1000).toISOString() }); assert.equal(await social.tick(), 1); assert.equal(store.get('socialPosts', p1.id).status, 'publicado', store.get('socialPosts', p1.id).error); assert.equal(await social.tick(), 0, 'não publica de novo');
+    const p2 = await mk('segundo'); await social.approve(p2.id, { confirm: true, when: futuro }); const p3 = await mk('terceiro'); await assert.rejects(() => social.approve(p3.id, { confirm: true, when: futuro }), /Limite de 2 postagem/);
+    assert.equal(social.dismiss(p3.id).status, 'descartada'); assert.equal(social.dismiss(p2.id).status, 'descartada', 'agendado ainda pode ser cancelado'); assert.throws(() => social.dismiss(p1.id), /já foi enviada/);
+  } finally { globalThis.Date = ActualDate; }
 });
 
 test('Mastodon, Telegram e Discord: cada um chama o endereço certo, com a credencial certa e o texto; Telegram/Discord enviam arquivo; testes de conexão', async () => {

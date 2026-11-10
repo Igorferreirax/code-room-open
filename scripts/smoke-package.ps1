@@ -41,10 +41,20 @@ try {
   if ($state.runtime.version -ne (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json).version) { throw "Versão inesperada no pacote: $($state.runtime.version)." }
   $usage = (Invoke-WebRequest -Uri "$base/views2.js" -TimeoutSec 3 -UseBasicParsing).Content
   $onboarding = (Invoke-WebRequest -Uri "$base/onboarding.js" -TimeoutSec 3 -UseBasicParsing).Content
+  $updates = (Invoke-WebRequest -Uri "$base/updates-ui.js" -TimeoutSec 3 -UseBasicParsing).Content
+  $index = (Invoke-WebRequest -Uri $base -TimeoutSec 3 -UseBasicParsing).Content
   $css = (Invoke-WebRequest -Uri "$base/style.css" -TimeoutSec 3 -UseBasicParsing).Content
   if ($usage -notmatch 'quota-board' -or $usage -match 'class="limtab"' -or $usage -notmatch 'routineReportRows' -or $css -notmatch '\.quota-grid') { throw 'O painel compacto de Uso, a remoção da tabela duplicada ou o relatório de rotinas não estão presentes no pacote.' }
   if ($onboarding -notmatch 'onb-video-check') { throw 'A checagem opcional do ambiente de vídeo está ausente no pacote.' }
-  Write-Host "OK: pacote portátil iniciou isolado, API autenticada respondeu v$($state.runtime.version), Uso sem tabela duplicada e checagem de vídeo presentes."
+  if ($onboarding -notmatch 'workspace-name' -or $onboarding -notmatch 'displayName') { throw 'A personalização do nome no primeiro acesso está ausente no pacote.' }
+  if ($updates -notmatch 'update-settings-card' -or $updates -notmatch 'Verificar agora') { throw 'O cartão Atualizações em Configurações está ausente no pacote.' }
+  foreach ($asset in 'radio-tocando.webp', 'radio-volume.webp', 'radio-next.webp') {
+    if (-not (Test-Path -LiteralPath (Join-Path $app "public\assets\$asset"))) { throw "Arte do rádio ausente no pacote: $asset." }
+    $image = Invoke-WebRequest -Uri "$base/assets/$asset" -TimeoutSec 5 -UseBasicParsing
+    if ($image.StatusCode -ne 200 -or $image.Headers['Content-Type'] -notmatch 'image/webp') { throw "O servidor não entregou $asset como WebP." }
+  }
+  if ($index -notmatch 'data-playing-src="/assets/radio-tocando\.webp"') { throw 'O índice não aponta o player para as imagens WebP locais.' }
+  Write-Host "OK: pacote portátil iniciou isolado, API autenticada respondeu v$($state.runtime.version), Uso sem tabela duplicada, primeiro acesso, atualizações e rádio presentes."
 }
 finally {
   if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue; [void]$process.WaitForExit(5000) }

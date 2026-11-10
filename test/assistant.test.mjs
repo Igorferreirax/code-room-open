@@ -79,6 +79,8 @@ test('status ao vivo: resume tarefas, lotes e detalha projeto, equipe e agente c
 test('prompt: tem as regras, o manual, o que a IA entendeu, o estado e a pergunta por último; histórico é cortado, tamanho limitado', () => {
   const p = buildPrompt({ manual: 'MANUAL-X', knowledge: 'ENTENDI-Y', summary: 'ESTADO-Z', history: [{ role: 'user', text: 'oi' }, { role: 'assistant', text: 'olá' }], question: 'PERGUNTA-W' });
   for (const t of ['SOMENTE LEITURA', 'MANUAL-X', 'ENTENDI-Y', 'ESTADO-Z', 'Pessoa: oi', 'Assistente: olá']) assert.ok(p.includes(t), t); assert.ok(p.trim().endsWith('PERGUNTA-W'));
+  for (const t of ['tela e no projeto atuais', 'skills somente quando constarem como disponíveis', 'Não prometa ferramenta', 'respostas curtas e acionáveis']) assert.ok(p.includes(t), t);
+  assert.match(buildPrompt({ manual: 'm', knowledge: '', summary: 's', question: 'q', pilot: true }), /Use somente as ferramentas que esta execução realmente expõe/);
   const big = buildPrompt({ manual: 'M'.repeat(14000), knowledge: 'K'.repeat(3000), summary: 'S'.repeat(3000), history: Array.from({ length: 30 }, (_, i) => ({ role: 'user', text: ('h' + i).repeat(600) })), question: 'Q'.repeat(2000) });
   assert.ok(big.length <= 28000, `${big.length}`); assert.ok(!big.includes('h0h0'), 'o histórico mais antigo saiu primeiro'); assert.match(big, /Q{50}$/, 'a pergunta nunca é cortada');
   assert.match(buildPrompt({ manual: 'm', knowledge: '', summary: 's', question: 'q' }), /ainda não houve apresentação/);
@@ -223,7 +225,26 @@ test('conversas: cada uma tem o seu histórico e título; a resposta volta para 
   await assert.rejects(() => asst.renameThread('nao-existe', 'Título'), /não encontrada/);
   await assert.rejects(() => asst.renameThread(first, '   '), /Dê um nome/);
   s = await asst.deleteThread(second); assert.equal(s.threads.length, 1); assert.equal(s.thread, first); s = await asst.deleteThread(first); assert.equal(s.threads.length, 1); assert.equal(s.messages.length, 0, 'apagar a última deixa uma vazia');
-  for (let i = 0; i < 7; i++) await asst.newThread(); await assert.rejects(() => asst.newThread(), /Limite de 8/);
+  for (let i = 0; i < 31; i++) await asst.newThread(); await assert.rejects(() => asst.newThread(), /Limite de 32/);
+});
+
+test('Assistente: ao alternar projetos, troca de conversa e não leva o histórico de outro projeto ao prompt', async () => {
+  const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const other = await addProject(store, 'produto'); store.put('projects', { ...other, path: 'C:/projetos/produto' });
+  const promptFor = marker => store.list('tasks').find(t => t.agent?.id === 'assistant-codex' && t.objective.includes(marker))?.objective || '';
+  await asst.ask('MARCADOR-EXCLUSIVO-DO-CANAL', { projectId: 'p-canal' });
+  let s = await asst.status(), canalThread = s.thread, firstPrompt = promptFor('MARCADOR-EXCLUSIVO-DO-CANAL');
+  assert.equal(s.threads.find(t => t.id === canalThread).projectName, 'canal'); assert.match(firstPrompt, /MARCADOR-EXCLUSIVO-DO-CANAL/);
+  say('Resumo do canal.'); await done();
+  await asst.ask('MARCADOR-EXCLUSIVO-DO-PRODUTO', { projectId: other.id });
+  s = await asst.status(); const produtoThread = s.thread, secondPrompt = promptFor('MARCADOR-EXCLUSIVO-DO-PRODUTO');
+  assert.notEqual(produtoThread, canalThread); assert.match(secondPrompt, /MARCADOR-EXCLUSIVO-DO-PRODUTO/); assert.doesNotMatch(secondPrompt, /MARCADOR-EXCLUSIVO-DO-CANAL/);
+  say('Resumo do produto.'); await done();
+  await asst.ask('Continue daqui', { projectId: 'p-canal' });
+  s = await asst.status(); const resumedPrompt = promptFor('Continue daqui');
+  assert.equal(s.thread, canalThread, 'voltar ao projeto reabre a conversa correta'); assert.match(resumedPrompt, /MARCADOR-EXCLUSIVO-DO-CANAL/); assert.doesNotMatch(resumedPrompt, /MARCADOR-EXCLUSIVO-DO-PRODUTO/);
+  assert.equal(s.messages.find(m => m.text === 'Continue daqui').context.projectId, 'p-canal');
+  say('Contexto retomado.'); await done();
 });
 
 test('contexto do Assistente: registra projeto, tela aberta e número de notas do Obsidian que realmente entraram no pedido', async () => {
@@ -233,7 +254,7 @@ test('contexto do Assistente: registra projeto, tela aberta e número de notas d
   store.put('settings', { id: 'obsidian', enabled: true, vault, exclude: ['.obsidian'], byProject: {}, maxNotes: 5 });
   await asst.ask('Resuma o checklist de contexto do Code Room', { projectId: 'p-canal', screen: 'Tela: Entregas · Projeto: canal' });
   const user = (await asst.status()).messages.at(-1);
-  assert.deepEqual(user.context, { project: 'canal', screen: true, obsidianNotes: 1 });
+  assert.deepEqual(user.context, { projectId: 'p-canal', project: 'canal', screen: true, obsidianNotes: 1 });
   say('Contexto recebido.'); await done();
 });
 

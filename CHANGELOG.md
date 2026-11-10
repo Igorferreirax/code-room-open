@@ -9,6 +9,25 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.3] - 2026-11-10
+
+### Adicionado
+- **Diff textual das entregas e do Modo Piloto:** compara arquivos de texto pequenos, lista arquivos criados, alterados ou removidos e oferece o atalho “Ver arquivos e diff” na resposta do Assistente. Arquivos secretos conhecidos são excluídos da prévia e padrões de credenciais em linhas são mascarados; binários e arquivos grandes ficam sem diff.
+- **Canais e redes sociais:** ícones próprios por rede e cartões que mostram identidade, perfis e agente Postador.
+- **Rádio Lo-Fi:** as animações WebP do radinho indicam reprodução, ajuste de volume e próxima faixa, respeitando redução de movimento.
+
+### Melhorado
+- **Contexto do Assistente por projeto:** ao alternar entre projetos, o chat reabre a conversa daquele projeto e não envia ao modelo o histórico de outro. Projetos antigos sem escopo continuam preservados como conversas gerais.
+- **Passagem entre agentes na Sala:** a missão mostra a sequência de agentes, abre cada etapa e oferece ir ao mapa do Canvas. O Cenário ganhou movimento de respiração sutil para agentes ociosos, respeitando a preferência de movimento.
+- O Assistente reutiliza por 15 segundos o catálogo de skills externas, evitando varrer as mesmas pastas a cada atualização do painel.
+- No primeiro acesso, a pessoa pode escolher como quer ser chamada; o nome fica só nas preferências locais do navegador e não entra nos pedidos aos agentes.
+- Configurações › Atualizações agora destaca o estado da versão e a ação de verificar/atualizar, mantendo a versão instalada, o horário e a escolha de atualização automática visíveis.
+- O player usa caminhos absolutos para as artes locais do rádio; animações WebP são servidas pelo pacote do app.
+- A confirmação de encerramento agora considera processos ainda vivos e registra o tempo gasto para confirmar a árvore.
+- Repetir uma tarefa interrompida explica que a execução pode ter deixado arquivos ou efeitos externos.
+- O build do pacote portátil preserva arquivos independentes já existentes na pasta de saída.
+- O roadmap registra as lacunas para canais multi perfil, Google/Gmail e descoberta de skills externas.
+
 ## [0.3.2] - 2026-11-09
 
 ### Adicionado

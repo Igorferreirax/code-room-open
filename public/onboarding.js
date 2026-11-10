@@ -49,7 +49,9 @@ export function setupHtml(ctx) {
   const pf = o.videoCheck;
   const videoCheck = pf ? `<section class="onb-note" aria-label="Verificação do ambiente de vídeo"><b>Ambiente de vídeo: ${pf.summary === 'ok' ? 'pronto' : pf.summary === 'falha' ? 'há itens para corrigir' : 'há avisos'}</b><ul class="onb-pf-list">${pf.items.map(i => `<li><span class="pill ${i.status === 'ok' ? 'ok' : i.status === 'falha' ? 'bad' : 'warn'}">${i.status === 'ok' ? 'OK' : i.status === 'falha' ? 'Verificar' : 'Aviso'}</span> <b>${esc(i.label)}</b>: ${esc(i.detail)}${i.fix ? ` <small>${esc(i.fix)}</small>` : ''}</li>`).join('')}</ul></section>` : '';
   return `<div class="onb-backdrop"><section class="onb-card" role="dialog" aria-modal="true" aria-labelledby="onb-title" tabindex="-1">
-    <p class="onb-kicker">Boas-vindas</p><h2 id="onb-title">Vamos conectar as suas IAs</h2>
+    <p class="onb-kicker">Boas-vindas</p><h2 id="onb-title">Olá${ctx.prefs?.displayName ? ', ' + esc(ctx.prefs.displayName) : ''}! Este é o seu Workspace</h2>
+    <p class="muted">Como quer ser chamado? Esse nome fica salvo neste navegador e não é enviado aos agentes.</p><div class="onb-name"><label class="sr-only" for="workspace-name">Seu nome</label><input id="workspace-name" maxlength="40" autocomplete="nickname" placeholder="Seu nome" value="${esc(ctx.prefs?.displayName || '')}"><button type="button" class="btn sm" data-act="onb-name-save">Salvar nome</button></div>
+    <h3>Vamos conectar as suas IAs</h3>
     <p class="muted">O Code Room usa os programas de IA que você já tem no computador. Ele não guarda senha nem chave: só confere se cada um está instalado e conectado.</p>
     <ul class="onb-list">${PROVIDERS.map(id => row(ctx, id)).join('')}</ul>
     ${nothing ? '<p class="onb-note">Nenhuma IA conectada ainda. Instale ou entre em pelo menos uma e clique em “Verificar de novo”. Você também pode pular e voltar depois pelo menu do usuário.</p>' : ''}

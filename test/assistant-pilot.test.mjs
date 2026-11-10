@@ -41,6 +41,7 @@ test('modo piloto: desligado por padrão; ligado, o agente interno vira escrita 
 test('modo piloto: recusa projeto financeiro em foco, valor inválido e troca com resposta em andamento', async () => {
   const { asst, store } = await make();
   await asst.setAutonomy('pilot');
+  const local = await asst.ask('/status', { projectId: 'pjf' }); assert.equal(local.messages.at(-1).local, true, 'comandos locais continuam disponíveis em projeto financeiro');
   await assert.rejects(() => asst.ask('x', { projectId: 'pjf' }), /financeiro/i);
   await assert.rejects(() => asst.setAutonomy('tudo'), /inválido/i);
   store.put('settings', { ...store.get('settings', 'assistant'), pending: { kind: 'ask', taskId: 'z' } });
