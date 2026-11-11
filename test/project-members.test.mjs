@@ -53,7 +53,7 @@ test('painel do projeto: lista quem foi trazido (com Tirar), as equipes com gent
   const { projectMembersHtml } = await import('../public/views.js');
   const a = [{ id: '1', name: '<b>Arq</b>', role: 'Arquiteto' }, { id: '2', name: 'Dev', role: 'Dev' }, { id: '3', name: 'Livre', role: 'Dev' }], t = [{ id: 't1', name: 'Time', members: [{ agentId: '1' }, { agentId: '2' }] }];
   const h = projectMembersHtml({ state: { agents: a, teams: t } }, { id: 'p1', name: 'P', agentIds: ['1'], teamIds: ['t1'] });
-  assert.ok(!h.includes('<b>Arq</b>')); assert.match(h, /data-act="member-remove" data-id="1" data-project="p1"/); assert.match(h, /👥 <b>Time<\/b>/); assert.match(h, /data-act="team-member-remove"/); assert.match(h, /Dev · Dev/); assert.match(h, /class="member-add"/);
+  assert.ok(!h.includes('<b>Arq</b>')); assert.match(h, /data-act="member-remove" data-id="1" data-project="p1"/); assert.match(h, /<\/svg> <b>Time<\/b>/); assert.match(h, /data-act="team-member-remove"/); assert.match(h, /Dev · Dev/); assert.match(h, /class="member-add"/);
   assert.match(projectMembersHtml({ state: { agents: a, teams: t } }, { id: 'p2', name: 'Q' }), /Nenhum agente ligado ainda/);
 });
 

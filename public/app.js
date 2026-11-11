@@ -84,7 +84,8 @@ ctx.projectAgentIdsFor = projectId => {
   const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
   const teamIds = ctx.projectTeamIdsFor(projectId), ids = new Set(pj.agentIds || []);
   for (const team of ctx.state.teams) if (teamIds.has(team.id)) for (const m of team.members || []) ids.add(m.agentId);
-  for (const t of ctx.state.runs) if (t.project?.id === pj.id && t.agent?.id) ids.add(t.agent.id);
+  const hidden = new Set(pj.hiddenAgentIds || []);   // quem só está aqui por já ter trabalhado no projeto pode ser escondido
+  for (const t of ctx.state.runs) if (t.project?.id === pj.id && t.agent?.id && !hidden.has(t.agent.id)) ids.add(t.agent.id);
   return new Set(ctx.state.agents.filter(a => ids.has(a.id)).map(a => a.id));
 };
 ctx.projectAgentIds = () => ctx.projectAgentIdsFor(ctx.project);
@@ -100,9 +101,10 @@ ctx.roomAgents = () => {
 ctx.term = {}; const termBusy = new Set();
 ctx.termTask = a => ctx.state.runs.find(t => t.agent.id === a.id && (!ctx.project || t.project.id === ctx.project)) || null;
 function loadTerms() {
-  if (ctx.view !== 'room' || ctx.viewMode() !== 'term') return;
+  const inCanvas = ctx.viewMode() === 'canvas' && ctx.prefs.cvTerm;
+  if (ctx.view !== 'room' || !(ctx.viewMode() === 'term' || inCanvas)) return;
   const shown = new Set();
-  for (const a of ctx.roomAgents().slice(0, V.TERM_MAX)) {
+  for (const a of (inCanvas ? ctx.state.agents.filter(x => ctx.inRoom(x)).slice(0, 16) : ctx.roomAgents().slice(0, V.TERM_MAX))) {
     const t = ctx.termTask(a); if (!t) continue; shown.add(t.id);
     const c = ctx.term[t.id], live = ['running', 'cancelling'].includes(t.status), stamp = t.status + '|' + t.updatedAt;
     if (termBusy.has(t.id) || (c && c.stamp === stamp && (!live || Date.now() - c.at < 2500))) continue;
@@ -271,7 +273,7 @@ function render() {
   $('shell').classList.toggle('panel-open', !!content);
   restoreForm(snap);
   if (ctx.view === 'room' && ctx.viewMode() === 'canvas') { const slot = $('canvas-slot'); if (slot) { slot.innerHTML = canvasHtml(ctx); bindCanvas(slot, ctx, { onOpen: openAgentMenu, onLink: linkAgents, onUnlink: unlinkAgents, onEnd: () => { if (renderQueued) { renderQueued = false; render(); } } }); } }
-  if (ctx.view === 'room' && ctx.viewMode() === 'term') { document.querySelectorAll('.term-out').forEach(el => { el.scrollTop = el.scrollHeight; }); loadTerms(); }
+  if (ctx.view === 'room' && (ctx.viewMode() === 'term' || (ctx.viewMode() === 'canvas' && ctx.prefs.cvTerm))) { document.querySelectorAll('.term-out').forEach(el => { el.scrollTop = el.scrollHeight; }); loadTerms(); }
   if (ctx.view === 'room' && ctx.viewMode() === 'scene') { const slot = $('office'); if (slot) { officeHost ||= document.createElement('div'); officeHost.id = 'office'; officeHost.className = 'office-host'; slot.replaceWith(officeHost); drawOffice(); } }
   document.querySelectorAll('.barchart i[data-h]').forEach(i => i.style.height = i.dataset.h + '%');
   const rt = ctx.state.runtime; $('runtime-foot').textContent = rt.version ? `v${rt.version} · serviço ${rt.memoryMB} MB${rt.paused ? ' · novas tarefas pausadas' : ''}` : '';
@@ -546,7 +548,7 @@ function openAgentMenu(id) {
   m.innerHTML = `<b class="am-name">${V.esc(a.name)}</b><span class="am-role">${V.esc(a.role || '')}</span><span class="am-status small muted" data-am-status></span>
     <div class="am-live" data-am-live aria-live="polite"></div>
     <form class="am-form" data-id="${V.esc(a.id)}"><label class="sr-only" for="am-t-${V.esc(a.id)}">Missão para ${V.esc(a.name)}</label><textarea id="am-t-${V.esc(a.id)}" rows="2" maxlength="8000" placeholder="Missão para ${V.esc(a.name)}… (Enter envia)"></textarea><button type="submit" class="btn sm">Enviar</button></form>
-    <div class="am-actions"><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Fixar em janela</button><button type="button" role="menuitem" class="ghost" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar</button>${(ctx.state.projects.find(p => p.id === ctx.project)?.agentIds || []).includes(a.id) ? `<button type="button" role="menuitem" class="ghost" data-act="member-remove" data-id="${V.esc(a.id)}">Tirar do projeto</button>` : ''}<button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button></div>`;
+    <div class="am-actions"><button type="button" role="menuitem" class="ghost" data-act="mini-open" data-id="${V.esc(a.id)}">Fixar em janela</button><button type="button" role="menuitem" class="ghost" data-act="mention-agent" data-id="${V.esc(a.id)}">@ Mencionar</button>${ctx.project && ctx.projectAgentIds().has(a.id) ? `<button type="button" role="menuitem" class="ghost" data-act="member-remove" data-id="${V.esc(a.id)}">Tirar do projeto</button>` : ''}<button type="button" role="menuitem" class="ghost" data-act="agent" data-id="${V.esc(a.id)}">Ver detalhes</button></div>`;
   document.body.appendChild(m); ctx.ui.bubble = id; renderBubble(); placeAgentMenu(m); refreshLive().then(renderBubble);
   m.querySelector('textarea')?.focus();
 }
@@ -678,7 +680,7 @@ Isso apaga o perfil dele (nome, instruções, liberações). As tarefas e entreg
   'team-delete': async id => { const t = ctx.state.teams.find(x => x.id === id); if (!t || !confirm(`Excluir a equipe “${t.name}”?
 
 Os agentes dela continuam existindo; só a equipe (papéis e ordem) é apagada. Não dá para desfazer.`)) return; try { await api(`teams/${id}/delete`, { confirm: true }); await refresh(); notify(`Equipe “${t.name}” excluída.`); } catch (e) { notify(e.message, true); } },
-  'member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; closeAgentMenu(); const linked = ctx.projectTeamIdsFor(pid), teams = ctx.state.teams.filter(t => linked.has(t.id) && (t.members || []).some(m => m.agentId === id)).map(t => t.name), worked = ctx.state.runs.some(t => t.project?.id === pid && t.agent?.id === id); await api('projects/members', { projectId: pid, remove: [id] }); await refresh(); notify('Agente tirado do projeto (ele continua existindo e pode voltar quando quiser).' + (teams.length ? ` A equipe “${teams.join('”, “')}” também foi desvinculada, porque ele faz parte dela.` : '') + (worked ? ' Ele ainda aparece aqui porque já executou tarefas neste projeto.' : '')); },
+  'member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; closeAgentMenu(); const linked = ctx.projectTeamIdsFor(pid), teams = ctx.state.teams.filter(t => linked.has(t.id) && (t.members || []).some(m => m.agentId === id)).map(t => t.name), worked = ctx.state.runs.some(t => t.project?.id === pid && t.agent?.id === id); await api('projects/members', { projectId: pid, remove: [id], hide: [id] }); await refresh(); notify('Agente tirado do projeto (ele continua existindo e pode voltar quando quiser).' + (teams.length ? ` A equipe “${teams.join('”, “')}” também foi desvinculada, porque ele faz parte dela.` : '') + (worked ? ' O histórico das tarefas dele neste projeto continua guardado.' : '')); },
   'team-member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; await api('projects/members', { projectId: pid, removeTeams: [id] }); await refresh(); notify('Equipe desvinculada do projeto. Os agentes que também foram trazidos individualmente continuam ligados.'); },
   'skill-view': id => { ctx.ui.skillView = id || ''; ctx.ui.skillMore = false; render(); },
   'skill-fav': id => skillPref('fav', id), 'skill-hide': id => skillPref('hide', id),
@@ -811,7 +813,7 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
     if (el.dataset.again && t) { await api('tasks', { projectId: t.project.id, agentId: t.agent.id, requestId: crypto.randomUUID(), objective: t.objective }); notify('Liberado e pedido de novo. Acompanhe em Tarefas.'); }
     await refresh(); if (ctx.view === 'exec') await openTask(id, ctx.execTab);
   },
-  'cv-expand': () => { ctx.ui.cvBig = !ctx.ui.cvBig; render(); },
+  'cv-expand': () => { ctx.ui.cvBig = !ctx.ui.cvBig; render(); }, 'cv-term': () => { ctx.prefs.cvTerm = !ctx.prefs.cvTerm; savePrefs(); render(); },
   'sync-apply': async () => {
     const pick = c => [...document.querySelectorAll('.' + c + ':checked')].map(x => x.value), targets = pick('sync-ai'), skills = pick('sync-skill'), mcps = pick('sync-mcp');
     if (!targets.length) return notify('Marque pelo menos uma IA.', true); if (!skills.length && !mcps.length) return notify('Marque o que copiar (skills ou MCP).', true);
@@ -1016,7 +1018,7 @@ document.addEventListener('submit', async e => {
       else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; rememberSent(target, text, { taskId: t.id }); await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
     } else if (fid === 'link-form') {
-      const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3, fd.get('when') || 'always');
+      const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3, fd.get('when') || 'always'); if (fd.get('both') && !ctx.state.links.some(l => l.projectId === ctx.project && l.from === fd.get('to') && l.to === fd.get('from'))) await linkAgents(fd.get('to'), fd.get('from'), Number(fd.get('maxHops')) || 3, 'always');
     } else if (fid === 'followup-form') {
       const fd = new FormData(f), t = await api(`tasks/${fd.get('id')}/followup`, { agentId: fd.get('agentId'), message: fd.get('message'), requestId: crypto.randomUUID() });
       notify(t.resumed ? 'Continuando a mesma sessão.' : 'Nova missão iniciada com o resumo e os arquivos da anterior.'); await refresh(); return openTask(t.id);

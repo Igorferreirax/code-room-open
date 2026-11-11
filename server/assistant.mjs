@@ -100,6 +100,12 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       if (!desc.length) return bad('ajustar_agente', 'Diga o que mudar no agente: provedor, modelo, esforco ou permissao.');
       return { type: 'ajustar_agente', summary: `Ajustar o agente “${a.name}”: ${desc.join(', ')}`, payload: { agentId: a.id, patch }, valid: true };
     }
+    case 'guardar_nota': {   // memória: o que a pessoa pediu para lembrar (preferência, decisão, contexto). Vai para o Obsidian se a escrita estiver permitida; senão fica só nesta máquina.
+      const titulo = short(raw.titulo, 80), texto = String(raw.texto ?? '').trim().slice(0, 1500); if (!titulo || texto.length < 10) return bad('guardar_nota', 'A nota precisa de título e de um texto com pelo menos 10 caracteres.');
+      if (/(senha|password|token|api[_ -]?key|chave secreta)\s*[:=]/i.test(texto)) return bad('guardar_nota', 'Não guardo senhas, chaves nem tokens.');
+      let projectId = null; if (raw.projeto != null && String(raw.projeto).trim()) { const r = findProject(raw.projeto); if (r.error) return bad('guardar_nota', r.error); projectId = r.project.id || null; }
+      return { type: 'guardar_nota', summary: `Guardar na memória: “${titulo}”`, payload: { title: titulo, text: texto, projectId }, valid: true };
+    }
     case 'repetir_tarefa': {
       const id = String(raw.tarefa || '').trim(), t = id.length >= 8 ? (world.runs || []).find(x => x.id === id || x.id.startsWith(id)) : null;
       if (!t) return bad('repetir_tarefa', 'Tarefa não encontrada. Use o id que aparece no pedido de correção.');
@@ -140,7 +146,7 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       if (lc(raw.de) === lc(raw.para)) return bad('ligar_agentes', 'Um agente não pode se ligar a ele mesmo.');
       if (!pr.project.planned && !de.agent.planned && !para.agent.planned && (world.links || []).some(l => l.projectId === pr.project.id && l.from === de.agent.id && l.to === para.agent.id)) return bad('ligar_agentes', 'Essa ligação já existe.');
       const voltas = Math.min(6, Math.max(1, Math.trunc(Number(raw.voltas)) || 3));
-      return { type: 'ligar_agentes', summary: `Ligar “${de.agent.name}” → “${para.agent.name}” no projeto “${pr.project.name}”: quando o primeiro terminar, o segundo recebe o trabalho (até ${voltas} voltas)`, payload: { projectId: pr.project.id, from: de.agent.id, to: para.agent.id, maxHops: voltas }, valid: true };
+      return { type: 'ligar_agentes', summary: `Ligar “${de.agent.name}” → “${para.agent.name}” no projeto “${pr.project.name}”: quando o primeiro terminar, o segundo recebe o trabalho${raw.ida_e_volta === true ? ' e responde de volta' : ''} (até ${voltas} voltas)`, payload: { projectId: pr.project.id, from: de.agent.id, to: para.agent.id, maxHops: voltas, ...(raw.ida_e_volta === true ? { both: true } : {}) }, valid: true };
     }
     case 'criar_skill': {
       const nome = String(raw.nome ?? '').trim().toLowerCase(), desc = short(raw.descricao, 300), instr = String(raw.instrucoes ?? '').trim();
@@ -297,6 +303,8 @@ export function memoryOf(messages = [], keep = MAX_HISTORY) {
   }
   let text = out.slice(-30).join('\n'); if (text.length > 2400) text = text.slice(-2400); return text;
 }
+// O que a pessoa pediu para lembrar e ficou só nesta máquina (sem Obsidian): entra no pedido junto do que a IA entendeu na apresentação.
+export const memoText = memo => (memo || []).length ? 'Notas que a pessoa pediu para você lembrar:\n' + memo.slice(-30).map(m => `- ${short(m.title, 80)}: ${short(m.text, 400)}`).join('\n') : '';
 export const DEFAULT_NAME = 'Nico';
 export const cleanName = v => { const n = String(v ?? '').replace(/[^\p{L}\p{N} .'-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 24); return n || DEFAULT_NAME; };
 // Personalidade: o mesmo tom em toda conversa. O nome é escolhido pela pessoa e fica só neste computador.
@@ -328,8 +336,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine, retryTask = null, mcpFn = () => userMcpServers() }) {
-    this.retryTask = retryTask;
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine, retryTask = null, saveMemory = null, mcpFn = () => userMcpServers() }) {
+    this.retryTask = retryTask; this.saveMemory = saveMemory;
     Object.assign(this, { mcpFn, store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine });
     this.dir = join(dataDir, 'assistente');
   }
@@ -451,7 +459,7 @@ export class Assistant {
     // Notas do Obsidian da pessoa (só se ela ligou o vínculo; nunca com projeto Financeiro em foco).
     let obsText = '', obsidianNotes = 0; try { const po = focusProject; if (po?.area !== 'Financeiro') { const r = await blockFor(this.store, { objective: q, project: po ? { id: po.id, name: po.name, area: po.area } : { id: 'assistant-chat', name: '', area: 'Geral' } }, { role: '' }); if (r.text) { obsText = '\n' + r.text; obsidianNotes = r.n; } } } catch {}
     const screenContext = screenLine(screen).trim(), context = { ...(focusProject && !focusProject.internal ? { projectId: focusProject.id } : {}), project: focusProject?.name || '', screen: !!screenContext, obsidianNotes };
-    const prompt = buildPrompt({ name: s.name, pilot, extras: [screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId });
+    const prompt = buildPrompt({ name: s.name, pilot, extras: [screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: [s.knowledge, memoText(s.memo)].filter(Boolean).join('\n\n'), summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId });
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString(), context }], error: null });
     return this.status();
@@ -519,10 +527,15 @@ export class Assistant {
     }
     else if (r.type === 'criar_agente') { const ag = this.saveAgent(r.payload); result = `Agente “${ag.name}” criado.`; }
     else if (r.type === 'ajustar_agente') { const old = this.store.get('agents', r.payload.agentId); if (!old) throw new Error('O agente deixou de existir.'); const ag = this.saveAgent({ ...old, ...r.payload.patch, ...(r.payload.patch.provider && r.payload.patch.effort === undefined ? { effort: '' } : {}) }); result = `Agente “${ag.name}” ajustado.`; }
+    else if (r.type === 'guardar_nota') {
+      const where = this.saveMemory ? await this.saveMemory(r.payload) : { where: 'local' };
+      if (where.where !== 'obsidian') this.#save({ memo: [...(this.s.memo || []), { title: r.payload.title, text: r.payload.text, at: new Date().toISOString() }].slice(-30) });
+      result = where.where === 'obsidian' ? `Nota guardada no seu Obsidian (${where.rel}).` : 'Nota guardada na memória do Assistente, só neste computador. Para ir ao Obsidian, permita a escrita em Conexões › Notas e chaves.'; projectId = r.payload.projectId;
+    }
     else if (r.type === 'repetir_tarefa') { if (!this.retryTask) throw new Error('Repetir tarefa não está disponível nesta instalação.'); const t = await this.retryTask(r.payload.taskId); result = 'Tarefa colocada para rodar de novo.'; projectId = t?.project?.id || null; }
     else if (r.type === 'definir_skills') { const old = this.store.get('agents', r.payload.agentId); const ag = this.saveAgent({ ...old, skillIds: r.payload.skillIds }); result = `Skills de “${ag.name}” atualizadas.`; }
     else if (r.type === 'criar_projeto') { const pr = await this.saveProject(r.payload); result = `Projeto “${pr.name}” criado.`; projectId = pr.id; }
-    else if (r.type === 'ligar_agentes') { await this.saveLink(r.payload); result = 'Ligação criada: o trabalho passa de um agente ao outro.'; projectId = r.payload.projectId; }
+    else if (r.type === 'ligar_agentes') { const { both, ...link } = r.payload; await this.saveLink(link); let back = false; if (both) { try { await this.saveLink({ ...link, from: link.to, to: link.from }); back = true; } catch {} } result = back ? 'Ligações criadas nos dois sentidos: um agente passa o trabalho e o outro responde.' : 'Ligação criada: o trabalho passa de um agente ao outro.'; projectId = r.payload.projectId; }
     else if (r.type === 'criar_pasta_entrada') { const j = await this.saveFolderJob(r.payload); result = `Pasta de entrada criada. Ponha os arquivos em “${j.dir}” e eles entram sozinhos.`; projectId = r.payload.projectId; taskView = 'routines'; }
     else if (r.type === 'importar_projeto') { const pr = await this.importProject(r.payload); result = `Projeto “${pr.name}” importado.`; projectId = pr.id; }
     else if (r.type === 'criar_skill') { await this.saveSkill(r.payload); result = `Skill “${r.payload.name}” criada. Já aparece em Skills.`; }

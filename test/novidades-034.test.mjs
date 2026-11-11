@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AGENT_LIBRARY, AGENT_PACKS, bestProvider, hireLibraryPack, listAgentLibrary, listAgentPacks } from '../server/agents-library.mjs';
 import { testResponse, codexConfigModel, configuredModel } from '../server/connector-test.mjs';
-import { normalizeAction, aiGuide, persona, cleanName, buildPrompt, DEFAULT_NAME } from '../server/assistant.mjs';
+import { normalizeAction, aiGuide, persona, cleanName, buildPrompt, DEFAULT_NAME, memoText } from '../server/assistant.mjs';
+import { canvasHtml } from '../public/canvas.js';
 import { welcomeBack } from '../public/views.js';
 
 const mem = () => { const t = { agents: new Map(), projects: new Map(), teams: new Map() }; return { list: k => [...t[k].values()], get: (k, id) => t[k].get(id) || null, put: (k, v) => { t[k].set(v.id, v); return v; } }; };
@@ -105,4 +106,26 @@ test('HTTP: excluir projeto preserva a pasta, o Financeiro recusa o Antigravity 
       const t = await post('/api/tasks', { projectId: fin.id, agentId: ag.id, requestId: 'fin-1', objective: 'somar' }); assert.equal(t.status, 400); assert.match(t.body.error, /Antigravity pesquisa na web/);
     }
   } finally { const closed = once(child, 'close'); child.kill(); await closed; await rm(dir, { recursive: true, force: true }); await rm(proj, { recursive: true, force: true }); }
+});
+
+test('memória e ida e volta: guardar_nota recusa segredo, a nota local entra no pedido e ligar_agentes aceita ida_e_volta', () => {
+  const w = world({ projects: [{ id: 'p1', name: 'Canal' }], agents: [{ id: 'a1', name: 'Diretor', provider: 'agy', mode: 'read' }, { id: 'a2', name: 'Pesquisador', provider: 'agy', mode: 'read' }], links: [] });
+  const n = normalizeAction({ acao: 'guardar_nota', titulo: 'Tom do canal', texto: 'O canal fala de lendas brasileiras em tom sombrio.', projeto: 'Canal' }, w);
+  assert.equal(n.valid, true); assert.deepEqual(n.payload, { title: 'Tom do canal', text: 'O canal fala de lendas brasileiras em tom sombrio.', projectId: 'p1' });
+  assert.equal(normalizeAction({ acao: 'guardar_nota', titulo: 'x', texto: 'curto' }, w).valid, false);
+  assert.match(normalizeAction({ acao: 'guardar_nota', titulo: 'Acesso', texto: 'a senha: abc123 do painel de vendas' }, w).error, /Não guardo senhas/);
+  assert.match(memoText([{ title: 'Tom', text: 'sombrio' }]), /lembrar:[\s\S]- Tom: sombrio/); assert.equal(memoText([]), '');
+  const l = normalizeAction({ acao: 'ligar_agentes', projeto: 'Canal', de: 'Diretor', para: 'Pesquisador', ida_e_volta: true }, w);
+  assert.equal(l.payload.both, true); assert.match(l.summary, /responde de volta/);
+  assert.equal('both' in normalizeAction({ acao: 'ligar_agentes', projeto: 'Canal', de: 'Diretor', para: 'Pesquisador' }, w).payload, false);
+});
+
+test('Canvas com terminais: cada nó mostra a saída do agente, com o botão para ligar e desligar e a opção ida e volta', () => {
+  const a = { id: 'a1', name: 'Ana', role: 'Dev', provider: 'codex', room: 'Geral', skillIds: [] }, b = { id: 'a2', name: 'Beto', role: 'Rev', provider: 'claude', room: 'Geral', skillIds: [] };
+  const run = { id: 't1', status: 'running', agent: a, project: { id: 'p1' } };
+  const ctx = on => ({ project: 'p1', prefs: { cvTerm: on }, ui: {}, term: { t1: { html: '<span class="tp">$ criar a tela</span>' } }, termTask: x => (x.id === 'a1' ? run : null), inRoom: () => true, agentStatus: x => ({ status: x.id === 'a1' ? 'running' : 'idle', label: 'x' }), state: { agents: [a, b], teams: [], runs: [run], links: [{ id: 'l1', projectId: 'p1', from: 'a1', to: 'a2', maxHops: 3 }] } });
+  const on = canvasHtml(ctx(true)), off = canvasHtml(ctx(false));
+  assert.equal((on.match(/class="cv-node cv-t /g) || []).length, 2); assert.match(on, /class="term-out cv-term" data-task="t1">.*criar a tela/); assert.match(on, /Nenhuma tarefa deste agente neste projeto ainda/);
+  assert.match(on, /width:330px;height:232px/); assert.match(on, /aria-pressed="true"[^>]*>Esconder terminais/);
+  assert.doesNotMatch(off, /term-out cv-term/); assert.match(off, /width:232px;height:88px/); assert.match(off, />Mostrar terminais</); assert.match(off, /name="both" value="1"> ida e volta/);
 });

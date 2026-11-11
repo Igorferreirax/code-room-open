@@ -193,7 +193,7 @@ function retryNow(id) {
   t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1)); store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
   const r = retryTask(store, id); void runner.pump(); return r;
 }
-const assistant = new Assistant({ retryTask: async id => retryNow(id), store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
+const assistant = new Assistant({ retryTask: async id => retryNow(id), saveMemory: async ({ title, text, projectId }) => { const cfg = obsCfg(), pj = projectId ? store.get('projects', projectId) : null; if (cfg.enabled && cfg.vault && cfg.allowWrite && pj?.area !== 'Financeiro') { const r = await obsSave(cfg, { project: pj?.name || 'Geral', area: pj?.area, agent: 'Assistente', title, summary: text, files: [] }); return { where: 'obsidian', rel: r.rel }; } return { where: 'local' }; }, store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -560,7 +560,8 @@ const handle = async (req, res) => {
           const add = ids(b.add).filter(id => known.has(id)), remove = new Set(ids(b.remove));
           const teamIds = [...new Set([...projectTeamIds(pj), ...addTeams])].filter(id => knownTeams.has(id) && !removeTeams.has(id) && !(store.get('teams', id)?.members || []).some(m => remove.has(m.agentId)));
           const next = [...new Set([...(pj.agentIds || []), ...add])].filter(id => known.has(id) && !remove.has(id));
-          return send(res, 200, store.put('projects', { ...pj, agentIds: next, teamIds }));
+          const hiddenAgentIds = [...new Set([...(pj.hiddenAgentIds || []), ...ids(b.hide)])].filter(id => known.has(id) && !add.includes(id)).slice(0, 200);   // trazer de volta desfaz o esconder
+          return send(res, 200, store.put('projects', { ...pj, agentIds: next, teamIds, hiddenAgentIds }));
         }
         if (p === '/api/providers') { masterOnly(auth); const list = customSpecs(), spec = validateSpec(b, list), next = [...list.filter(x => x.id !== spec.id), spec]; store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 201, providersView()); }
         if (p === '/api/providers/delete') {

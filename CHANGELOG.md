@@ -19,6 +19,10 @@ do meio (0.**3**.0).
 - **O Assistente escolhe a IA e o modelo de cada agente:** ele recebe as IAs instaladas, os modelos de cada uma e para que cada uma serve (a mais forte orquestra e revisa).
 - **Corrigir com a IA aplica a correção:** o Assistente recebe o motivo da falha e propõe `ajustar_agente` (trocar IA, modelo, esforço ou permissão) e `repetir_tarefa`; você aprova cada passo.
 - **Testar resposta** das IAs embutidas (Conexões e tela da tarefa com falha) e teste automático ao criar um agente, para o erro aparecer na hora.
+- **Terminais dentro do Canvas:** o botão “Mostrar terminais” transforma cada agente do Canvas num painel com a saída ao vivo, ligado aos outros pelas linhas.
+- **Ida e volta entre agentes:** a caixa “ida e volta” ao criar a ligação (ou `ida_e_volta` pelo Assistente) cria os dois sentidos de uma vez: um agente passa o trabalho e o outro responde.
+- **Memória do Assistente:** peça para ele lembrar de algo e ele propõe `guardar_nota`. Vai para o seu Obsidian quando a escrita está permitida; senão fica só neste computador e entra nas próximas conversas. Senhas e chaves são recusadas.
+- **Tirar do projeto** agora vale também para quem só aparecia por já ter trabalhado nele (o histórico continua guardado).
 - **Excluir projeto** (painel do projeto): tira do Code Room sem apagar a pasta nem o histórico.
 - **Equipe pela leitura da pasta:** ao criar ou importar um projeto, o Assistente pode ler README, dependências e estrutura (somente leitura) e propor a equipe.
 - Convite para importar skills ou instalar as iniciais já no primeiro acesso. “Todos os projetos (geral)” no seletor do topo.
