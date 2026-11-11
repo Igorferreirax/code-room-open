@@ -35,7 +35,7 @@ function row(ctx, id) {
   const c = ctx.checks?.find(x => x.id === id), st = providerState(c), cmd = COMMANDS[id] || {}, [kind, label] = CHIP[st];
   let help = '';
   if (st === 'missing') help = `<p class="small muted">Instale com:</p><pre>${esc(cmd.install || '')}</pre>${/^npm /.test(cmd.install || '') ? `<button type="button" class="btn ghost sm" data-act="copy" data-id="${esc(cmd.install)}">Copiar comando</button>` : ''}`;
-  if (st === 'login') help = `<p class="small muted">Entre na sua conta com:</p><pre>${esc(cmd.login || '')}</pre><button type="button" class="btn ghost sm" data-act="copy" data-id="${esc(cmd.login || '')}">Copiar comando</button>`;
+  if (st === 'login') help = `<p class="small muted">Entre na sua conta pelo login oficial do CLI:</p><pre>${esc(cmd.login || '')}</pre><div class="btn-row"><button type="button" class="btn sm" data-act="connector-login" data-id="${esc(id)}">Abrir terminal e entrar</button><button type="button" class="btn ghost sm" data-act="onb-recheck">Verificar depois</button></div>`;
   if (st === 'ok') help = `<p class="small muted">${c.version ? 'Versão ' + esc(String(c.version).slice(0, 40)) + '. ' : ''}Pronto para uso.</p>`;
   return `<li class="onb-row"><div class="onb-head"><b>${esc(cmd.name || id)}</b><span class="pill ${kind}">${label}</span></div><p class="small muted">${esc(cmd.desc || '')}</p>${help}</li>`;
 }
@@ -56,6 +56,7 @@ export function setupHtml(ctx) {
     <ul class="onb-list">${PROVIDERS.map(id => row(ctx, id)).join('')}</ul>
     ${nothing ? '<p class="onb-note">Nenhuma IA conectada ainda. Instale ou entre em pelo menos uma e clique em “Verificar de novo”. Você também pode pular e voltar depois pelo menu do usuário.</p>' : ''}
     <details class="onb-video"><summary>Vai trabalhar com vídeo? Verifique as ferramentas locais</summary><p class="small muted">A checagem só lê versões, disponibilidade e recursos do computador. Não instala programas nem mostra valores de chaves.</p><button type="button" class="btn ghost sm" data-act="onb-video-check"${o.videoBusy ? ' disabled' : ''}>${o.videoBusy ? 'Verificando…' : 'Verificar ambiente de vídeo'}</button>${videoCheck}</details>
+    <details class="onb-video onb-skills" open><summary>Skills: use as suas ou comece com as nossas</summary><p class="small muted">Skills são instruções reutilizáveis que deixam os agentes muito melhores. Para a melhor experiência, importe a pasta das suas. Se ainda não tem, adicione as iniciais abaixo: elas são copiadas para o seu computador e você pode editar.</p><div class="btn-row"><button type="button" class="btn ghost sm" data-act="add-skill-root">Importar minhas skills</button>${(ctx.skillLibrary || []).filter(s => s.available).map(s => `<button type="button" class="btn ghost sm" data-act="skill-library-install" data-id="${esc(s.id)}" title="${esc(s.description)}" ${s.installed ? 'disabled' : ''}>${s.installed ? '✔ ' : '+ '}${esc(s.name)}</button>`).join('')}</div></details>
     ${o.msg ? `<p class="onb-note ok" role="status">${esc(o.msg)}</p>` : ''}
     <div class="btn-row onb-actions"><button type="button" class="btn ghost" data-act="onb-recheck">Verificar de novo</button>${create}<span class="grow"></span><button type="button" class="btn ghost" data-act="onb-skip">Pular</button><button type="button" class="btn${create ? ' ghost' : ''}" data-act="onb-tour">Ver o tutorial →</button></div>
   </section></div>`;
@@ -64,6 +65,7 @@ export function setupHtml(ctx) {
 // ---------- Tutorial guiado ----------
 // view = tela aberta; target = elemento destacado (botão da barra lateral). Todos os textos descrevem recursos que existem.
 export const TOUR = [
+  { view: 'home', target: '[data-nav=home]', title: 'Início e Assistente', text: 'Comece por aqui: descreva o que precisa no chat, escolha um projeto e converse com o mesmo Assistente que acompanha a ferramenta. Abaixo ficam tarefas recentes; ao lado, seus projetos e a equipe ligada ao projeto em foco.' },
   { view: 'room', target: '[data-nav=room]', title: 'A Sala', text: 'Aqui moram os seus agentes. Cada um tem nome, função e estado em tempo real. Alterne entre Cenário, Lista e Canvas: no Canvas, arraste de um agente a outro para o trabalho de um virar a tarefa do próximo.' },
   { view: 'projects', target: '[data-nav=projects]', title: 'Projetos', text: 'Um projeto é uma pasta do seu computador. Cadastre a pasta e os agentes trabalham ali, sem se misturar com os outros projetos.' },
   { view: 'tasks', target: '[data-nav=tasks]', title: 'Tarefas', text: 'Dê missões pelo chat (o balão no canto direito): converse com o Assistente ou escolha uma equipe ou um agente, e use @agente e /skill. Nesta tela você acompanha cada tarefa e o que ela produziu.' },

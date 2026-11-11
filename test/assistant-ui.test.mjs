@@ -46,7 +46,7 @@ test('cartões de ação: válida tem Criar e Descartar; inválida só explica; 
   const bad = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: false, status: 'pending', summary: 'x', error: 'O agente “Y” não existe.' }));
   assert.ok(!bad.includes('asst-apply')); assert.match(bad, /não existe/);
   const done = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: true, status: 'applied', summary: 'x', result: 'Equipe criada.' }));
-  assert.ok(!done.includes('asst-apply')); assert.match(done, /✔ Equipe criada/);
+  assert.ok(!done.includes('asst-apply')); assert.match(done, /✔ Equipe criada/); assert.match(done, /Quer ajuda para conectar a equipe\?/); assert.match(done, /data-act="asst-team-help"/);
   assert.ok(!assistantHtml(m({ idx: 0, type: 'abrir_tela', valid: true, status: 'pending', summary: '<img src=x>' })).includes('<img src=x>'), 'resumo escapado');
 });
 

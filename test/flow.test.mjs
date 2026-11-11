@@ -24,6 +24,7 @@ test('fluxo sequencial: dev entrega, revisor recebe objetivo, critérios, resumo
   const t = await team(store, 'write=index.html:<p>oi</p> answer=Página_criada');
   const savedTeam = orchestrator.saveTeam({ name: 'Web', members: t.members });
   const { flow } = orchestrator.startSequential({ projectId: P.id, teamId: savedTeam.id, requestId: 'f1', objective: 'Criar a página', criteria: ['tem um parágrafo', 'sem JavaScript'] });
+  const linkedProject = store.get('projects', P.id); assert.deepEqual(linkedProject.teamIds, [savedTeam.id]); assert.deepEqual(linkedProject.agentIds || [], [], 'membros da equipe continuam vinculados pela equipe, sem virar vínculos individuais');
   await waitFor(() => final(store, flow.id), 30000, 'fluxo');
   const view = orchestrator.flowView(flow.id);
   assert.equal(view.status, 'completed'); assert.equal(view.review.verdict, 'approved');
@@ -36,6 +37,16 @@ test('fluxo sequencial: dev entrega, revisor recebe objetivo, critérios, resumo
   assert.equal(orchestrator.requestIdempotent?.call?.length ?? 0, 0);
   assert.equal(orchestrator.startSequential({ projectId: P.id, teamId: savedTeam.id, requestId: 'f1', objective: 'Criar a página' }).duplicate, true);
   assert.equal(store.get('contexts', P.id).deliverables.length, 1);
+});
+
+test('projeto legado: recupera a equipe pelo fluxo daquele projeto e respeita desvinculação explícita', async () => {
+  const { store, orchestrator } = await setup(), P = await addProject(store, 'legado'), other = await addProject(store, 'outro');
+  const t = await team(store), saved = orchestrator.saveTeam({ name: 'Equipe antiga', members: t.members });
+  store.put('flows', { id: 'fluxo-legado', projectId: P.id, teamId: saved.id, status: 'completed' });
+  assert.deepEqual([...orchestrator.projectTeamIds(P)], [saved.id]);
+  assert.deepEqual([...orchestrator.projectTeamIds(other)], [], 'não associa equipe pelo nome, sala ou membros compartilhados');
+  store.put('projects', { ...P, teamIds: [] });
+  assert.deepEqual([...orchestrator.projectTeamIds(store.get('projects', P.id))], [], 'lista explícita vazia permite desvincular o fluxo antigo');
 });
 
 test('revisão reprovada respeita o limite de rodadas; falha do dev bloqueia a revisão', async () => {
@@ -132,10 +143,12 @@ test('supervisor: o backend valida o plano e recusa tudo que o modelo não pode 
 test('supervisor ponta a ponta (agentes de processo real): plano aceito pelo backend vira tarefas com dependência', async () => {
   const { store, orchestrator } = await setup(); const P = await addProject(store, 'sup'); const dir = await tempDir('plan');
   const planFile = join(dir, 'plan.json');
-  addAgent(store, 'dev', { name: 'Theo', mode: 'write', capabilities: ['code'], instructions: '[[fake write=r.txt:ok answer=feito]]' });
-  addAgent(store, 'rev', { name: 'Iris', capabilities: ['review'], instructions: '[[fake echo=1 answer=VEREDITO:_APROVADO]]' });
+  const dev = addAgent(store, 'dev', { name: 'Theo', mode: 'write', capabilities: ['code'], instructions: '[[fake write=r.txt:ok answer=feito]]' });
+  const rev = addAgent(store, 'rev', { name: 'Iris', capabilities: ['review'], instructions: '[[fake echo=1 answer=VEREDITO:_APROVADO]]' });
+  const sup = addAgent(store, 'sup', { name: 'Sol', capabilities: ['supervise'], instructions: `[[fake answerfile=${planFile}]]` });
+  const outsider = addAgent(store, 'out', { name: 'Projeto de Fora', capabilities: ['code'], instructions: '[[fake answerfile=never]]' });
+  store.put('projects', { ...P, agentIds: [dev.id, rev.id, sup.id] });
   writeFileSync(planFile, JSON.stringify({ mode: 'plan', rationale: 'dev e depois revisão', steps: [{ id: 's1', agentId: 'dev', objective: 'Criar r.txt', criteria: ['arquivo existe'], requires: ['code'] }, { id: 's2', agentId: 'rev', objective: 'Revisar r.txt', dependsOn: ['s1'], requires: ['review'] }] }));
-  addAgent(store, 'sup', { name: 'Sol', capabilities: ['supervise'], instructions: `[[fake answerfile=${planFile}]]` });
   const { plan } = orchestrator.requestPlan({ projectId: P.id, supervisorId: 'sup', request: 'Crie r.txt e revise', requestId: 'p1', autoAccept: true });
   await waitFor(() => store.get('plans', plan.id).status === 'accepted', 30000, 'plano aceito');
   const accepted = store.get('plans', plan.id); const flow = store.get('flows', accepted.flowId);
@@ -150,7 +163,12 @@ test('supervisor ponta a ponta (agentes de processo real): plano aceito pelo bac
   await waitFor(() => store.get('plans', bad.id).status === 'rejected', 30000);
   assert.equal(store.list('tasks').length, before + 1, 'só a tarefa do próprio supervisor foi criada');
   assert.throws(() => orchestrator.acceptPlan(bad.id), /só planos validados/);
+  writeFileSync(planFile, JSON.stringify({ mode: 'plan', steps: [{ id: 's1', agentId: outsider.id, objective: 'fora do projeto' }] }));
+  const outside = orchestrator.requestPlan({ projectId: P.id, supervisorId: 'sup', request: 'agente de outro projeto', requestId: 'p4', autoAccept: true }).plan;
+  await waitFor(() => store.get('plans', outside.id).status === 'rejected', 30000);
+  assert.match(store.get('plans', outside.id).errors.join(' '), /agente inexistente/);
   assert.throws(() => orchestrator.requestPlan({ projectId: P.id, supervisorId: 'dev', request: 'x', requestId: 'p3' }), /somente leitura/);
+  assert.throws(() => orchestrator.requestPlan({ projectId: P.id, supervisorId: outsider.id, request: 'x', requestId: 'p5' }), /Traga o Supervisor/);
 });
 
 test('subtarefa de ajuda: vinculada à original, com limites de quantidade e profundidade', async () => {

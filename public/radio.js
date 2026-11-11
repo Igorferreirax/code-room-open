@@ -8,8 +8,14 @@ const FORM = [
   { name: 'Dm9', chord: [53, 57, 60, 64], bass: 38 }, { name: 'G13', chord: [53, 59, 62, 64], bass: 43 }, { name: 'Cmaj9', chord: [52, 55, 59, 62], bass: 36 }, { name: 'Am9', chord: [55, 59, 60, 64], bass: 33 },
   { name: 'Fmaj9', chord: [57, 60, 64, 67], bass: 41 }, { name: 'Em9', chord: [55, 59, 62, 66], bass: 40 }, { name: 'Dm9', chord: [53, 57, 60, 64], bass: 38 }, { name: 'G7', chord: [53, 59, 62, 64], bass: 43 },
 ];
-// Estação: várias faixas no MESMO ritmo e nos mesmos acordes; muda só a melodia solta e os detalhes. Tudo é gerado na hora (0 MB).
-export const TRACKS = [{ name: 'Chuva na janela', seed: 7 }, { name: 'Madrugada no café', seed: 21 }, { name: 'Última linha', seed: 42 }, { name: 'Luz de neon', seed: 63 }, { name: 'Domingo sem pressa', seed: 88 }];
+// Estação: faixas geradas na hora, mas com andamento e harmonia próprios para a troca ser audível (0 MB).
+export const TRACKS = [
+  { name: 'Chuva na janela', seed: 7, bpm: 74, form: [0, 1, 2, 3, 4, 5, 6, 7] },
+  { name: 'Madrugada no café', seed: 21, bpm: 68, form: [3, 4, 2, 1, 3, 4, 0, 1] },
+  { name: 'Última linha', seed: 42, bpm: 80, form: [4, 0, 1, 3, 4, 2, 0, 1] },
+  { name: 'Luz de neon', seed: 63, bpm: 76, form: [0, 3, 4, 1, 2, 3, 4, 1] },
+  { name: 'Domingo sem pressa', seed: 88, bpm: 66, form: [2, 3, 4, 1, 2, 0, 4, 1] },
+];
 const TRACK_BARS = 32;
 const PENTA = [69, 72, 74, 76, 79, 81, 84];
 
@@ -17,7 +23,7 @@ const PENTA = [69, 72, 74, 76, 79, 81, 84];
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 export class LofiRadio {
-  constructor({ seed = 7, track = 0, onTrack = null } = {}) { this.track = track; this.onTrack = onTrack; this.skip = false; this.seed = seed; this.ctx = null; this.timer = null; this.vol = 0.7; this.bar = 0; this.next = 0; this.rand = rng(seed); }
+  constructor({ seed = 7, track = 0, onTrack = null } = {}) { this.track = ((Math.trunc(Number(track) || 0) % TRACKS.length) + TRACKS.length) % TRACKS.length; this.onTrack = onTrack; this.skip = false; this.seed = seed; this.ctx = null; this.timer = null; this.vol = 0.7; this.bar = 0; this.next = 0; this.rand = rng(seed); this.beat = 60 / TRACKS[this.track].bpm; this.barDuration = this.beat * 4; }
   get playing() { return !!this.ctx && !this.stopping; }
 
   // ---------- grafo de áudio ----------
@@ -35,7 +41,7 @@ export class LofiRadio {
     this.verb = c.createConvolver(); this.verb.buffer = imp; const wet = c.createGain(); wet.gain.value = 0.2; this.verb.connect(wet); wet.connect(this.sum);
     // pianos e notas soltas
     this.keys = c.createGain(); this.keys.gain.value = 0.5; const keyLp = filt('lowpass', 2600, 0.6); this.keys.connect(keyLp); keyLp.connect(this.sum); keyLp.connect(this.verb);
-    this.mel = c.createGain(); this.mel.gain.value = 0.32; const delay = c.createDelay(1); delay.delayTime.value = BEAT * 0.75; const fb = c.createGain(); fb.gain.value = 0.36; const dlp = filt('lowpass', 2100);
+    this.mel = c.createGain(); this.mel.gain.value = 0.32; const delay = c.createDelay(1); delay.delayTime.value = this.beat * 0.75; const fb = c.createGain(); fb.gain.value = 0.36; const dlp = filt('lowpass', 2100);
     this.mel.connect(this.sum); this.mel.connect(delay); delay.connect(dlp); dlp.connect(fb); fb.connect(delay); dlp.connect(this.sum); dlp.connect(this.verb);
     this.bassBus = c.createGain(); this.bassBus.gain.value = 0.75; const bLp = filt('lowpass', 420, 0.5); this.bassBus.connect(bLp); bLp.connect(this.sum);
     this.drums = c.createGain(); this.drums.gain.value = 0.7; const dLp = filt('lowpass', 5200, 0.5); this.drums.connect(dLp); dLp.connect(this.sum);
@@ -73,13 +79,13 @@ export class LofiRadio {
 
   // ---------- um compasso ----------
   scheduleBar(i, t0) {
-    const R = this.rand, step = FORM[i % FORM.length], at = beat => t0 + beat * BEAT + (beat % 1 ? SWING * BEAT * 0.5 : 0), human = () => (R() - 0.5) * 0.02;
+    const R = this.rand, profile = TRACKS[this.track], beatDuration = this.beat, step = FORM[profile.form[i % profile.form.length]], at = beat => t0 + beat * beatDuration + (beat % 1 ? SWING * beatDuration * 0.5 : 0), human = () => (R() - 0.5) * 0.02;
     const loop = Math.floor(i / FORM.length);
     // piano: acorde cheio no tempo 1 e batidas leves no "e" do 2 e no 4
     const hits = [[0, 1, 2.2], [1.5, 0.55, 1.2], R() < 0.7 ? [3, 0.5, 1] : null].filter(Boolean);
-    for (const [beat, vel, dur] of hits) step.chord.forEach((m, k) => this.piano(at(beat) + k * 0.011 + human(), m, vel * (0.85 + R() * 0.25), dur * BEAT));
+    for (const [beat, vel, dur] of hits) step.chord.forEach((m, k) => this.piano(at(beat) + k * 0.011 + human(), m, vel * (0.85 + R() * 0.25), dur * beatDuration));
     // baixo
-    this.bass(at(0) + human(), step.bass, 1, BEAT * 1.6); if (R() < 0.6) this.bass(at(2) + human(), step.bass + (R() < 0.3 ? 7 : 0), 0.8, BEAT * 1.2); if (R() < 0.35) this.bass(at(3.5) + human(), step.bass + 12, 0.45, BEAT * 0.4);
+    this.bass(at(0) + human(), step.bass, 1, beatDuration * 1.6); if (R() < 0.6) this.bass(at(2) + human(), step.bass + (R() < 0.3 ? 7 : 0), 0.8, beatDuration * 1.2); if (R() < 0.35) this.bass(at(3.5) + human(), step.bass + 12, 0.45, beatDuration * 0.4);
     // bateria: bumbo no 1 e no "e" do 3; caixa no 2 e no 4; chimbal em colcheias com swing
     this.kick(at(0) + human(), 1); if (R() < 0.85) this.kick(at(2.5) + human(), 0.85); if (R() < 0.35) this.kick(at(1.5) + human(), 0.6);
     this.snare(at(1) + human(), 0.9); this.snare(at(3) + human(), 0.95); if (R() < 0.25) this.snare(at(3.75) + human(), 0.3);
@@ -92,15 +98,14 @@ export class LofiRadio {
   async start() {
     if (this.ctx) return;
     const AC = globalThis.AudioContext || globalThis.webkitAudioContext; if (!AC) throw new Error('Este navegador não toca áudio gerado.');
-    const c = new AC({ latencyHint: 'playback' }); this.stopping = false; this.build(c); if (c.state === 'suspended') await c.resume();
-    this.bar = 0; this.next = c.currentTime + 0.25; this.rand = rng(this.seed); this.setVolume(this.vol, 1.2);
-    this.seed = TRACKS[this.track].seed; this.rand = rng(this.seed); this.announce(this.next);
+    const c = new AC({ latencyHint: 'playback' }); this.stopping = false; this.seed = TRACKS[this.track].seed; this.beat = 60 / TRACKS[this.track].bpm; this.barDuration = this.beat * 4; this.build(c); if (c.state === 'suspended') await c.resume();
+    this.bar = 0; this.next = c.currentTime + 0.25; this.rand = rng(this.seed); this.setVolume(this.vol, 1.2); this.announce(this.next);
     const pump = () => { while (this.ctx && this.next < this.ctx.currentTime + 1.6) {
-      if (this.bar > 0 && (this.skip || this.bar % TRACK_BARS === 0)) { this.skip = false; this.track = (this.track + 1) % TRACKS.length; this.seed = TRACKS[this.track].seed; this.rand = rng(this.seed); this.announce(this.next); }
-      this.scheduleBar(this.bar++, this.next); this.next += BAR; } }; pump(); this.timer = setInterval(pump, 250);
+      if (this.bar > 0 && (this.skip || this.bar % TRACK_BARS === 0)) { this.skip = false; this.track = (this.track + 1) % TRACKS.length; this.seed = TRACKS[this.track].seed; this.beat = 60 / TRACKS[this.track].bpm; this.barDuration = this.beat * 4; this.rand = rng(this.seed); this.announce(this.next); }
+      this.scheduleBar(this.bar++, this.next); this.next += this.barDuration; } }; pump(); this.timer = setInterval(pump, 250);
   }
   announce(at) { const ctx = this.ctx, tr = TRACKS[this.track]; if (!this.onTrack || !ctx) return; setTimeout(() => { if (this.ctx === ctx) this.onTrack(tr, this.track); }, Math.max(0, (at - ctx.currentTime) * 1000)); }
-  nextTrack() { if (this.ctx) this.skip = true; }
+  nextTrack() { if (!this.ctx) return this.track; this.skip = true; return (this.track + 1) % TRACKS.length; }
   setVolume(v, fade = 0.15) { this.vol = Math.min(1, Math.max(0, v)); if (this.ctx && this.master) { const g = this.master.gain, t = this.ctx.currentTime; g.cancelScheduledValues(t); g.setValueAtTime(Math.max(0.0001, g.value), t); g.linearRampToValueAtTime(Math.max(0.0001, this.vol * 0.8), t + fade); } }
   pause() { if (this.ctx?.state === 'running') this.ctx.suspend(); }
   resume() { if (this.ctx?.state === 'suspended' && !this.stopping) this.ctx.resume(); }
@@ -113,7 +118,7 @@ export class LofiRadio {
   // ---------- render sem sair no alto-falante (testes e o arquivo de amostra) ----------
   static async render(seconds = 30, { seed = 7, sampleRate = 44100 } = {}) {
     const off = new OfflineAudioContext(2, Math.floor(sampleRate * seconds), sampleRate), r = new LofiRadio({ seed }); r.build(off); r.master.gain.value = 0.8 * 0.8;
-    r.next = 0.1; r.bar = 0; while (r.next < seconds) { r.scheduleBar(r.bar++, r.next); r.next += BAR; }
+    r.next = 0.1; r.bar = 0; while (r.next < seconds) { r.scheduleBar(r.bar++, r.next); r.next += r.barDuration; }
     return off.startRendering();
   }
 }

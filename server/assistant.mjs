@@ -63,7 +63,13 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
         const r = find(m.agente); if (r.error) return bad('criar_equipe', r.error);
         members.push({ role: m.papel, agentId: r.agent.id }); desc.push(`${m.papel} → ${r.agent.name}`);
       }
-      return { type: 'criar_equipe', summary: `Criar a equipe “${nome}”: ${desc.join(', ')}`, payload: { name: nome, members }, valid: true };
+      let projectId = null, projectName = '';
+      if (raw.projeto != null && String(raw.projeto).trim()) {
+        const r = findProject(raw.projeto); if (r.error) return bad('criar_equipe', r.error);
+        if (!r.project?.id) return bad('criar_equipe', 'Crie e aprove o projeto antes de vincular uma equipe a ele.');
+        projectId = r.project.id; projectName = r.project.name;
+      }
+      return { type: 'criar_equipe', summary: `Criar a equipe “${nome}”: ${desc.join(', ')}${projectId ? ` e vinculá-la ao projeto “${projectName}”` : ''}`, payload: { name: nome, members, ...(projectId ? { projectId } : {}) }, valid: true };
     }
     case 'criar_agente': {
       const nome = short(raw.nome, 100), funcao = short(raw.funcao, 200); if (!nome || !funcao) return bad('criar_agente', 'O agente precisa de nome e função.');
@@ -80,6 +86,25 @@ export function normalizeAction(raw, world, planned = { agents: [], teams: [], p
       const commands = [...new Set(progs.map(c => String(c).trim()).filter(Boolean))]; if (commands.length > 10 || commands.some(c => !/^[\w.-]{1,40}$/.test(c))) return bad('criar_agente', 'Programas liberados: até 10 nomes simples (ex.: ffmpeg, node), sem caminhos nem espaços.');
       if (commands.length && raw.provedor !== 'claude') return bad('criar_agente', 'A lista de programas só vale para o Claude Code. No Codex, um agente que edita arquivos já roda comandos dentro da pasta do projeto.');
       return { type: 'criar_agente', summary: `Criar o agente “${nome}” (${funcao}) com ${raw.provedor}${model ? ` · modelo ${model}` : ''}${effort ? ` · esforço ${effort}` : ''}, ${mode === 'write' ? 'EDITA arquivos' : 'somente leitura'}${commands.length ? ` · PODE RODAR no terminal: ${commands.join(', ')}` : ''}${web ? ' · PESQUISA NA WEB' : ''}${browser !== 'off' ? ` · NAVEGADOR: ${BROWSER_LABEL[browser]}${browser === 'chrome' ? ' (age nas suas contas em que você está logado; só use com projetos de confiança)' : ''}` : ''}${String(raw.provedor).startsWith('x-') ? ' (IA conectada por você: o Code Room confere os arquivos depois, não consegue impedir edições)' : ''}`, payload: { name: nome, role: funcao, room, provider: raw.provedor, model, effort, instructions: '', mode, skillIds: [], commands, browser, web, capabilities: caps }, valid: true };
+    }
+    case 'ajustar_agente': {   // corrige um agente existente (IA, modelo, esforço ou permissão): é o que “Corrigir com a IA” propõe depois de achar a causa
+      const r = find(raw.agente); if (r.error) return bad('ajustar_agente', r.error);
+      const a = r.agent, patch = {}, desc = []; let provider = a.provider;
+      if (raw.provedor != null && raw.provedor !== a.provider) {
+        if (!(['codex', 'claude', 'agy'].includes(raw.provedor) || /^x-[a-z0-9-]{1,40}$/.test(String(raw.provedor)))) return bad('ajustar_agente', 'Provedor inválido.');
+        if (!world.connected.has(raw.provedor)) return bad('ajustar_agente', `A IA “${raw.provedor}” não está instalada neste computador.`);
+        provider = patch.provider = raw.provedor; if (raw.modelo == null) patch.model = ''; desc.push(`IA ${a.provider} → ${raw.provedor}`);
+      }
+      try { if (raw.modelo != null) { patch.model = cleanModel(raw.modelo); desc.push(`modelo ${patch.model || 'padrão da conta'}`); } if (raw.esforco != null) { patch.effort = cleanEffort(provider, raw.esforco); desc.push(`esforço ${patch.effort || 'padrão'}`); } } catch (e) { return bad('ajustar_agente', e.message); }
+      if (raw.permissao != null) { if (!['read', 'write'].includes(raw.permissao)) return bad('ajustar_agente', 'Permissão inválida (read ou write).'); if (raw.permissao !== a.mode) { patch.mode = raw.permissao; desc.push(raw.permissao === 'write' ? 'passa a EDITAR arquivos' : 'passa a somente leitura'); } }
+      if (!desc.length) return bad('ajustar_agente', 'Diga o que mudar no agente: provedor, modelo, esforco ou permissao.');
+      return { type: 'ajustar_agente', summary: `Ajustar o agente “${a.name}”: ${desc.join(', ')}`, payload: { agentId: a.id, patch }, valid: true };
+    }
+    case 'repetir_tarefa': {
+      const id = String(raw.tarefa || '').trim(), t = id.length >= 8 ? (world.runs || []).find(x => x.id === id || x.id.startsWith(id)) : null;
+      if (!t) return bad('repetir_tarefa', 'Tarefa não encontrada. Use o id que aparece no pedido de correção.');
+      if (!['failed', 'interrupted', 'blocked', 'cancelled'].includes(t.status)) return bad('repetir_tarefa', 'Só dá para repetir tarefa que falhou, foi interrompida, bloqueada ou cancelada.');
+      return { type: 'repetir_tarefa', summary: `Repetir a tarefa “${short(t.prompt, 80)}” do agente ${t.agent?.name || '?'} (se ela já tinha criado arquivos ou efeitos, eles podem se repetir)`, payload: { taskId: t.id }, valid: true };
     }
     case 'definir_skills': {
       const r = find(raw.agente); if (r.error) return bad('definir_skills', r.error);
@@ -230,6 +255,17 @@ export function localCommand(text, world, alerts = []) {
   return '**Comandos rápidos** (respondem na hora, sem gastar cota):\n- `/status`: o que roda, espera, terminou e falhou\n- `/pendencias`: o que merece a sua atenção\n- `/celular`: como abrir o Code Room no celular (endereço, firewall e QR)\n- `/ajuda`: esta lista\n\nQualquer outra coisa, escreva normalmente: eu proponho os passos e você aprova com um clique.';
 }
 
+// Guia para o Assistente escolher a IA e o modelo de cada agente: só as IAs instaladas, com os modelos conhecidos nesta máquina.
+const AI_ROLE = {
+  claude: m => `claude (Claude Code): a mais forte para planejar, orquestrar, revisar e decidir. Modelos: ${m.length ? m.join(', ') : 'opus, sonnet, haiku'} (opus = o mais capaz, para Supervisor, Arquiteto e revisão difícil; sonnet = equilíbrio; haiku = rápido e barato, para tarefa simples e repetitiva). É a única com pesquisa na web controlável, navegador e MCP.`,
+  codex: m => `codex (Codex CLI): forte em programar, alterar código e rodar testes. Modelo: deixe vazio para usar o padrão da conta${m.length ? ` (hoje ${m[0]})` : ''}.`,
+  agy: m => `agy (Antigravity/Gemini): pesquisa na web por conta própria e lê muito contexto; boa para pesquisa, roteiro e texto longo. Não roda programas e não pode ser usada em projeto Financeiro.${m.length ? ` Modelos: ${m.slice(0, 6).join(', ')}.` : ''}`,
+};
+export function aiGuide(world) {
+  const on = [...(world.connected || [])], models = world.models || {}; if (!on.length) return '';
+  const lines = on.map(p => AI_ROLE[p] ? `- ${AI_ROLE[p]((models[p] || []).slice(0, 8))}` : `- ${p}: IA conectada pela pessoa; use quando ela pedir.`);
+  return `Como escolher a IA e o modelo de cada agente novo (use só as instaladas e diga em uma frase por que escolheu):\n${lines.join('\n')}\nRegra: quem orquestra e revisa usa o modelo mais forte disponível; quem executa tarefa simples usa um mais leve.${on.length > 1 ? ' Com mais de uma IA instalada, distribua os papéis entre elas para não gastar a cota de uma só.' : ''} Informe “modelo” só quando ajudar; vazio usa o padrão da conta.\nEspecialistas prontos na Biblioteca (Agentes › Biblioteca), que a pessoa contrata com um clique: Auditor de segurança, Programador, Revisor de código, Arquiteto de software, Testador (QA), Pesquisador, Redator, Diretor de vídeo, Designer de interface, Analista de dados, Engenheiro de DevOps, Documentador. Ao montar uma equipe, prefira esses nomes e funções.`;
+}
 export function stateSummary(world, projects = [], question = '', focus = '', focusInfo = '') {
   const ag = world.agents.map(a => `- ${a.name} (${short(a.role, 60)}) · ${a.provider} · ${a.mode === 'write' ? 'edita arquivos' : 'somente leitura'}`).join('\n') || '(nenhum agente ainda)';
   const tm = world.teams.map(t => `- ${t.name}: ${(t.members || []).map(m => `${m.role}=${world.agents.find(a => a.id === m.agentId)?.name || '?'}`).join(', ')}`).join('\n') || '(nenhuma equipe ainda)';
@@ -242,7 +278,7 @@ export function stateSummary(world, projects = [], question = '', focus = '', fo
   const ln = (world.links || []).map(l => `${world.agents.find(a => a.id === l.from)?.name || '?'} → ${world.agents.find(a => a.id === l.to)?.name || '?'}`).slice(0, 20).join('; ') || '(nenhuma)';
   const ch = (world.channels || []).slice(0, 15).map(c => `- ${c.name}${c.niche ? ` (nicho: ${short(c.niche, 60)})` : ''}${c.networks ? ` · ${c.networks}` : ''}${c.postador ? ' · tem Postador' : ''}`).join('\n') || '(nenhum canal ainda)';
   const rt = (world.routines || []).slice(0, 15).map(r => `- ${r.name} (${r.when}${r.status === 'paused' ? ', pausada' : ''})`).join('\n') || '(nenhuma rotina ainda)';
-  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\nAgentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nCanais:\n${ch}\nRotinas:\n${rt}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n${focusInfo ? focusInfo + '\n' : ''}` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
+  return `IAs instaladas: ${[...world.connected].join(', ') || 'nenhuma'}\n${aiGuide(world) ? aiGuide(world) + '\n' : ''}Agentes:\n${ag}\nEquipes:\n${tm}\nLigações entre agentes: ${ln}\nCanais:\n${ch}\nRotinas:\n${rt}\n${focus ? `Projeto em foco (é o que a pessoa chama de “este projeto” ou deixa subentendido): ${focus}\n${focusInfo ? focusInfo + '\n' : ''}` : ''}Projetos (só os nomes): ${projects.map(p => p.name).slice(0, 30).join('; ') || '(nenhum)'}\nSkills disponíveis: ${sk}\n\nSTATUS AO VIVO (lido da ferramenta neste instante; é a fonte para responder “qual o status?”):\n${liveStatus(world, question)}`;
 }
 const RULES = `Você é o ASSISTENTE do Code Room, rodando DENTRO da ferramenta, usando a IA que a própria pessoa conectou. Regras absolutas: você está em SOMENTE LEITURA; NÃO execute comandos, NÃO escreva arquivos e NÃO altere o Code Room. Você só conversa e PROPÕE ações no formato do manual (bloco code-room-action), que a pessoa aprova com um clique. Nunca peça nem repita chaves, senhas ou tokens. Responda em português do Brasil, direto, e use apenas os nomes de agentes, equipes e skills do ESTADO ATUAL. Para dúvidas sobre o Code Room, baseie-se no manual, na tela e no projeto atuais e indique o caminho mais simples. Recomende skills somente quando constarem como disponíveis no estado; se não houver uma adequada, diga isso e sugira importar ou criar uma. Não prometa ferramenta, acesso ou ação que o estado atual não confirme. Prefira respostas curtas e acionáveis; use passos quando ajudarem. Se não souber, diga que não sabe. Para perguntas de status (“qual o status?”, “como está o projeto X / a equipe Y?”), responda SÓ com a seção STATUS AO VIVO do estado atual, em linguagem simples e curta: o que roda, o que espera, o que terminou, o que falhou e por quê; se o item citado não aparecer, diga que não há registro dele.`;
 // Modo piloto (opcional, desligado por padrão): o Assistente trabalha como a IA no terminal da pessoa (arquivos da pasta de trabalho, programas liberados, skills, MCP e navegador).
@@ -261,10 +297,14 @@ export function memoryOf(messages = [], keep = MAX_HISTORY) {
   }
   let text = out.slice(-30).join('\n'); if (text.length > 2400) text = text.slice(-2400); return text;
 }
-export function buildPrompt({ manual, knowledge, summary, history = [], memory = '', question, max = MAX_PROMPT, pilot = false, extras = '' }) {
+export const DEFAULT_NAME = 'Nico';
+export const cleanName = v => { const n = String(v ?? '').replace(/[^\p{L}\p{N} .'-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 24); return n || DEFAULT_NAME; };
+// Personalidade: o mesmo tom em toda conversa. O nome é escolhido pela pessoa e fica só neste computador.
+export const persona = name => `Seu nome é ${cleanName(name)}; a pessoa pode chamar você assim. Seu jeito: cordial, próximo e direto, como um colega atento que conhece a ferramenta. Cumprimente só no começo da conversa. Quando o ESTADO ATUAL mostrar algo parado (entrega esperando revisão, tarefa que falhou, aprovação pendente), avise em uma linha e ofereça resolver. Reconheça em uma frase quando algo foi concluído. Sem bajulação, sem exagero e sem emoji.`;
+export function buildPrompt({ manual, knowledge, summary, history = [], memory = '', question, max = MAX_PROMPT, pilot = false, extras = '', name = DEFAULT_NAME }) {
   extras = String(extras || '').slice(0, 3800);   // tela aberta e notas do Obsidian: seção própria, que o corte de tamanho não alcança (antes ficavam no fim do estado e eram cortadas)
   const hist = history.slice(-MAX_HISTORY).map(m => `${m.role === 'user' ? 'Pessoa' : 'Assistente'}: ${short(m.text, MAX_MSG_IN_PROMPT)}`);
-  const parts = (h, man = manual, sum = summary, know = knowledge, mem = memory) => `${pilot ? PILOT_RULES : RULES}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== MEMÓRIA DA CONVERSA (resumo do que veio antes das mensagens abaixo) ===\n${mem || '(nada antes)'}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n${extras ? `=== CONTEXTO EXTRA DESTA PERGUNTA (tela aberta e notas do Obsidian) ===\n${extras}\n\n` : ''}=== PERGUNTA DA PESSOA ===\n${question}`;
+  const parts = (h, man = manual, sum = summary, know = knowledge, mem = memory) => `${pilot ? PILOT_RULES : RULES}\n${persona(name)}\n\n=== MANUAL DO CODE ROOM ===\n${man}\n\n=== O QUE VOCÊ ENTENDEU NA APRESENTAÇÃO (gravado nesta máquina) ===\n${know || '(ainda não houve apresentação)'}\n\n=== ESTADO ATUAL ===\n${sum}\n\n=== MEMÓRIA DA CONVERSA (resumo do que veio antes das mensagens abaixo) ===\n${mem || '(nada antes)'}\n\n=== CONVERSA ATÉ AGORA ===\n${h.join('\n') || '(início)'}\n\n${extras ? `=== CONTEXTO EXTRA DESTA PERGUNTA (tela aberta e notas do Obsidian) ===\n${extras}\n\n` : ''}=== PERGUNTA DA PESSOA ===\n${question}`;
   // A pergunta fica por último e nunca é cortada. Se passar do limite: primeiro sai o histórico antigo, depois encurta o estado, o que a IA entendeu e, por fim, o fim do manual.
   let h = hist, man = manual, sum = summary, know = knowledge, out = parts(h, man, sum, know);
   while (out.length > max && h.length) { h = h.slice(1); out = parts(h, man, sum, know); }
@@ -288,7 +328,8 @@ export function checkBriefing(answer) {
 export const chooseProvider = (preferred, connected) => connected.has(preferred) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || null;
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine, mcpFn = () => userMcpServers() }) {
+  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine, retryTask = null, mcpFn = () => userMcpServers() }) {
+    this.retryTask = retryTask;
     Object.assign(this, { mcpFn, store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine });
     this.dir = join(dataDir, 'assistente');
   }
@@ -349,7 +390,7 @@ export class Assistant {
     const taskOf = id => id ? this.store.get('tasks', id) : null, pt = taskOf(s.pending?.taskId), bt = taskOf(s.briefing?.taskId);
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
-      autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
+      name: cleanName(s.name), autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
       pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at, activity: this.#activity(pt) } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
@@ -410,7 +451,7 @@ export class Assistant {
     // Notas do Obsidian da pessoa (só se ela ligou o vínculo; nunca com projeto Financeiro em foco).
     let obsText = '', obsidianNotes = 0; try { const po = focusProject; if (po?.area !== 'Financeiro') { const r = await blockFor(this.store, { objective: q, project: po ? { id: po.id, name: po.name, area: po.area } : { id: 'assistant-chat', name: '', area: 'Geral' } }, { role: '' }); if (r.text) { obsText = '\n' + r.text; obsidianNotes = r.n; } } } catch {}
     const screenContext = screenLine(screen).trim(), context = { ...(focusProject && !focusProject.internal ? { projectId: focusProject.id } : {}), project: focusProject?.name || '', screen: !!screenContext, obsidianNotes };
-    const prompt = buildPrompt({ pilot, extras: [screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId });
+    const prompt = buildPrompt({ name: s.name, pilot, extras: [screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: s.knowledge, summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId });
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
     this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString(), context }], error: null });
     return this.status();
@@ -454,6 +495,7 @@ export class Assistant {
     if (!(s.others || []).some(o => o.id === id)) throw new Error('Conversa não encontrada.');
     this.#save({ others: (s.others || []).filter(o => o.id !== id), order }); return this.status();
   }
+  async setName(name) { this.#save({ name: cleanName(name) }); return this.status(); }
   async setAutonomy(mode) {
     if (!['ask', 'pilot'].includes(mode)) throw new Error('Modo inválido.'); if (this.s.pending) throw new Error('Aguarde a resposta anterior terminar para trocar de modo.');
     this.#save({ autonomy: mode }); return this.status();
@@ -466,8 +508,18 @@ export class Assistant {
     if (!a) throw new Error('Ação não encontrada.'); if (a.status !== 'pending') throw new Error('Esta ação já foi tratada.');
     const w = await this.worldFn(), r = normalizeAction(a.raw || {}, w); if (!r || !r.valid) throw new Error(r?.error || 'A ação deixou de ser válida.');
     let result = '', projectId = null, taskView = null;
-    if (r.type === 'criar_equipe') { const t = this.saveTeam(r.payload); result = `Equipe “${t.name}” criada.`; }
+    if (r.type === 'criar_equipe') {
+      const t = this.saveTeam(r.payload);
+      if (r.payload.projectId) {
+        const project = this.store.get('projects', r.payload.projectId); if (!project) throw new Error('O projeto deixou de existir. A equipe foi criada, mas não foi vinculada.');
+        const linkedTeams = Array.isArray(project.teamIds) ? project.teamIds : this.store.list('flows').filter(f => f.projectId === project.id && f.teamId).map(f => f.teamId);
+        this.store.put('projects', { ...project, teamIds: [...new Set([...linkedTeams, t.id])] });
+        projectId = project.id; result = `Equipe “${t.name}” criada e vinculada ao projeto “${project.name}”.`;
+      } else result = `Equipe “${t.name}” criada.`;
+    }
     else if (r.type === 'criar_agente') { const ag = this.saveAgent(r.payload); result = `Agente “${ag.name}” criado.`; }
+    else if (r.type === 'ajustar_agente') { const old = this.store.get('agents', r.payload.agentId); if (!old) throw new Error('O agente deixou de existir.'); const ag = this.saveAgent({ ...old, ...r.payload.patch, ...(r.payload.patch.provider && r.payload.patch.effort === undefined ? { effort: '' } : {}) }); result = `Agente “${ag.name}” ajustado.`; }
+    else if (r.type === 'repetir_tarefa') { if (!this.retryTask) throw new Error('Repetir tarefa não está disponível nesta instalação.'); const t = await this.retryTask(r.payload.taskId); result = 'Tarefa colocada para rodar de novo.'; projectId = t?.project?.id || null; }
     else if (r.type === 'definir_skills') { const old = this.store.get('agents', r.payload.agentId); const ag = this.saveAgent({ ...old, skillIds: r.payload.skillIds }); result = `Skills de “${ag.name}” atualizadas.`; }
     else if (r.type === 'criar_projeto') { const pr = await this.saveProject(r.payload); result = `Projeto “${pr.name}” criado.`; projectId = pr.id; }
     else if (r.type === 'ligar_agentes') { await this.saveLink(r.payload); result = 'Ligação criada: o trabalho passa de um agente ao outro.'; projectId = r.payload.projectId; }

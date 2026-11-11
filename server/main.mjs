@@ -16,7 +16,10 @@ import { cleanLook } from './looks.mjs';
 import { Orchestrator } from './orchestrator.mjs';
 import { Routines } from './routines.mjs';
 import { Recipes } from './recipes.mjs';
-import { connectors, check, REMOTE_PROVIDERS, setHermesDir } from './connectors.mjs';
+import { connectors, check, launchLogin, launchCliAction, checkKiroLogin, REMOTE_PROVIDERS, setHermesDir } from './connectors.mjs';
+import { installStarterSkill, listStarterSkills } from './skills-library.mjs';
+import { listAgentLibrary, hireLibraryAgent, listAgentPacks, hireLibraryPack } from './agents-library.mjs';
+import { testResponse } from './connector-test.mjs';
 import { cleanBrowser } from './browseruse.mjs';
 import { scanSkills as scanSkillsFresh, auditSummary, usable } from './skills.mjs';
 // A leitura das skills percorre centenas de pastas (1 a 2 s, até 20 s com o computador ocupado) e a tela e o Assistente pedem a lista toda hora: guarda por 15 s.
@@ -77,6 +80,13 @@ const keyFile = join(data, 'access.key');
 if (!existsSync(keyFile)) writeFileSync(keyFile, randomBytes(32).toString('hex'), { mode: 0o600 });
 const key = readFileSync(keyFile, 'utf8').trim();
 const store = new Store(join(data, 'code-room.sqlite'));
+// Compatibilidade com projetos antigos: recupera a equipe pelo histórico do fluxo
+// somente quando ainda não existe uma lista explícita (vazia também significa escolha).
+function projectTeamIds(project) {
+  const ids = Array.isArray(project.teamIds) ? project.teamIds : store.list('flows').filter(f => f.projectId === project.id && f.teamId).map(f => f.teamId);
+  const known = new Set(store.list('teams').map(t => t.id));
+  return [...new Set(ids)].filter(id => known.has(id));
+}
 const port = Number(process.env.CODE_ROOM_PORT || 4780);
 const origins = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
 let netCfg = loadNetwork(data), bound = []; // endereços extras em que o serviço escuta (Tailscale e/ou rede local)
@@ -119,7 +129,9 @@ const assistantWorld = async () => {
   const skills = await assistantSkills();
   const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => ({ id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', updatedAt: t.updatedAt, createdAt: t.createdAt, files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').length, review: !!t.review, step: t.step || null }));
   const focusInfo = id => { const pr = store.get('projects', id); return pr && !isInternal(pr) ? folderLine(describeFolder(pr.path)) : ''; };
-  return { focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+  // Modelos conhecidos de cada IA (do cache; a primeira consulta aquece em segundo plano) para o Assistente escolher o modelo por atividade.
+  const models = {}; for (const pid of ['claude', 'codex', 'agy']) { const hit = modelCache.get(pid); if (hit) models[pid] = hit.models.map(m => m.id); else if (Date.now() - (modelWarmAt.get(pid) || 0) > 10 * 60000) { modelWarmAt.set(pid, Date.now()); modelSuggestions(pid).catch(() => {}); } }   // uma tentativa a cada 10 min por IA: consultar os modelos abre a CLI
+  return { models, focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
@@ -175,7 +187,13 @@ function auditRoute(p, b, auth) {
     }
   } catch {}
 }
-const assistant = new Assistant({ store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
+// Repetir uma tarefa (rota e Assistente): sobe o limite de tentativas e devolve a tarefa na fila.
+function retryNow(id) {
+  const t = store.get('tasks', id); if (!t) throw new Error('Tarefa não encontrada.');
+  t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1)); store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
+  const r = retryTask(store, id); void runner.pump(); return r;
+}
+const assistant = new Assistant({ retryTask: async id => retryNow(id), store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -236,7 +254,7 @@ function saveAgent(b) {
           return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: cleanModel(b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, web: (b.web !== undefined ? b.web === true || b.web === '1' || b.web === 1 : !!old?.web) && b.provider === 'claude', browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
 }
 // Sugestões de modelo para o formulário (a pessoa pode digitar qualquer outro): aliases do Claude, lista real do Antigravity e o padrão do Codex.
-const modelCache = new Map();
+const modelCache = new Map(), modelWarmAt = new Map();
 async function modelSuggestions(provider) {
   const efforts = effortsFor(provider).map(id => ({ id, label: EFFORT_LABEL[id] || id })), used = [...new Set(store.list('agents').filter(a => a.provider === provider && a.model).map(a => a.model))];
   const hit = modelCache.get(provider); if (hit && Date.now() - hit.at < 10 * 60000) return { models: hit.models, efforts };
@@ -258,13 +276,18 @@ function createChannel(b) {
 function saveLink(b) {
   const project = store.get('projects', b.projectId), from = store.get('agents', b.from), to = store.get('agents', b.to);
   if (!project || !from || !to) throw new Error('Escolha o projeto e os dois agentes.');
+  const linkedTeams = new Set(projectTeamIds(project));
+  const members = new Set(project.agentIds || []);
+  for (const team of store.list('teams')) if (linkedTeams.has(team.id)) for (const m of team.members || []) members.add(m.agentId);
+  for (const task of store.list('tasks')) if (task.project?.id === project.id && task.agent?.id) members.add(task.agent.id);
+  if (!members.has(from.id) || !members.has(to.id)) throw new Error('Ligue os dois agentes ao projeto pelo menu “Trazer” antes de criar esta conexão.');
   if (b.from === b.to) throw new Error('Um agente não pode se ligar a ele mesmo.');
   if (store.list('links').some(l => l.projectId === project.id && l.from === from.id && l.to === to.id)) throw new Error('Essa ligação já existe.');
   const maxHops = Math.min(6, Math.max(1, Math.trunc(Number(b.maxHops)) || 3));
   const when = ['approved', 'rejected'].includes(b.when) ? b.when : 'always';   // quando seguir: sempre, só se aprovado ou só se reprovado
   return store.put('links', { id: randomUUID(), projectId: project.id, from: from.id, to: to.id, maxHops, when, enabled: true, createdAt: new Date().toISOString() });
 }
-async function body(req) { let size = 0, chunks = []; for await (const chunk of req) { size += chunk.length; if (size > 100000) throw new Error('Requisição muito grande'); chunks.push(chunk); } return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
+async function body(req) { const limit = 100000; let size = 0, chunks = [], tooLarge = false; for await (const chunk of req) { size = Math.min(limit + 1, size + chunk.length); if (size > limit) { tooLarge = true; chunks = []; continue; } if (!tooLarge) chunks.push(chunk); } if (tooLarge) throw Object.assign(new Error('Requisição muito grande'), { status: 413 }); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 
 const brief = t => ({ hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
@@ -372,7 +395,7 @@ const handle = async (req, res) => {
       }
       if (get && p === '/api/state') {
         const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
-        return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, socialProposals: store.list('socialPosts').filter(x => x.status === 'proposta').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), subtasks: store.list('subtasks').filter(x => x.status === 'proposed').sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20), plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
+        return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)).map(x => ({ ...x, teamIds: projectTeamIds(x) })), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, socialProposals: store.list('socialPosts').filter(x => x.status === 'proposta').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), subtasks: store.list('subtasks').filter(x => x.status === 'proposed').sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20), plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId, teamId: f.teamId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
       }
       if (get && p === '/api/models') { masterOnly(auth); return send(res, 200, await modelSuggestions(url.searchParams.get('provider') || '')); }
       if (get && p === '/api/providers') { masterOnly(auth); return send(res, 200, providersView()); }
@@ -416,6 +439,8 @@ const handle = async (req, res) => {
         const enabled = new Set(store.list('agents').flatMap(a => a.skillIds));
         return send(res, 200, skills.map(s => ({ ...s, enabled: enabled.has(s.id) })));
       }
+      if (get && p === '/api/skills/library') return send(res, 200, await listStarterSkills(data));
+      if (get && p === '/api/agents/library') { const on = new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)); return send(res, 200, { agents: listAgentLibrary(store, on), packs: listAgentPacks() }); }
       if (get && p === '/api/skills/audit') {
         const project = store.get('projects', url.searchParams.get('project') || '');
         return send(res, 200, auditSummary(await scanSkills(project?.path, { extraRoots: store.get('settings', 'skillRoots')?.roots || [] }), new Set(store.list('agents').flatMap(a => a.skillIds))));
@@ -429,6 +454,8 @@ const handle = async (req, res) => {
       if (get && p === '/api/messages') return send(res, 200, store.list('messages').filter(m => !url.searchParams.get('flow') || m.flowId === url.searchParams.get('flow')));
       let m;
       if (get && (m = p.match(/^\/api\/(?:runs|tasks)\/([a-zA-Z0-9-]+)$/))) { const t = store.get('tasks', m[1]); return t ? send(res, 200, detail(t)) : send(res, 404, { error: 'Tarefa não encontrada' }); }
+      // Saída recente de uma tarefa para o modo “Terminais” da Sala: poucas linhas curtas, sem resposta completa nem arquivos.
+      if (get && (m = p.match(/^\/api\/(?:runs|tasks)\/([a-zA-Z0-9-]+)\/tail$/))) { const t = store.get('tasks', m[1]); if (!t) return send(res, 404, { error: 'Tarefa não encontrada' }); const lines = [...store.events(t.id), ...(t.attempts || []).flatMap(id => store.events(id))].filter(e => ['activity', 'answer', 'result', 'error', 'diagnostic'].includes(e.type) && e.text).sort((a, b) => a.seq - b.seq).slice(-40).map(e => ({ type: e.type, at: e.at, text: String(e.text).slice(0, 600) })); return send(res, 200, { id: t.id, status: t.status, prompt: String(t.objective || '').slice(0, 200), reason: t.reason ?? null, lines }); }
       if (get && (m = p.match(/^\/api\/flows\/([a-zA-Z0-9-]+)$/))) { const v = orchestrator.flowView(m[1]); return v ? send(res, 200, v) : send(res, 404, { error: 'Fluxo não encontrado' }); }
       if (get && (m = p.match(/^\/api\/plans\/([a-zA-Z0-9-]+)$/))) { const v = store.get('plans', m[1]); return v ? send(res, 200, v) : send(res, 404, { error: 'Plano não encontrado' }); }
       if (get && (m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/context$/))) return send(res, 200, store.get('contexts', m[1]) || emptyContext(m[1]));
@@ -437,6 +464,12 @@ const handle = async (req, res) => {
         if (!req.headers['content-type']?.startsWith('application/json')) return send(res, 415, { error: 'Envie JSON' });
         const b = await body(req);
         res.once('finish', () => { if (res.statusCode < 400) auditRoute(p, b, auth); });   // trilha de ações: só o que deu certo
+        if (p === '/api/connectors/login') { masterOnly(auth); return send(res, 200, launchLogin(text(b.provider, 30))); }
+        if (p === '/api/connectors/cli-action') { masterOnly(auth); return send(res, 200, launchCliAction(text(b.provider, 30), text(b.action, 20))); }
+        if (p === '/api/connectors/kiro/check') { masterOnly(auth); return send(res, 200, await checkKiroLogin()); }
+        if (p === '/api/agents/library/hire-pack') { masterOnly(auth); return send(res, 201, hireLibraryPack(store, saveAgent, x => orchestrator.saveTeam(x), { id: text(b.id, 40), projectId: typeof b.projectId === 'string' && b.projectId ? b.projectId : null, connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)) })); }
+        if (p === '/api/agents/library/hire') { masterOnly(auth); return send(res, 201, hireLibraryAgent(store, saveAgent, { id: text(b.id, 40), provider: text(b.provider, 60), projectId: typeof b.projectId === 'string' && b.projectId ? b.projectId : null })); }
+        if (p === '/api/skills/library/install') { masterOnly(auth); return send(res, 201, await installStarterSkill(store, data, text(b.id, 60))); }
         // Atualização (só o computador, com a chave principal): consultar, ligar/desligar, adiar, baixar com conferência de SHA-256 e instalar.
         if (p === '/api/updates/check') { masterOnly(auth); return send(res, 200, await updates.check({ force: true })); }
         if (p === '/api/updates/settings') { masterOnly(auth); return send(res, 200, updates.setEnabled(b.enabled === true)); }
@@ -503,26 +536,45 @@ const handle = async (req, res) => {
           for (const pj of store.list('projects')) if ((pj.agentIds || []).includes(ag.id)) store.put('projects', { ...pj, agentIds: pj.agentIds.filter(x => x !== ag.id) });
           store.remove('agents', ag.id); store.event('_records', { type: 'record', kind: 'agents', id: ag.id, at: new Date().toISOString() }); return send(res, 200, { ok: true, name: ag.name });
         }
+        // Excluir projeto: tira o projeto do Code Room. A PASTA no computador não é tocada e o histórico de tarefas fica guardado.
+        if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/delete$/))) {
+          masterOnly(auth); const pj = store.get('projects', m[1]); if (!pj || isInternal(pj)) throw new Error('Projeto não encontrado.'); if (b.confirm !== true) throw new Error('Confirme a exclusão com { "confirm": true }.');
+          if (store.list('tasks').some(t => t.project?.id === pj.id && ['running', 'queued', 'waiting_dependency', 'cancelling'].includes(t.status))) throw new Error('Este projeto tem tarefa em andamento ou na fila. Espere terminar ou cancele antes de excluir.');
+          const usedBy = [...store.list('routines').filter(r => r.projectId === pj.id), ...store.list('folderjobs').filter(j => j.projectId === pj.id)]; if (usedBy.length) throw new Error(`Há rotinas ou pastas de entrada neste projeto: ${usedBy.slice(0, 3).map(r => r.name || r.id).join(', ')}. Exclua ou mova antes.`);
+          for (const l of store.list('links')) if (l.projectId === pj.id) store.remove('links', l.id);
+          if (store.get('contexts', pj.id)) store.remove('contexts', pj.id);
+          store.remove('projects', pj.id); store.event('_records', { type: 'record', kind: 'projects', id: pj.id, at: new Date().toISOString() }); return send(res, 200, { ok: true, name: pj.name, path: pj.path });
+        }
         if ((m = p.match(/^\/api\/teams\/([a-zA-Z0-9-]+)\/delete$/))) {
           masterOnly(auth); const tm = store.get('teams', m[1]); if (!tm) throw new Error('Equipe não encontrada.'); if (b.confirm !== true) throw new Error('Confirme a exclusão com { "confirm": true }.');
           if (store.list('flows').some(f => f.teamId === tm.id && ['running', 'queued', 'active'].includes(f.status))) throw new Error('Esta equipe tem um fluxo em andamento. Espere terminar ou cancele.');
           const usedBy = [...store.list('routines').filter(r => r.target?.type === 'team' && r.target.id === tm.id), ...store.list('folderjobs').filter(j => j.target?.type === 'team' && j.target.id === tm.id)]; if (usedBy.length) throw new Error(`Há rotinas ou pastas de entrada usando esta equipe: ${usedBy.slice(0, 3).map(r => r.name || r.id).join(', ')}. Troque o responsável antes.`);
+          for (const pj of store.list('projects')) if ((pj.teamIds || []).includes(tm.id)) store.put('projects', { ...pj, teamIds: pj.teamIds.filter(x => x !== tm.id) });
           store.remove('teams', tm.id); store.event('_records', { type: 'record', kind: 'teams', id: tm.id, at: new Date().toISOString() }); return send(res, 200, { ok: true, name: tm.name });
         }
         // Quem trabalha em cada projeto (vínculo explícito): "trazer" um agente ou uma equipe inteira para o projeto, ou tirar. Só muda a exibição e a organização; permissões e liberações dos agentes não mudam.
         if (p === '/api/projects/members') {
           masterOnly(auth); const pj = store.get('projects', typeof b.projectId === 'string' ? b.projectId : ''); if (!pj) throw new Error('Projeto não encontrado.');
-          const ids = v => [...new Set((Array.isArray(v) ? v : []).filter(x => typeof x === 'string'))].slice(0, 50), known = new Set(store.list('agents').map(a => a.id));
-          const teamAgents = ids(b.addTeams).flatMap(tid => (store.get('teams', tid)?.members || []).map(m => m.agentId));
-          const add = [...ids(b.add), ...teamAgents].filter(id => known.has(id)), remove = new Set(ids(b.remove));
+          const ids = v => [...new Set((Array.isArray(v) ? v : []).filter(x => typeof x === 'string'))].slice(0, 50), known = new Set(store.list('agents').map(a => a.id)), knownTeams = new Set(store.list('teams').map(t => t.id));
+          const addTeams = ids(b.addTeams).filter(id => knownTeams.has(id)), removeTeams = new Set(ids(b.removeTeams));
+          const add = ids(b.add).filter(id => known.has(id)), remove = new Set(ids(b.remove));
+          const teamIds = [...new Set([...projectTeamIds(pj), ...addTeams])].filter(id => knownTeams.has(id) && !removeTeams.has(id) && !(store.get('teams', id)?.members || []).some(m => remove.has(m.agentId)));
           const next = [...new Set([...(pj.agentIds || []), ...add])].filter(id => known.has(id) && !remove.has(id));
-          return send(res, 200, store.put('projects', { ...pj, agentIds: next }));
+          return send(res, 200, store.put('projects', { ...pj, agentIds: next, teamIds }));
         }
         if (p === '/api/providers') { masterOnly(auth); const list = customSpecs(), spec = validateSpec(b, list), next = [...list.filter(x => x.id !== spec.id), spec]; store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 201, providersView()); }
         if (p === '/api/providers/delete') {
           masterOnly(auth); const id = text(b.id, 80); if (!getSpec(id)) throw new Error('IA não encontrada.');
           const used = store.list('agents').filter(a => a.provider === id); if (used.length) throw new Error(`Há agentes usando esta IA: ${used.slice(0, 3).map(a => a.name).join(', ')}. Troque a IA deles antes de remover.`);
           const next = customSpecs().filter(x => x.id !== id); store.put('settings', { id: 'customProviders', list: next }); setCustom(next); return send(res, 200, providersView());
+        }
+        // Testar resposta de uma IA embutida ou conectada pela pessoa: pedido mínimo, somente leitura, pasta temporária vazia.
+        if (p === '/api/connectors/test') {
+          masterOnly(auth); const provider = text(b.provider, 80), model = b.model ? cleanModel(b.model) : ''; if (!connectors().some(c => c.id === provider)) throw new Error('IA não encontrada.');
+          if (REMOTE_PROVIDERS.includes(provider)) throw new Error('Para o Hermes, use “Testar a conexão” no cartão dele.');
+          const dir = await mkdtemp(join(tmpdir(), 'code-room-test-'));
+          try { if (provider.startsWith('x-')) { const r = await testSpec(getSpec(provider), dir); return send(res, 200, { provider, ok: r.ok, answer: r.output || '', error: r.error || null, ms: r.ms, model: null, hint: null }); } return send(res, 200, await testResponse({ provider, model }, { cwd: dir })); }
+          finally { rm(dir, { recursive: true, force: true }).catch(() => {}); }
         }
         if (p === '/api/providers/test') {
           masterOnly(auth); const spec = b.id ? getSpec(text(b.id, 80)) : validateSpec(b, customSpecs().filter(x => x.id !== b.id)); if (!spec) throw new Error('IA não encontrada.');
@@ -541,6 +593,7 @@ const handle = async (req, res) => {
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
           if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));
           if (a === 'autonomy') return send(res, 200, await assistant.setAutonomy(b.mode));
+          if (a === 'name') return send(res, 200, await assistant.setName(b.name));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
         }
@@ -585,9 +638,7 @@ const handle = async (req, res) => {
         if ((m = p.match(/^\/api\/(?:runs|tasks)\/([a-zA-Z0-9-]+)\/cancel$/))) { const t = await runner.cancel(m[1]); return send(res, 200, brief(t)); }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/retry$/))) {
           if (b.confirm !== true) throw new Error('Repetir pode duplicar efeitos já produzidos. Confirme com { "confirm": true } depois de conferir os arquivos.');
-          const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
-          t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1)); store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
-          const r = retryTask(store, m[1]); void runner.pump(); return send(res, 200, brief(r));
+          return send(res, 200, brief(retryNow(m[1])));
         }
         if (p === '/api/settings/limits') {
           const timeoutMin = Number(b.timeoutMin), budgetUsd = b.budgetUsd === '' || b.budgetUsd == null ? null : Number(b.budgetUsd);
@@ -737,7 +788,7 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
     const files = { [url.pathname]: name };
     if (req.method !== 'GET' || !files[url.pathname]) return send(res, 404, { error: 'Não encontrado' });
     const file = files[url.pathname]; res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end(await readFile(join(root, 'public', file)));
-  } catch (e) { send(res, e.status === 403 ? 403 : 400, { error: e.code === 'ENOENT' ? 'Pasta ou arquivo não encontrado.' : e.message, failureKind: e.failureKind || null }); }
+  } catch (e) { send(res, e.status === 403 ? 403 : e.status === 413 ? 413 : 400, { error: e.code === 'ENOENT' ? 'Pasta ou arquivo não encontrado.' : e.message, failureKind: e.failureKind || null }); }
 };
 const server = http.createServer(handle);
 const extra = new Map(); // ip → servidor

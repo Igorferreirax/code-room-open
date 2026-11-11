@@ -51,6 +51,7 @@ try:
     check('sem a chave, a rota do Assistente é negada', anon in (401, 403), anon)
     P = api('projects', {'name': 'Canal', 'path': proj.replace(chr(92), '/'), 'area': 'Vídeo'})
     AG = api('agents', {'name': 'Diretor', 'role': 'Dirige o vídeo', 'room': 'Vídeo', 'provider': 'claude', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': []})
+    api('projects/members', {'projectId': P['id'], 'add': [AG['id']]})  # o projeto só mostra quem foi trazido para ele
 
     def handle(route):
         req = route.request; path = req.url.split('/api/assistant')[1].lstrip('/'); body = json.loads(req.post_data or '{}'); calls.append((path, body))

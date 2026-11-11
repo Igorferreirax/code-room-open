@@ -67,7 +67,7 @@ test('tutorial: todo passo tem "Pular tutorial"; só o primeiro não volta; o ú
 
 test('sem modo ativo, nada aparece; o texto dos passos não escapa HTML malicioso', () => {
   assert.equal(onboardingHtml({ ui: {} }), ''); assert.equal(onboardingHtml({ ui: { onb: null } }), '');
-  assert.match(onboardingHtml({ ui: { onb: { mode: 'tour', step: 0 } } }), /A Sala/);
+  assert.match(onboardingHtml({ ui: { onb: { mode: 'tour', step: 0 } } }), /Início e Assistente/);
   const evil = setupHtml(ctx([ck('codex', { version: '<img src=x onerror=alert(1)>' })]));
   assert.doesNotMatch(evil, /<img src=x/); assert.match(evil, /&lt;img/);
 });

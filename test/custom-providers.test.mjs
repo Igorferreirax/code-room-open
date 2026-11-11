@@ -73,10 +73,13 @@ test('catálogo: cada sugestão tem programa, argumentos válidos com {prompt}, 
 
 test('tela: separar argumentos respeita aspas; formulário vira o corpo da requisição; cartão e janela escapam HTML e mostram o resultado do teste', () => {
   assert.deepEqual(splitArgs('-p {prompt} --nome "a b" \'c d\''), ['-p', '{prompt}', '--nome', 'a b', 'c d']); assert.equal(joinArgs(['-p', '{prompt}', 'a b']), '-p {prompt} "a b"'); assert.deepEqual(splitArgs(''), []);
-  const f = formFromCatalog(CATALOG[0]); assert.equal(f.exe, 'gemini'); assert.deepEqual(payloadFromForm(f).args, ['-p', '{prompt}']); assert.ok(!('id' in payloadFromForm(f)));
-  const ctx = { providers: { catalog: [{ ...CATALOG[0], installed: true, supported: true, added: false }], custom: [{ id: 'x-a', name: '<b>Nome</b>', exe: 'a', installed: false, usedBy: 2, args: [], promptVia: 'arg' }] }, ui: { provForm: f, provTest: { 'x-a': { ok: false, error: '<img src=x>' } } } };
-  const card = providersCardHtml(ctx); assert.ok(!card.includes('<b>Nome</b>') && !card.includes('<img src=x>')); assert.match(card, /data-act="prov-test" data-id="x-a"/); assert.match(card, /2 agente\(s\) usam/); assert.match(card, /Programa não encontrado/);
-  const dlg = providerDialogHtml(ctx); assert.match(dlg, /Instalada neste computador/); assert.match(dlg, /npm install -g @google\/gemini-cli/); assert.match(dlg, /não consegue impedir/); assert.match(dlg, /data-act="prov-test-form"/);
+  const gemini = CATALOG.find(c => c.key === 'gemini'), f = formFromCatalog(gemini); assert.equal(f.exe, 'gemini'); assert.deepEqual(payloadFromForm(f).args, ['-p', '{prompt}']); assert.ok(!('id' in payloadFromForm(f)));
+  const ctx = { providers: { catalog: [{ ...gemini, installed: true, supported: true, added: false }], custom: [{ id: 'x-a', name: '<b>Nome</b>', exe: 'a', installed: false, usedBy: 2, args: [], promptVia: 'arg' }] }, ui: { provForm: f, provTest: { 'x-a': { ok: false, error: '<img src=x>' } } } };
+  const card = providersCardHtml(ctx); assert.ok(!card.includes('<b>Nome</b>') && !card.includes('<img src=x>')); assert.match(card, /data-act="prov-test" data-id="x-a"/); assert.match(card, /2 agente\(s\) usam/); assert.match(card, /CLI não encontrada/);
+  const dlg = providerDialogHtml(ctx); assert.match(dlg, /CLI encontrada/); assert.match(dlg, /npm install -g @google\/gemini-cli/); assert.match(dlg, /não consegue impedir/); assert.match(dlg, /data-act="prov-test-form"/); assert.match(dlg, /provider-search/);
+  const kiro = CATALOG.find(c => c.key === 'kiro'), kf = formFromCatalog(kiro), kd = providerDialogHtml({ providers: { catalog: [{ ...kiro, installed: true, supported: true, added: false }], custom: [] }, ui: { provForm: kf, provCli: { kiro: { authenticated: true, message: 'Login confirmado.' } } } });
+  assert.match(kd, /Entrar no Kiro/); assert.match(kd, /Verificar login/); assert.match(kd, /Atualizar CLI/); assert.match(kd, /Adicionar ao Code Room/); assert.match(kd, /Windows 11/); assert.match(kd, /Configuração avançada/);
+  assert.match(providersCardHtml({ providers: { custom: [{ id: 'x-gone', name: 'CLI ausente', exe: 'gone', installed: false }] }, ui: {} }), /Pedir ajuda ao Assistente/);
   assert.match(testResultHtml({ ok: true, output: 'OK', ms: 1500 }), /Respondeu em 1[.,]5 s/); assert.match(testResultHtml({ running: true }), /Testando/); assert.match(providersCardHtml({ providers: { custom: [] }, ui: {} }), /Nenhuma IA extra/);
   assert.equal(emptyForm().promptVia, 'arg');
 });

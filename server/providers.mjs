@@ -10,6 +10,7 @@ export const isCustom = id => typeof id === 'string' && id.startsWith(CUSTOM_PRE
 
 // Sugestões das IAs de terminal mais usadas. São PONTOS DE PARTIDA: as opções mudam entre versões, por isso existe o botão Testar.
 export const CATALOG = [
+  { key: 'kiro', name: 'Kiro CLI', exe: 'kiro-cli', promptVia: 'arg', args: ['chat', '--no-interactive', '{prompt}'], modelFlag: '', install: 'Baixe o Kiro CLI para Windows 11 pela página oficial.', installUrl: 'https://kiro.dev/docs/getting-started/installation/', login: 'kiro-cli login', verify: 'kiro-cli whoami', update: 'kiro-cli update' },
   { key: 'gemini', name: 'Gemini CLI', exe: 'gemini', promptVia: 'arg', args: ['-p', '{prompt}'], modelFlag: '--model', install: 'npm install -g @google/gemini-cli', login: 'Rode `gemini` uma vez e entre com a sua conta Google.' },
   { key: 'opencode', name: 'OpenCode', exe: 'opencode', promptVia: 'arg', args: ['run', '{prompt}'], modelFlag: '--model', install: 'npm install -g opencode-ai', login: 'Rode `opencode auth login` e escolha o provedor.' },
   { key: 'qwen', name: 'Qwen Code', exe: 'qwen', promptVia: 'arg', args: ['-p', '{prompt}'], modelFlag: '--model', install: 'npm install -g @qwen-code/qwen-code', login: 'Rode `qwen` uma vez e entre.' },

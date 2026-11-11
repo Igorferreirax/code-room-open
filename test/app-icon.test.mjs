@@ -29,3 +29,11 @@ test('rádio: animações WebP do player existem e são servidas com MIME corret
   assert.match(html, /data-playing-src="\/assets\/radio-tocando\.webp"/); assert.match(html, /data-volume-src="\/assets\/radio-volume\.webp"/); assert.match(html, /data-next-src="\/assets\/radio-next\.webp"/);
   assert.match(srv, /png\|jpg\|webp/); assert.match(srv, /webp: 'image\/webp'/);
 });
+
+test('rádio: cada faixa tem andamento e harmonia diferentes para a próxima ser audível', async () => {
+  const { TRACKS } = await import('../public/radio.js');
+  assert.equal(TRACKS.length, 5);
+  assert.equal(new Set(TRACKS.map(t => t.bpm)).size, TRACKS.length);
+  assert.equal(new Set(TRACKS.map(t => t.form.join(','))).size, TRACKS.length);
+  assert.ok(TRACKS.every(t => t.form.length === 8 && t.form.every(i => Number.isInteger(i) && i >= 0 && i < 8)));
+});

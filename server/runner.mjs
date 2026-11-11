@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { sep } from 'node:path';
-import { command, normalize, classifyFailure, labelUsage } from './connectors.mjs';
+import { command, normalize, classifyFailure, deniedTool, labelUsage } from './connectors.mjs';
+import { configuredModel } from './connector-test.mjs';
 import { scanSkills } from './skills.mjs';
 import { transition, settleDependents } from './tasks.mjs';
 import { snapshot, diffSnapshots } from './deliverables.mjs';
@@ -202,7 +203,11 @@ export class Runner {
     else if (o.errorText || o.code !== 0) {
       status = 'failed'; error = o.errorText || stderr || `Processo terminou com código ${o.code}.`;
       failureKind = classifyFailure(error) || (o.code == null ? 'killed_unexpectedly' : o.code !== 0 ? 'exit_code' : 'provider_error');
-    } else if (!attempt.answer) { status = 'failed'; failureKind = 'no_output'; error = 'O provedor terminou sem devolver resposta.'; }
+    } else if (!attempt.answer) {
+      const denied = deniedTool(stderr); status = 'failed';
+      if (denied) { failureKind = 'tool_denied'; error = `O agente tentou usar ${denied === 'command' ? 'um programa do computador (permissão “command”)' : `a ferramenta “${denied}”`} e a execução sem tela negou, porque não há como pedir a sua aprovação no meio da tarefa. Por isso não veio resposta. Repita o pedido ou, se a tarefa precisa rodar programas, use um agente do Claude Code com o programa liberado.`; }
+      else { failureKind = 'no_output'; error = 'O provedor terminou sem devolver resposta.' + (stderr.trim() ? ` A CLI informou: ${stderr.trim().replace(/\s+/g, ' ').slice(0, 300)}` : ''); }
+    }
     if (stderr) this.event(attempt.id, { type: 'diagnostic', text: stderr });
     let deliverables = { available: false, files: [] };
     if (o.root && o.before) {
@@ -214,7 +219,7 @@ export class Runner {
     this.save(attempt); this.event(attempt.id, { type: 'status', text: status, failureKind });
     const fresh = this.store.get('tasks', task.id);
     const taskStatus = status === 'completed' && fresh.status === 'cancelling' ? 'cancelled' : status;
-    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported, result: { summary: attempt.answer.slice(-2000), deliverables, readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
+    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
     this.store.release(task.id); this.active.delete(task.id);
     settleDependents(this.store, task.id);
     try { this.hooks.onFinal?.(this.store.get('tasks', task.id)); } catch (e) { this.event(task.id, { type: 'diagnostic', text: `Falha na orquestração: ${e.message}` }); }

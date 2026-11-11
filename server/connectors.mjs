@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { join, delimiter } from 'node:path';
 import { homedir } from 'node:os';
 import { effortsFor } from './effort.mjs';
@@ -35,6 +35,56 @@ export function connectors() {
   ];
 }
 
+const CLI_ACTION_ARGS = Object.freeze({ codex: { login: ['login'] }, claude: { login: ['auth', 'login'] }, agy: { login: [] }, kiro: { login: ['login'], update: ['update'] } });
+// Abre uma ação oficial e fixa do CLI em um terminal separado. O caminho do executável vai por
+// ambiente, nunca concatenado ao script do PowerShell; argumentos nunca vêm da requisição.
+export function cliActionLaunchSpec(provider, action, { catalog = connectors(), platform = process.platform, find = findProgram } = {}) {
+  if (platform !== 'win32') throw new Error('A abertura automática do terminal está disponível no Windows. Rode o comando mostrado em Conexões no terminal do seu sistema.');
+  if (!Object.hasOwn(CLI_ACTION_ARGS, provider)) throw new Error('Provedor não aceito para autenticação pelo Code Room.');
+  const args = CLI_ACTION_ARGS[provider]?.[action];
+  if (!args) throw new Error('Ação não permitida para este CLI.');
+  const path = provider === 'kiro' ? find('kiro-cli') : catalog.find(c => c.id === provider)?.path;
+  if (!path || !existsSync(path)) throw new Error('CLI não encontrado. Instale-o e clique em “Verificar de novo”. Se acabou de instalar, feche e abra o Code Room para atualizar o PATH.');
+  const command = `& $env:CODE_ROOM_LOGIN_CLI${args.length ? ` ${args.join(' ')}` : ''}`;
+  return {
+    program: 'powershell.exe',
+    args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', command],
+    options: { detached: true, stdio: 'ignore', windowsHide: false, cwd: homedir(), env: { ...process.env, CODE_ROOM_LOGIN_CLI: path } },
+  };
+}
+
+export const loginLaunchSpec = (provider, catalog = connectors(), platform = process.platform) => cliActionLaunchSpec(provider, 'login', { catalog, platform });
+
+export function launchCliAction(provider, action, options = {}) {
+  const spec = cliActionLaunchSpec(provider, action, options);
+  const child = (options.spawnProcess || spawn)(spec.program, spec.args, spec.options);
+  child.unref?.();
+  return { opened: true, provider, action };
+}
+export function launchLogin(provider, options = {}) { const r = launchCliAction(provider, 'login', options); return { opened: r.opened, provider: r.provider }; }
+
+// Verifica o login do Kiro CLI sem devolver nem registrar os dados pessoais que `whoami` exibe.
+export function checkKiroLogin({ find = findProgram, spawnProcess = spawn, timeoutMs = 12000 } = {}) {
+  const found = find('kiro-cli'), l = found ? launcher(found) : null;
+  if (!l) return Promise.resolve({ installed: false, authenticated: false, status: 'not-found', message: 'Kiro CLI não encontrado no PATH deste Code Room.' });
+  return new Promise(resolve => {
+    let out = '', err = '', done = false, child;
+    const finish = result => { if (done) return; done = true; clearTimeout(timer); resolve(result); };
+    const timer = setTimeout(() => { try { child?.kill(); } catch {} finish({ installed: true, authenticated: null, status: 'timeout', message: 'A verificação demorou demais. Abra o terminal, rode `kiro-cli whoami` e tente de novo.' }); }, timeoutMs);
+    try { child = spawnProcess(l.file, [...l.pre, 'whoami', '--format', 'plain'], { cwd: homedir(), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: process.env }); }
+    catch { return finish({ installed: true, authenticated: null, status: 'error', message: 'Não consegui consultar o login. Abra o terminal do Kiro CLI para ver o erro.' }); }
+    child.stdout?.setEncoding?.('utf8'); child.stderr?.setEncoding?.('utf8');
+    child.stdout?.on?.('data', c => { out = (out + c).slice(-4000); }); child.stderr?.on?.('data', c => { err = (err + c).slice(-2000); });
+    child.on('error', () => finish({ installed: true, authenticated: null, status: 'error', message: 'Não consegui abrir o Kiro CLI. Confira a instalação e tente novamente.' }));
+    child.on('close', code => {
+      const result = `${out}\n${err}`;
+      if (/not logged in|login required|unauthenticated/i.test(result)) return finish({ installed: true, authenticated: false, status: 'signed-out', message: 'Kiro CLI instalado, mas sem sessão ativa. Clique em “Entrar no Kiro” e depois verifique de novo.' });
+      if (code === 0 && /logged in with|authenticated/i.test(result)) return finish({ installed: true, authenticated: true, status: 'signed-in', message: 'Login do Kiro confirmado.' });
+      finish({ installed: true, authenticated: null, status: code === 0 ? 'unknown' : 'error', message: 'A CLI respondeu, mas não consegui confirmar o login. Abra o terminal e rode `kiro-cli whoami`; os dados da conta não são enviados ao Code Room.' });
+    });
+  });
+}
+
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
 export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
   const provider = (catalog || connectors()).find(c => c.id === agent.provider);
@@ -52,6 +102,9 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
   } else if (agent.provider === 'agy') {
     // O Antigravity recebe o prompt como argumento (não lê da entrada padrão): limite de linha de comando do Windows.
     if (prompt.length > 28000) throw Object.assign(new Error('Prompt grande demais para o Antigravity (limite ~28 mil caracteres). Reduza as skills ou o contexto.'), { failureKind: 'prompt_too_long' });
+    // O Antigravity sem tela (a) em modo plano devolve só um plano pedindo aprovação e (b) nega qualquer ferramenta que peça permissão e termina sem resposta.
+    // Não há quem aprove durante a execução, então o aviso vai no começo do pedido. Conferido com a CLI real em 10/11/2026.
+    prompt = agyHeadlessNote(agent.mode) + prompt;
     args = ['--output-format', 'json', '--mode', agent.mode === 'write' ? 'accept-edits' : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
     if (cwd) args.push('--add-dir', cwd);
     if (agent.model) args.push('--model', agent.model);
@@ -84,6 +137,11 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
 }
 
 // Distingue falha de autenticação e de limite do restante, para o usuário saber o que corrigir.
+export const agyHeadlessNote = mode => `[Execução automática pelo Code Room: não há pessoa para aprovar nada durante esta execução] Responda ao pedido diretamente nesta mesma resposta; não crie plano para aprovação nem peça confirmação antes de começar. Não rode programas nem comandos de terminal: nesta execução eles são negados e a tarefa termina sem resposta. Use leitura de arquivos e a sua pesquisa na web.${mode === 'write' ? ' Você pode criar e editar arquivos dentro da pasta do projeto.' : ' Você está em somente leitura: não crie nem altere arquivos; entregue o resultado no texto da resposta.'}
+
+`;
+// A CLI saiu sem resposta porque uma ferramenta pediu permissão e o modo sem tela negou (mensagem “no output produced … auto-denied” do Antigravity).
+export function deniedTool(text = '') { const t = String(text); if (!/auto-denied|headless mode cannot prompt/i.test(t)) return null; return t.match(/required the "?([\w.-]{1,40})"? permission/i)?.[1] || 'ferramenta'; }
 export function classifyFailure(text = '') {
   if (/not logged in|log ?in|sign ?in|unauthori[sz]ed|\b401\b|authentication|invalid api key|credential/i.test(text)) return 'auth';
   if (/rate.?limit|usage limit|quota|\b429\b|too many requests/i.test(text)) return 'rate_limit';

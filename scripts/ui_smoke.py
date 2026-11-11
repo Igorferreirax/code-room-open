@@ -25,11 +25,19 @@ try:
     def api(path, body=None):
         req = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
         return json.load(urllib.request.urlopen(req))
+    api('skills/library/install', {'id': 'planejar-entrega'})  # fixa o autocomplete sem depender das skills pessoais do computador de teste
     p = api('projects', {'name': 'projeto-ui', 'path': proj.replace('\\', '/'), 'area': 'Programação'})
+    fixture_skills = api(f"skills?project={p['id']}")
+    check('fixture: skill inicial instalada aparece reconhecida no projeto', any(s['name'] == 'planejar-entrega' and s.get('recognized') for s in fixture_skills), [s['name'] for s in fixture_skills])
     ag = lambda n, prov, mode, caps: api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': prov, 'model': '', 'instructions': '', 'mode': mode, 'skillIds': [], 'capabilities': caps})
     a1, a2, a3, a4 = ag('Ana', 'codex', 'write', ['code']), ag('Beto', 'claude', 'read', ['review']), ag('Caio', 'codex', 'read', []), ag('Duda', 'claude', 'read', ['supervise'])
+    outsider = ag('Eli', 'codex', 'read', [])
     api('teams', {'name': 'Equipe UI', 'members': [{'role': 'desenvolvedor', 'agentId': a1['id']}, {'role': 'revisor', 'agentId': a2['id']}]})
     long_team = api('teams', {'name': 'Equipe de produção e revisão com nome propositalmente longo', 'members': [{'role': 'desenvolvedor', 'agentId': a1['id']}, {'role': 'revisor', 'agentId': a2['id']}, {'role': 'editor', 'agentId': a3['id']}, {'role': 'pesquisador', 'agentId': a4['id']}]})
+    api('teams', {'name': 'Equipe de outro projeto', 'members': [{'role': 'pesquisador', 'agentId': outsider['id']}]})
+    api('projects/members', {'projectId': p['id'], 'addTeams': [long_team['id']]})  # o fixture também testa que a equipe não vazada foi explicitamente ligada
+    seeded = api('state'); seeded_project = next(x for x in seeded['projects'] if x['id'] == p['id'])
+    check('fixture: projeto de teste tem só a equipe criada para ele', seeded_project.get('teamIds') == [long_team['id']], seeded_project.get('teamIds'))
     api('recipes', {'name': 'Receita de apresentação com várias etapas e título longo', 'kind': 'video', 'projectId': p['id'], 'description': 'Reunir pesquisa, roteiro, revisão e preparação do material em etapas claras para uso diário no celular. ' * 3, 'outside': 'Pasta de edição e ferramentas externas do projeto, com um caminho descritivo que deve quebrar linha sem alargar a tela. ' * 2, 'steps': [{'type': 'agent', 'title': f'Etapa {i + 1}: preparar e revisar cuidadosamente o material para o canal', 'agentId': a1['id'], 'prompt': 'Preparar a próxima etapa do fluxo.'} for i in range(4)]})
     # tarefa que falha na hora (pasta do projeto apagada) para exibir o detalhe de uma tarefa finalizada, sem chamar nenhum provedor
     gone = tempfile.mkdtemp(prefix='cr-ui-gone-'); pg = api('projects', {'name': 'projeto-sumiu', 'path': gone.replace(chr(92), '/'), 'area': 'Programação'}); shutil.rmtree(gone)
@@ -40,23 +48,42 @@ try:
         try: browser = pw.chromium.launch(channel='chrome', headless=True)
         except Exception: browser = pw.chromium.launch(headless=True)
         for label, size in (('desktop', {'width': 1586, 'height': 992}), ('celular', {'width': 390, 'height': 844})):
-            ctx = browser.new_context(viewport=size); page = ctx.new_page(); errors = []
+            ctx = browser.new_context(viewport=size)
+            ctx.add_init_script(f"localStorage.setItem('cr.project', JSON.stringify({json.dumps(p['id'])})); localStorage.setItem('cr.sup.{p['id']}', JSON.stringify({json.dumps(a4['id'])}));")
+            page = ctx.new_page(); errors = []
             page.on('console', lambda m: errors.append(m.text) if m.type == 'error' and 'favicon' not in m.text and 'status of 400' not in m.text else None)
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.on('response', lambda r: errors.append(f'404: {r.url}') if r.status == 404 and 'favicon' not in r.url else None)
             page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
-            for s in ['room', 'projects', 'tasks', 'teams', 'recipes', 'agents', 'deliveries', 'skills', 'usage', 'routines', 'connections', 'settings']:
+            for s in ['home', 'room', 'projects', 'tasks', 'teams', 'recipes', 'agents', 'deliveries', 'skills', 'usage', 'routines', 'connections', 'settings']:
                 page.click(f'[data-nav={s}]'); time.sleep(0.7)
                 broken = page.evaluate("[...document.images].filter(i => i.complete && i.naturalWidth === 0).length")
                 overflow = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
                 check(f'{label}: tela {s} renderiza', page.locator('#view h1').count() > 0 or s == 'room')
                 check(f'{label}: tela {s} sem imagem quebrada', broken == 0, broken)
                 if s == 'connections':
+                    try: page.wait_for_selector('#hermes-card', timeout=8000)   # o cartão do Hermes chega depois da primeira pintura
+                    except Exception: pass
+                    check(f'{label}: Conexões abre na aba IAs, com os outros blocos guardados em abas', page.locator('.conn-pane:not([hidden])').count() == 1 and page.locator('#social-card').is_hidden() and page.locator('#hermes-card').is_visible())
+                    page.click('[data-act=conn-tab][data-id=redes]')
                     try: page.wait_for_selector('#yt-form', timeout=6000)
                     except Exception: pass
                     check(f'{label}: Conexões tem Redes sociais com a conexão do YouTube/Google (formulário de credenciais) e a Biblioteca de APIs; sem o cartão antigo "Publicação"', page.locator('#yt-form').count() == 1 and page.locator('#social-card').count() == 1 and page.locator('#apis-card').count() == 1 and 'Instagram' in page.inner_text('#social-card') and 'YouTube Shorts' not in page.inner_text('#view'))
+                    page.click('[data-act=conn-tab][data-id=ias]'); page.click('[data-act=prov-open]'); page.wait_for_selector('#prov-dialog[open] #provider-search', timeout=6000); page.click('#prov-dialog [data-act=prov-pick][data-id=kiro]')
+                    check(f'{label}: conexão do Kiro mostra login, verificação e atualização sem executar comandos', page.locator('#prov-dialog [data-action=login]').count() == 1 and page.locator('#prov-dialog [data-act=provider-cli-check]').count() == 1 and page.locator('#prov-dialog [data-action=update]').is_disabled() and 'Windows 11' in page.inner_text('#prov-dialog'))
+                    page.fill('#provider-search', 'gemini')
+                    try: page.wait_for_function("() => document.querySelector('#prov-dialog [data-id=gemini].prov-pick')?.hidden === false && document.querySelector('#prov-dialog [data-id=kiro].prov-pick')?.hidden === true", timeout=2000)
+                    except Exception: pass
+                    check(f'{label}: busca do catálogo filtra as CLIs pelo nome', page.locator('#prov-dialog [data-id=gemini].prov-pick').is_visible() and not page.locator('#prov-dialog [data-id=kiro].prov-pick').is_visible())
+                    page.click('#prov-dialog [data-act=prov-close]')
+                if s == 'skills':
+                    try: page.wait_for_function("document.querySelectorAll('[data-act=skill-library-install]').length === 3", timeout=5000)
+                    except Exception: pass
+                    check(f'{label}: biblioteca oferece três skills iniciais genéricas', page.locator('[data-act="skill-library-install"]').count() == 3 and 'Importar minhas skills' in page.inner_text('#view'))
                 culprit = page.evaluate("(() => { const w = document.documentElement.clientWidth; let worst = null; for (const e of document.querySelectorAll('#view *, #composer-root *')) { let clipped = false; for (let a = e.parentElement; a && a.id !== 'view'; a = a.parentElement) if (['auto', 'hidden', 'scroll'].includes(getComputedStyle(a).overflowX)) { clipped = true; break; } if (clipped) continue; const r = e.getBoundingClientRect(); if (r.right > w + 1 && r.width > 0 && (!worst || r.right > worst.r)) worst = { r: r.right, s: e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '') }; } return worst ? worst.s + ' até ' + Math.round(worst.r) : ''; })()") if overflow > 1 else ''
                 check(f'{label}: tela {s} sem rolagem horizontal', overflow <= 1, f'{overflow}px {culprit}')
+                if s == 'home':
+                    check(f'{label}: Início integra o chat do Assistente e o seletor de projeto', page.locator('#home-composer').count() == 1 and page.locator('#home-mission').count() == 1 and page.locator('#home-project').count() == 1 and 'Continuar de onde parou' in page.inner_text('#view'))
                 if label == 'celular' and s == 'teams':
                     team_layout = page.evaluate("""(name) => { const row = [...document.querySelectorAll('.team-saved')].find(e => e.textContent.includes(name)); if (!row) return null; const r = row.getBoundingClientRect(), v = document.querySelector('#view').getBoundingClientRect(), text = row.querySelector('.grow'); const buttons = [...row.querySelectorAll('button')].map(x => { const b=x.getBoundingClientRect(); return b.width >= 40 && b.height >= 40 && b.left >= r.left - 1 && b.right <= r.right + 1; }); return { inside: r.left >= v.left - 1 && r.right <= v.right + 1, textFits: text.scrollWidth <= text.clientWidth + 1, buttons: buttons.length === 2 && buttons.every(Boolean) }; }""", long_team['name'])
                     check('celular: cartão de equipe quebra os integrantes em linhas e mantém ações tocáveis', bool(team_layout and team_layout['inside'] and team_layout['textFits'] and team_layout['buttons']), team_layout)
@@ -68,17 +95,17 @@ try:
                     check('celular: cartões de receitas e etapas cabem na tela', recipe_layout)
             if label == 'desktop':
                 page.locator('#radio-fab').click(); page.wait_for_function("() => document.querySelector('#radio-fab').getAttribute('aria-pressed') === 'true'")
-                page.mouse.move(500, 400); time.sleep(0.25)
+                page.mouse.move(500, 400); time.sleep(0.5)
                 closed = page.evaluate("getComputedStyle(document.querySelector('#radio-bar')).visibility")
                 page.hover('#radio-volume-toggle'); time.sleep(0.25)
                 opened = page.evaluate("document.querySelector('#radio-vol').getBoundingClientRect().width")
                 check('rádio no computador: volume recolhe fora do player e abre ao passar o mouse', closed == 'hidden' and opened >= 40, (closed, opened))
-                page.mouse.move(500, 400); time.sleep(0.25)
+                page.mouse.move(500, 400); time.sleep(0.5)
                 check('rádio no computador: controle volta a recolher ao afastar o mouse', page.evaluate("getComputedStyle(document.querySelector('#radio-bar')).visibility === 'hidden'"))
                 page.locator('#radio-fab').click(); time.sleep(0.2)
                 page.click('[data-nav=room]'); time.sleep(0.6)
-                page.evaluate("document.querySelector('#room-filter') && (document.querySelector('#room-filter').value = '', document.querySelector('#room-filter').dispatchEvent(new Event('change', { bubbles: true })))"); time.sleep(0.4)   # o padrão agora é só o projeto; estes checks querem todos
-                check('sala: 3 estações para 3 agentes + supervisor fora', page.locator('.ps-station[data-agent]').count() == 3 + 0, page.locator('.ps-station[data-agent]').count())
+                room_members = page.evaluate("outsideId => { const stations=[...document.querySelectorAll('.ps-station[data-agent]')].map(e=>({id:e.dataset.agent, supervisor:e.classList.contains('ps-sup')})); return {workers:stations.filter(x=>!x.supervisor).length, supervisors:stations.filter(x=>x.supervisor).length, leaked:stations.some(x=>x.id===outsideId), stations}; }", outsider['id'])
+                check('sala: mostra a equipe do projeto, supervisor separado e oculta agente externo', room_members['workers'] == 3 and room_members['supervisors'] == 1 and not room_members['leaked'], room_members)
                 check('sala: agentes inativos mostram a pose cochilando (uma imagem por estação inativa)', page.evaluate("(() => { const ok = [...document.querySelectorAll('.ps-sleep')].filter(i => i.complete && i.naturalWidth > 0).length; return ok > 0 && ok === document.querySelectorAll('.ps-station.st-idle:not(.ps-sup)').length; })()"))
                 check('sala: respiração discreta dos agentes ociosos acompanha a preferência de movimento', page.evaluate("(() => { const i = document.querySelector('.ps-sleep'); return !!i && getComputedStyle(i).animationName === 'ps-breathe'; })()"))
                 page.screenshot(path=os.path.join(data, 'v6-sala-cochilando.png'))
@@ -90,19 +117,22 @@ try:
                 check('sala: Esc fecha a gaveta', page.locator('#drawer[hidden]').count() == 1)
                 page.select_option('#project-select', pg['id']); time.sleep(0.3); page.click('[data-nav=tasks]'); time.sleep(0.5)
                 page.locator(f'[data-act=task][data-id="{done_task["id"]}"]').first.click(); time.sleep(0.8)
-                check('execução: tarefa finalizada mostra "Continuar a conversa" com escolha de agente', page.locator('#followup-form select[name=agentId] option').count() == 4 and 'mesma sessão' in page.inner_text('#followup-form'))
-                page.select_option('#project-select', p['id']); page.click('[data-nav=room]'); time.sleep(2.0)
+                check('execução: tarefa finalizada mostra "Continuar a conversa" com escolha de agente', page.locator('#followup-form select[name=agentId] option').count() == 1 and 'mesma sessão' in page.inner_text('#followup-form'))
+                page.select_option('#project-select', p['id']); page.wait_for_function("id => document.querySelector('#project-select')?.value === id", arg=p['id'], timeout=5000); time.sleep(0.6)
+                page.click('[data-nav=room]'); time.sleep(1.0)
                 page.click('#chat-bubble'); page.wait_for_selector('#mission', state='visible'); check('chat: o chat nasce minimizado e o balão abre a janela com a barra de mensagem', page.is_visible('#chat') and page.is_visible('#target'))
                 check('chat no celular: a caixa de mensagem não fica atrás da barra de baixo e o topo continua visível', page.evaluate("() => { const r = document.querySelector('#mission').getBoundingClientRect(), n = document.querySelector('.rail').getBoundingClientRect(); return innerWidth > 760 || (r.bottom <= n.top + 1 && document.querySelector('#chat').getBoundingClientRect().top >= 59); }"))
-                page.click('#mission'); page.keyboard.type('/hyper')
-                try: page.wait_for_selector('#slash-pop [data-pick]', timeout=15000)
+                page.click('#mission'); page.keyboard.type('/planejar')
+                try: page.wait_for_selector('#slash-pop [data-pick]', timeout=30000)  # a leitura inicial de centenas de skills pode levar alguns segundos no primeiro acesso
                 except Exception: pass
                 time.sleep(0.3)
-                check('chat: "/" mostra as skills instaladas', page.locator('#slash-pop [data-pick]').count() >= 1 and 'hyperframes' in page.inner_text('#slash-pop').lower())
+                check('chat: "/" mostra a skill genérica instalada no fixture', page.locator('#slash-pop [data-pick]').count() >= 1 and 'planejar-entrega' in page.inner_text('#slash-pop').lower(), page.evaluate("() => ({project: document.querySelector('#project-select')?.value, active: document.activeElement?.id, value: document.querySelector('#mission')?.value, popup: document.querySelector('#slash-pop')?.innerText || ''})"))
                 page.keyboard.press('Enter'); time.sleep(0.2)
-                check('chat: Enter escolhe a skill sem enviar a missão', page.input_value('#mission').startswith('/hyperframes') and page.locator('#slash-pop').count() == 0)
-                page.fill('#mission', ''); page.keyboard.type('@'); time.sleep(0.4)
-                check('chat: "@" mostra os agentes', page.locator('#slash-pop [data-pick]').count() >= 3 and 'Ana' in page.inner_text('#slash-pop'))
+                check('chat: Enter escolhe a skill sem enviar a missão', page.input_value('#mission').startswith('/planejar-entrega') and page.locator('#slash-pop').count() == 0)
+                page.fill('#mission', ''); page.keyboard.type('@')
+                try: page.wait_for_selector('#slash-pop [data-pick]', timeout=3000)
+                except Exception: pass
+                check('chat: "@" mostra os agentes', page.locator('#slash-pop [data-pick]').count() >= 3 and 'Ana' in page.inner_text('#slash-pop'), page.evaluate("() => ({project: document.querySelector('#project-select')?.value, active: document.activeElement?.id, value: document.querySelector('#mission')?.value, popup: document.querySelector('#slash-pop')?.innerText || ''})"))
                 page.keyboard.press('Escape'); page.fill('#mission', ''); time.sleep(0.2)
                 page.click('[data-act=opts]'); time.sleep(0.3)
                 check('compositor: opção "Isolar em worktree" disponível', page.locator('#isolate').count() == 1)
@@ -182,14 +212,19 @@ try:
                 try: page.wait_for_selector('#pref-net-lan', timeout=12000)
                 except Exception: pass
                 check('acesso: cartão de acesso remoto com Tailscale e rede local', 'Tailscale' in page.inner_text('#view') and page.locator('#pref-net-lan').count() == 1)
-                page.click('#pref-net-lan'); time.sleep(1.2)
+                page.click('#pref-net-lan')
+                lan_enabled = False
+                for _ in range(60):
+                    time.sleep(0.2)
+                    if api('network')['config']['lan'] is True: lan_enabled = True; break
+                check('acesso: rede local confirma a ativação antes de aceitar outra mudança', lan_enabled)
                 if page.locator('[data-act=pair-new]:not([disabled])').count():
                     page.click('[data-act=pair-new]'); time.sleep(0.6)
                     check('acesso: pareamento mostra QR e código de 8 caracteres', page.locator('.pair-qr svg').count() == 1 and len(page.inner_text('.pair-code').strip()) == 8)
                     page.screenshot(path=os.path.join(data, 'v7-acesso-remoto.png'))
                 else: print('AVISO sem endereço de rede local nesta máquina: QR não exercitado')
-                page.click('#pref-net-lan')
-                for _ in range(30):
+                if lan_enabled: page.click('#pref-net-lan')
+                for _ in range(60):
                     time.sleep(0.2)
                     if api('network')['config']['lan'] is False: break   # espera ativa: sob carga o serviço demora mais que 0,8 s
                 check('acesso: rede local volta a ficar desligada', api('network')['config']['lan'] is False)
@@ -201,7 +236,9 @@ try:
             check(f'{label}: nenhum erro de console', not errors, errors[:2])
             ctx.close()
         # ---- Canvas com toque real (celular): arrastar cartão e ligar agentes sem rolar a página ----
-        tctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); tp = tctx.new_page()
+        tctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
+        tctx.add_init_script(f"localStorage.setItem('cr.project', JSON.stringify({json.dumps(p['id'])})); localStorage.setItem('cr.sup.{p['id']}', JSON.stringify({json.dumps(a4['id'])}));")
+        tp = tctx.new_page()
         tp.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); tp.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
         tp.click('#chat-bubble'); tp.wait_for_selector('#mission', state='visible'); time.sleep(0.4)
         check('chat no celular (toque): a caixa de mensagem não fica atrás da barra de baixo e o topo continua visível', tp.evaluate("() => { const r = document.querySelector('#mission').getBoundingClientRect(), n = document.querySelector('.rail').getBoundingClientRect(); return r.bottom <= n.top + 1 && document.querySelector('#chat').getBoundingClientRect().top >= 59; }"))
@@ -214,9 +251,10 @@ try:
             for i in range(1, n + 1): touch('touchMove', x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n); time.sleep(0.02)
             touch('touchEnd', x1, y1); time.sleep(0.6)
         tp.click('[data-nav=room]'); time.sleep(0.5)
-        tp.evaluate("document.querySelector('#room-filter') && (document.querySelector('#room-filter').value = '', document.querySelector('#room-filter').dispatchEvent(new Event('change', { bubbles: true })))"); time.sleep(0.4)
         if tp.locator('.cv-node').count() == 0: tp.click('[data-act=view-mode][data-id=canvas]'); time.sleep(0.8)
         check('toque: Canvas mostra os cartões no celular', tp.locator('.cv-node').count() == 4)
+        team_edges = tp.locator('.cv-edges').evaluate('(el) => el.textContent')
+        check('Canvas: só desenha o fluxo da equipe ligada ao projeto', long_team['name'] in team_edges and 'Equipe UI' not in team_edges, team_edges)
         mobile_layout = tp.evaluate("""() => {
           const card = document.querySelector('.scene-card').getBoundingClientRect();
           const controls = [...document.querySelectorAll('.scene-tools>label,.scene-tools>.seg')].map(e => e.getBoundingClientRect());
@@ -246,14 +284,20 @@ try:
                 except Exception:
                     if attempt == 3: raise
                     time.sleep(0.4)
-        n = scroll_node('Caio'); time.sleep(0.3); b0 = n.bounding_box(); y0 = tp.evaluate('scrollY'); w0 = tp.evaluate("(() => { const e = [...document.querySelectorAll('.cv-node')].find(x => x.textContent.includes('Caio')); return [parseInt(e.style.left), parseInt(e.style.top)]; })()")
-        swipe(b0['x'] + 100, b0['y'] + 30, b0['x'] + 150, b0['y'] + 30 + 40)
-        b1 = n.bounding_box(); w1 = tp.evaluate("(() => { const e = [...document.querySelectorAll('.cv-node')].find(x => x.textContent.includes('Caio')); return [parseInt(e.style.left), parseInt(e.style.top)]; })()")
-        check('toque: arrastar o cartão com o dedo move o cartão', abs((w1[0] - w0[0]) - 50) <= 6 and abs((w1[1] - w0[1]) - 40) <= 6, (w0, w1))
-        check('toque: a página não rolou junto', abs(tp.evaluate('scrollY') - y0) < 3)
+        n = scroll_node('Caio'); time.sleep(0.3); b0 = n.bounding_box()
+        if not b0 or b0['x'] < 0 or b0['x'] + b0['width'] > 390:
+            tp.evaluate("name => { const cv=document.querySelector('#cv'), node=[...document.querySelectorAll('.cv-node')].find(e=>e.textContent.includes(name)); if(node){ cv.scrollLeft=Math.max(0,node.offsetLeft+node.offsetWidth/2-cv.clientWidth/2); } }", 'Caio'); time.sleep(0.5); b0 = n.bounding_box()
+        y0 = tp.evaluate('scrollY'); w0 = tp.evaluate("(() => { const e = [...document.querySelectorAll('.cv-node')].find(x => x.textContent.includes('Caio')); return e ? [parseInt(e.style.left), parseInt(e.style.top)] : null; })()")
+        if b0 and w0:
+            swipe(b0['x'] + 100, b0['y'] + 30, b0['x'] + 150, b0['y'] + 70)
+            b1 = n.bounding_box(); w1 = tp.evaluate("(() => { const e = [...document.querySelectorAll('.cv-node')].find(x => x.textContent.includes('Caio')); return e ? [parseInt(e.style.left), parseInt(e.style.top)] : null; })()")
+            check('toque: arrastar o cartão com o dedo move o cartão', bool(w1 and abs((w1[0] - w0[0]) - 50) <= 6 and abs((w1[1] - w0[1]) - 40) <= 6), (w0, w1, b0, b1))
+            check('toque: a página não rolou junto', abs(tp.evaluate('scrollY') - y0) < 3)
+        else:
+            diag = n.evaluate("e => ({display:getComputedStyle(e).display, visibility:getComputedStyle(e).visibility, rect:e.getBoundingClientRect().toJSON(), scroll:document.querySelector('#cv')?.scrollLeft})")
+            check('toque: arrastar o cartão com o dedo move o cartão', False, diag); check('toque: a página não rolou junto', False, diag)
         for l in api('state')['links']: api(f"links/{l['id']}/delete", {}); time.sleep(1.5)
         scroll_node('Ana'); time.sleep(0.3)
-        o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); tp.evaluate("document.querySelector('#cv').scrollLeft = 120"); time.sleep(1.0); o = tp.locator('.cv-node', has_text='Ana').locator('.cv-port.out').bounding_box(); d = next(b for b in (tp.locator('.cv-node', has_text=nm).bounding_box() for nm in ('Duda', 'Beto', 'Caio')) if b['x'] + b['width'] / 2 < 380 and b['y'] + b['height'] / 2 < 830)
         for _try in range(4):
             time.sleep(1.2)   # deixa a tela terminar de atualizar (renovação de estado) antes de mexer
             tp.evaluate("document.querySelector('#cv').scrollLeft = 0"); time.sleep(0.3)

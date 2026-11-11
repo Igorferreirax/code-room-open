@@ -29,6 +29,11 @@ export class Orchestrator {
     if (input.id && !old) throw new Error('Equipe inexistente.');
     return this.store.put('teams', { id: old?.id || randomUUID(), name, members, revision: (old?.revision || 0) + 1 });
   }
+  projectTeamIds(project) {
+    const ids = Array.isArray(project.teamIds) ? project.teamIds : this.store.list('flows').filter(f => f.projectId === project.id && f.teamId).map(f => f.teamId);
+    const known = new Set(this.store.list('teams').map(t => t.id));
+    return new Set(ids.filter(id => known.has(id)));
+  }
 
   // ---------- fluxo sequencial: desenvolvedor → revisor, com correção limitada ----------
   startSequential(input) {
@@ -44,6 +49,7 @@ export class Orchestrator {
     const common = { projectId: project.id, criteria: input.criteria || [], limits: input.limits };
     const flow = { id: randomUUID(), kind: 'sequential', requestId, projectId: project.id, teamId: team.id, objective: String(input.objective || '').trim(), criteria: common.criteria, round: 1, maxReviewRounds: Math.min(3, Math.max(1, Math.trunc(input.maxReviewRounds) || 1)), taskIds: [], status: 'running', verdict: null, createdAt: now() };
     if (!flow.objective) throw new Error('Objetivo obrigatório.');
+    this.store.put('projects', { ...project, teamIds: [...new Set([...this.projectTeamIds(project), team.id])] });
     const t1 = createTask(this.store, { ...common, requestId: `${requestId}:dev:1`, agentId: dev.agentId, objective: flow.objective, inputs: input.inputs, flowId: flow.id, step: 'dev' }).task;
     const t2 = this.reviewTask(flow, t1, reviewer.agentId, 1);
     flow.taskIds = [t1.id, t2.id];
@@ -181,12 +187,22 @@ export class Orchestrator {
     const existing = this.store.list('plans').find(p => p.requestId === requestId);
     if (existing) return { plan: existing, duplicate: true };
     const agents = this.planAgents(project);
+    if (!agents.some(a => a.id === sup.id)) throw new Error('Traga o Supervisor para este projeto antes de pedir um plano.');
     const task = createTask(this.store, { projectId, requestId: `${requestId}:plan`, agentId: supervisorId, kind: 'plan', objective: planPrompt({ request, agents, project }), limits: { timeoutMs: 5 * 60 * 1000 } }).task;
     const plan = this.store.put('plans', { id: randomUUID(), requestId, taskId: task.id, projectId, supervisorId, request, autoAccept, status: 'planning', errors: [], plan: null, flowId: null, createdAt: now() });
     this.pump();
     return { plan, duplicate: false };
   }
-  planAgents(project) { return this.store.list('agents').filter(a => this.agentAvailable(a) && mayShare(project.area || 'Geral', a.room)); }
+  planAgentIds(project) {
+    const ids = new Set(project.agentIds || []), teams = this.projectTeamIds(project);
+    for (const t of this.store.list('teams')) if (teams.has(t.id)) for (const m of t.members || []) ids.add(m.agentId);
+    for (const task of this.store.list('tasks')) if (task.project?.id === project.id && task.agent?.id) ids.add(task.agent.id);
+    return ids;
+  }
+  planAgents(project) {
+    const ids = this.planAgentIds(project);
+    return this.store.list('agents').filter(a => ids.has(a.id) && this.agentAvailable(a) && mayShare(project.area || 'Geral', a.room));
+  }
   onPlanFinished(task) {
     const rec = this.store.list('plans').find(p => p.taskId === task.id); if (!rec) return;
     if (task.status !== 'completed') { rec.status = 'failed'; rec.errors = [task.reason || `Tarefa do supervisor terminou como ${task.status}.`]; this.store.put('plans', rec); return; }
@@ -202,6 +218,9 @@ export class Orchestrator {
     const rec = this.store.get('plans', id);
     if (!rec) throw new Error('Plano não encontrado.');
     if (rec.status !== 'proposed') throw new Error(`O plano está ${rec.status}; só planos validados e propostos podem ser aceitos.`);
+    const project = this.store.get('projects', rec.projectId); if (!project) throw new Error('O projeto do plano não existe mais.');
+    const allowed = new Set(this.planAgents(project).map(a => a.id));
+    if ((rec.plan?.steps || []).some(s => !allowed.has(s.agentId))) throw new Error('Um agente do plano não está mais ligado ou disponível neste projeto. Gere o plano de novo.');
     const flow = { id: randomUUID(), kind: 'supervised', requestId: `${rec.requestId}:flow`, projectId: rec.projectId, planId: rec.id, objective: rec.request, taskIds: [], status: 'running', verdict: null, createdAt: now() };
     const ids = new Map();
     for (const s of rec.plan.steps) {

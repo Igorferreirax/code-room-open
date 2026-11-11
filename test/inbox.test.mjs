@@ -72,7 +72,7 @@ test('Precisa de você agora: entrega concluída sem revisão, plano proposto e 
 test('barra lateral: o contador aparece só onde há pendência e fica descrito para leitor de tela', () => {
   const html = railHtml('room', { room: 3, deliveries: 12 });
   assert.match(html, /<span class="rb" aria-hidden="true">3<\/span>/); assert.match(html, /9\+/);
-  assert.match(html, /aria-label="Sala, 3 pendentes"/);
+  assert.match(html, /aria-label="Sala de agentes, 3 pendentes"/);
   assert.doesNotMatch(railHtml('room', {}), /class="rb"/);
 });
 
@@ -120,10 +120,10 @@ test('entregas antigas (mais de 14 dias) sem revisão não contam como pendênci
 });
 
 import { NAV_GROUPS } from '../public/views.js';
-test('menu lateral: 3 grupos com separadores, todos os 12 destinos continuam acessíveis e o contador segue no botão', () => {
+test('menu lateral: 3 grupos com separadores, todos os 13 destinos continuam acessíveis e o contador segue no botão', () => {
   const html = railHtml('room', { room: 2, deliveries: 1 }), ids = [...html.matchAll(/data-nav="(\w+)"/g)].map(m => m[1]);
-  assert.equal((html.match(/class="rail-sep"/g) || []).length, 2); assert.equal(ids.length, 12); assert.equal(new Set(ids).size, 12);
-  assert.deepEqual(NAV_GROUPS.flat().sort(), ['agents', 'connections', 'deliveries', 'projects', 'recipes', 'room', 'routines', 'settings', 'skills', 'tasks', 'teams', 'usage']);
+  assert.equal((html.match(/class="rail-sep"/g) || []).length, 2); assert.equal(ids.length, 13); assert.equal(new Set(ids).size, 13);
+  assert.deepEqual(NAV_GROUPS.flat().sort(), ['agents', 'connections', 'deliveries', 'home', 'projects', 'recipes', 'room', 'routines', 'settings', 'skills', 'tasks', 'teams', 'usage']);
   assert.match(html, /aria-label="Entregas, 1 pendente"/); assert.match(html, /aria-current="page"/);
 });
 

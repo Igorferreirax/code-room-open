@@ -20,7 +20,7 @@ $versionSetup = Join-Path $out "Code-Room-$version-Setup.exe"
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 
 # 1) Só o que o app precisa para rodar (sem testes, docs de desenvolvimento nem scripts de teste).
-foreach ($d in 'server', 'public') { Copy-Item -LiteralPath $d -Destination (Join-Path $stage $d) -Recurse }
+foreach ($d in 'server', 'public', 'resources') { Copy-Item -LiteralPath $d -Destination (Join-Path $stage $d) -Recurse }
 New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
 foreach ($f in 'start.ps1', 'stop.ps1', 'criar-atalhos.ps1', 'atualizar.ps1', 'bandeja.ps1', 'iniciar-com-windows.ps1') { Copy-Item -LiteralPath (Join-Path 'scripts' $f) -Destination (Join-Path $stage 'scripts') }
 foreach ($f in 'package.json', 'LICENSE', 'README.md', 'README.en.md', 'INSTALAR.md', 'Iniciar-Code-Room.cmd', 'Criar-Atalhos.cmd') { Copy-Item -LiteralPath $f -Destination $stage }

@@ -23,7 +23,7 @@ test('comandos: Antigravity leva o prompt no argumento com modo certo; Hermes le
   const have = id => connectors().find(c => c.id === id)?.path;
   if (have('agy')) {
     const r = command({ provider: 'agy', mode: 'read', model: '' }, 'faça X', { cwd: 'C:/p', timeoutMs: 60000, resumeId: 'c-9' });
-    assert.ok(r.args.includes('plan') && r.args.includes('--conversation') && r.args.includes('c-9') && r.args.includes('--print=faça X') && r.args.includes('C:/p'));
+    assert.ok(r.args.includes('plan') && r.args.includes('--conversation') && r.args.includes('c-9') && r.args.some(a => a.startsWith('--print=[Execução automática pelo Code Room') && a.endsWith('faça X')) && r.args.includes('C:/p'));
     assert.equal(command({ provider: 'agy', mode: 'write', model: '' }, 'x').args[3 - 1 + 0] !== undefined, true);
     assert.ok(command({ provider: 'agy', mode: 'write', model: '' }, 'x').args.includes('accept-edits'));
     assert.throws(() => command({ provider: 'agy', mode: 'read', model: '' }, 'a'.repeat(30000)), /grande demais/);

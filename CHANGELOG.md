@@ -9,6 +9,35 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.4] - 2026-11-11
+
+### Adicionado
+- **Biblioteca de agentes** (Agentes › Biblioteca): 12 especialistas prontos, entre eles Auditor de segurança, Programador, Revisor de código, Arquiteto, Testador, Pesquisador, Redator, Diretor de vídeo, Designer de interface, Analista de dados, DevOps e Documentador. **Equipes prontas** (código, vídeo, revisão de segurança) contratam quem falta, montam a equipe e trazem tudo para o projeto. O Code Room sugere a IA de cada um entre as conectadas.
+- **Modo Terminais na Sala** (no lugar da Lista): um painel por agente com a saída ao vivo da tarefa dele no projeto, de quem ele recebe e para quem passa o trabalho, e um campo para mandar mensagem direto ao agente.
+- **Boas-vindas do dia** no Início: uma vez por dia, mostra entregas esperando revisão, tarefas com problema, pedidos aguardando aprovação e projetos parados, com o atalho para ver com o Assistente por onde começar.
+- **Assistente com nome e personalidade:** chama-se Nico por padrão (o lápis no topo do chat troca o nome) e fala de forma cordial e direta, avisando o que está parado.
+- **O Assistente escolhe a IA e o modelo de cada agente:** ele recebe as IAs instaladas, os modelos de cada uma e para que cada uma serve (a mais forte orquestra e revisa).
+- **Corrigir com a IA aplica a correção:** o Assistente recebe o motivo da falha e propõe `ajustar_agente` (trocar IA, modelo, esforço ou permissão) e `repetir_tarefa`; você aprova cada passo.
+- **Testar resposta** das IAs embutidas (Conexões e tela da tarefa com falha) e teste automático ao criar um agente, para o erro aparecer na hora.
+- **Excluir projeto** (painel do projeto): tira do Code Room sem apagar a pasta nem o histórico.
+- **Equipe pela leitura da pasta:** ao criar ou importar um projeto, o Assistente pode ler README, dependências e estrutura (somente leitura) e propor a equipe.
+- Convite para importar skills ou instalar as iniciais já no primeiro acesso. “Todos os projetos (geral)” no seletor do topo.
+- Início, skills iniciais, sugestão de equipe, login das CLIs pelo terminal oficial e suporte ao Kiro CLI.
+
+### Corrigido
+- **Antigravity terminava com “O provedor terminou sem devolver resposta”:** em somente leitura devolvia só um plano e, ao tentar rodar um programa, a execução sem tela negava e saía sem resposta. O pedido agora avisa a CLI, e a falha aparece explicada (“ferramenta negada”), com a mensagem da CLI no motivo.
+- **Projetos Financeiro recusam o Antigravity**, que pesquisa na web por conta própria.
+- “Continuar a conversa” listava os agentes do projeto aberto, e não os do projeto da tarefa.
+- Escolher “Sem projeto” no Início era desfeito sozinho na atualização seguinte da tela.
+- Agente criado com um projeto em foco não aparecia na Sala; agora já entra no projeto.
+- O modelo usado pelo Codex aparecia como “não informado”; agora mostra o padrão do `config.toml`.
+
+### Melhorado
+- **Conexões** em quatro abas (IAs, Notas e chaves, Redes e canais, Avançado), sem o cartão “Em breve” e sem o passo a passo depois de configurado.
+- Isolamento por projeto na Sala, no chat, no Canvas, nos fluxos e nos planos do Supervisor.
+- Foco visível pelo teclado, retorno ao passar o mouse e alvos de toque maiores nos painéis novos.
+- Todos os roteiros de interface atualizados; `npm test` com limite de tempo por teste.
+
 ## [0.3.3] - 2026-11-10
 
 ### Adicionado

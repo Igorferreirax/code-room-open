@@ -23,9 +23,10 @@ try:
     def api(path, body=None):
         req = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
         return json.load(urllib.request.urlopen(req))
-    api('projects', {'name': 'projeto-ui', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
+    P0 = api('projects', {'name': 'projeto-ui', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
     for n, caps in (('Pesquisador Chefe', ['research']), ('Roteirista', ['writing'])):
-        api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': caps})
+        _a = api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': caps})
+        api('projects/members', {'projectId': P0['id'], 'add': [_a['id']]})  # o projeto só mostra quem foi trazido para ele
     def clear_chat(page):
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(300)
 

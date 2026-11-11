@@ -3,8 +3,8 @@
 Code Room: orquestrador local de agentes de IA para Windows. Node ESM **sem dependências**, `node:sqlite`, front em JavaScript puro, serviço em `127.0.0.1:4780`, acesso por `X-Code-Room-Key`. Responda e escreva textos de interface em **português do Brasil**.
 
 ## Comandos
-- Testes: `node --test test/*.test.mjs` (hoje 394). Auditoria de segurança: `node scripts/audit-security.mjs` (62). Sintaxe: `node scripts/check.mjs`.
-- Interface (Playwright do Python): `python scripts/ui_smoke.py` (117), `crawl_ui.py`, `ui_assistant.py`, `ui_onboarding.py`, `ui_mention.py`, `ui_providers.py`, `test_radio.py`. **Não edite arquivos enquanto eles rodam.**
+- Testes: `node --test test/*.test.mjs` (hoje 436). Auditoria de segurança: `node scripts/audit-security.mjs` (66). Sintaxe: `node scripts/check.mjs`.
+- Interface (Playwright do Python): `python scripts/ui_smoke.py` (154), `crawl_ui.py`, `ui_assistant.py`, `ui_onboarding.py`, `ui_mention.py`, `ui_providers.py`, `test_radio.py`. **Não edite arquivos enquanto eles rodam.**
 - Pacote Windows: `powershell -File installer\build.ps1`, depois `scripts\smoke-package.ps1`.
 - Reiniciar o serviço: `scripts\stop.ps1 -Seguro` (recusa se há tarefa rodando) e `scripts\start.ps1 -Silencioso`. Nunca reinicie com o usuário no meio de uma aprovação.
 
@@ -22,8 +22,11 @@ Code Room: orquestrador local de agentes de IA para Windows. Node ESM **sem depe
 - O servidor só serve `/assets/*.png|jpg` por padrão; webp exige rota própria.
 - `npx @playwright/mcp@latest` leva ~25 s e estoura o tempo do MCP; o código usa a cópia local (`findLocalPlaywright`).
 - Reiniciar o serviço derruba a página aberta (“Failed to fetch”): avise antes.
+- Mudou uma tela? Rode **todos** os roteiros de interface, não só o `ui_smoke.py`: em 10/11/2026 quatro deles ficaram quebrados sem ninguém notar.
+- Antigravity sem tela: em `--mode plan` só devolve um plano, e ferramenta que pede permissão é negada e sai sem resposta. O aviso `agyHeadlessNote` no começo do pedido resolve; nunca use `--dangerously-skip-permissions`.
+- Um projeto só mostra agentes e equipes trazidos para ele (ou que já rodaram tarefa nele). Em testes, chame `projects/members` depois de criar o agente.
 
-## Estado (0.3.2 publicada em 09/11/2026)
-Feito: redes sociais, Biblioteca de APIs, rotina diária, pesquisa na web, “Liberar” bloqueios, levar skills e MCP para outras IAs, economia de tokens, equipe do projeto (trazer/tirar), excluir agente e equipe, Canvas por projeto, Corrigir com a IA, skills favoritas, radinho lo-fi, privacidade e CI.
+## Estado (0.3.4 pronta na cópia local em 11/11/2026: sem commit, sem tag, sem publicação)
+Entrou na 0.3.4: Início com boas-vindas do dia, isolamento por projeto, Biblioteca de agentes (12) com equipes prontas e IA sugerida, modo Terminais (saída ao vivo, ligações e campo de mensagem), Conexões em abas, Testar resposta, excluir projeto, Assistente com nome (Nico) e personalidade, guia de IAs e modelos para o Assistente, Corrigir com a IA com `ajustar_agente` e `repetir_tarefa`, equipe pela leitura da pasta, correção do Antigravity sem resposta e bloqueio dele em Financeiro.
 
-Pendente (ordem sugerida): 1) confiabilidade: instalação em máquina limpa, recuperação de tarefa interrompida, toque do Canvas no celular; 2) caixa de entrada unificada de trabalho; 3) diff e arquivos antes de aceitar (inclui o modo piloto); 4) resultados e histórico das rotinas; 5) receitas versionadas; 6) validar com contas reais: Telegram e YouTube, “Levar para outras IAs” com Codex e Antigravity; 7) excluir projeto (não existe); 8) assinatura digital do instalador. Detalhes em `docs/ROADMAP.md` e `docs/VISAO-PRODUTO.md`.
+Pendente (ordem sugerida): 1) instalar o EXE em máquina limpa e atualizar a partir da 0.3.3; 2) Terminais dentro do Canvas (painéis ligados por linhas) e resposta de volta entre agentes (o Pesquisador responde ao Diretor); 3) memória que cresce: o Assistente propor notas no Obsidian e usá-las ao criar agentes; 4) Assistente proativo (avisar quando algo termina, sem a pessoa abrir o chat); 5) caixa de entrada unificada; 6) resultados e histórico das rotinas; 7) skills do dono na biblioteca inicial (ele precisa dizer quais); 8) ícones no lugar dos emojis 👥 🤖; 9) esconder do projeto agente que já rodou tarefa nele; 10) aviso de execução sem tela para CLIs conectadas pela pessoa (Kiro e outras); 11) validar com contas reais: Telegram, YouTube, Kiro; 12) celular real; 13) assinatura digital do instalador. Detalhes em `docs/ROADMAP.md` e `docs/VISAO-PRODUTO.md`.

@@ -75,6 +75,7 @@ export function createTask(store, input) {
   if (agent.browser && agent.browser !== 'off' && project.area === 'Financeiro') throw new Error('Projeto financeiro: agentes com navegador não são permitidos (uma página poderia mandar ordens ao agente e levar os dados).');
   if (agent.web && project.area === 'Financeiro') throw new Error('Projeto financeiro: agentes com pesquisa na web não são permitidos.');
   if ((agent.mcpTools || []).length && project.area === 'Financeiro') throw new Error('Projeto financeiro: agentes com ferramentas MCP externas não são permitidos.');
+  if (agent.provider === 'agy' && project.area === 'Financeiro') throw new Error('Projeto financeiro: o Antigravity pesquisa na web por conta própria e isso não pode ser desligado. Use um agente do Codex ou do Claude Code neste projeto.');
   if (['hermes'].includes(agent.provider) && project.area === 'Financeiro') throw new Error('Projeto financeiro: dados financeiros não são enviados a um provedor remoto (Hermes).');
   // Valide os ajustes da missão antes de avançar o contador ou gravar qualquer registro.
   const missionModel = input.model ? cleanModel(input.model) : agent.model;

@@ -24,6 +24,16 @@ import { LofiRadio, TRACKS } from './radio.js';
 
 const $ = id => document.getElementById(id);
 const { esc } = V;
+const FOOTER_TIPS = [
+  'Conecte o Obsidian para incluir notas autorizadas como contexto das tarefas.',
+  'Equipes com papéis claros facilitam a revisão e a passagem de trabalho entre agentes.',
+  'Deixe o modelo em branco para usar o padrão da conta ou escolha um modelo no agente.',
+  'Revise arquivos e prévias antes de aprovar uma entrega ou publicar conteúdo.',
+  'Conecte uma CLI já autenticada no computador e teste uma resposta antes de criar agentes.',
+  'Use skills específicas para dar instruções reutilizáveis a cada agente.',
+  'Para tarefas longas, divida o pedido em etapas que possam ser conferidas.',
+];
+let footerTipTimer = null, footerTipIndex = 0;
 // A chave pode vir do endereço (#chave), da sessão ou do token deste aparelho (celular pareado). "#pair=CÓDIGO" é um pareamento, não uma chave.
 const hashVal = decodeURIComponent(location.hash.slice(1)), pairFromHash = hashVal.startsWith('pair=') ? hashVal.slice(5).toUpperCase() : '';
 const DEVICE_KEY = 'code-room-device', lsGet = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
@@ -34,7 +44,7 @@ const store = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)
 
 const ctx = {
   state: { recipes: [], recipeRuns: [], projects: [], agents: [], teams: [], runs: [], flows: [], plans: [], routines: [], limits: {}, connectors: [], runtime: {} },
-  view: 'room', project: store.get('cr.project', ''), room: null, detail: null, execTab: 'resumo', skills: [], audit: null, checks: null, modules: null, storage: null,
+  view: 'home', project: store.get('cr.project', ''), room: null, detail: null, execTab: 'resumo', skills: [], skillLibrary: null, audit: null, checks: null, modules: null, storage: null,
   projectContext: null, teamDraft: { id: null, name: 'Minha equipe', members: [] }, flows: {}, connection: 'connecting', maxStations: MAX_STATIONS,
   prefs: { motion: 'auto', list: false, board: true, musicHidden: false, ...store.get('cr.prefs', {}) },
   ui: { target: '', optsOpen: false, panel: null, panelId: null, whoOpen: false }, authed: false
@@ -56,41 +66,66 @@ function logout(msg) { key = ''; ctx.authed = false; sessionStorage.removeItem('
 // ---------- Derivações do estado real ----------
 ctx.projectName = () => ctx.state.projects.find(p => p.id === ctx.project)?.name || '';
 ctx.projectNameOf = id => ctx.state.projects.find(p => p.id === id)?.name || '';
-ctx.rooms = () => [...new Set(ctx.state.agents.map(a => a.room || 'Geral'))].sort();
-ctx.supervisorAgent = () => ctx.state.agents.find(a => a.id === store.get('cr.sup.' + ctx.project, ''));
+ctx.rooms = () => { const ids = ctx.project ? ctx.projectAgentIds() : null; return [...new Set(ctx.state.agents.filter(a => !ids || ids.has(a.id)).map(a => a.room || 'Geral'))].sort(); };
+ctx.supervisorAgent = () => { const a = ctx.state.agents.find(x => x.id === store.get('cr.sup.' + ctx.project, '')); return a && (!ctx.project || ctx.projectAgentIds().has(a.id)) ? a : null; };
 // As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
 const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
-ctx.viewMode = () => ctx.prefs.mode || (ctx.prefs.list ? 'list' : 'scene');
-// Equipe EXPLÍCITA do projeto: o ambiente do agente aparece no nome do projeto (ex.: ambiente "Achadinhos" no projeto "Achadinhos (Instagram)").
-ctx.projectTeamIds = () => {
-  const pj = ctx.state.projects.find(p => p.id === ctx.project); if (!pj) return new Set();
-  const pn = String(pj.name || '').toLowerCase();
-  const explicit = new Set(pj.agentIds || []);   // vínculo feito por “Trazer para o projeto”
-  return new Set(ctx.state.agents.filter(a => { const r = String(a.room || '').trim().toLowerCase(); return explicit.has(a.id) || (r.length >= 4 && !['geral', 'vídeo', 'video'].includes(r) && pn.includes(r)); }).map(a => a.id));
+ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); return m === 'list' ? 'term' : m; };   // a antiga “Lista” virou “Terminais”
+// Equipes e agentes só entram no projeto por vínculo explícito ou por trabalho que já executaram nele.
+ctx.projectTeamIdsFor = projectId => {
+  const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
+  // Projetos anteriores à associação explícita recuperam equipes pelo histórico
+  // de fluxos. Uma lista explícita (inclusive vazia) sempre tem precedência.
+  const ids = Array.isArray(pj.teamIds) ? pj.teamIds : ctx.state.flows.filter(f => f.projectId === projectId && f.teamId).map(f => f.teamId);
+  return new Set(ids.filter(id => ctx.state.teams.some(t => t.id === id)));
 };
-// Quem trabalha NESTE projeto: a equipe explícita mais quem já rodou tarefa aqui. É o que a opção "Deste projeto" do filtro mostra.
-ctx.projectAgentIds = () => {
-  const pj = ctx.state.projects.find(p => p.id === ctx.project); if (!pj) return new Set();
-  const ids = ctx.projectTeamIds(); for (const t of ctx.state.runs) if (t.project?.id === pj.id && t.agent?.id) ids.add(t.agent.id);
+ctx.projectTeamIds = () => ctx.projectTeamIdsFor(ctx.project);
+ctx.projectAgentIdsFor = projectId => {
+  const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
+  const teamIds = ctx.projectTeamIdsFor(projectId), ids = new Set(pj.agentIds || []);
+  for (const team of ctx.state.teams) if (teamIds.has(team.id)) for (const m of team.members || []) ids.add(m.agentId);
+  for (const t of ctx.state.runs) if (t.project?.id === pj.id && t.agent?.id) ids.add(t.agent.id);
   return new Set(ctx.state.agents.filter(a => ids.has(a.id)).map(a => a.id));
 };
-// ctx.room: '' = todos (escolha da pessoa), '@projeto' = só este projeto, nome = um ambiente. Sem escolha ainda (null): abre só na equipe do projeto SE ela for explícita; senão mostra todos (agente novo nunca fica escondido).
-ctx.roomMode = () => ctx.room ?? (ctx.projectAgentIds().size ? '@projeto' : '');   // ao entrar num projeto com gente (vinculada ou que já rodou tarefa nele), mostra só ela; “Todos” continua a um clique
-ctx.inRoom = a => { const m = ctx.roomMode(); return m === '@projeto' ? ctx.projectAgentIds().has(a.id) : (!m || a.room === m); };
+ctx.projectAgentIds = () => ctx.projectAgentIdsFor(ctx.project);
+// Um projeto aberto limita a Sala. Sem projeto selecionado, a pessoa pode ver o workspace inteiro.
+ctx.roomMode = () => ctx.room ?? (ctx.project ? '@projeto' : '');
+ctx.inRoom = a => { if (ctx.project && !ctx.projectAgentIds().has(a.id)) return false; const m = ctx.roomMode(); return m === '@projeto' || !m || (a.room || 'Geral') === m; };
 ctx.roomAgents = () => {
   const sup = ctx.supervisorAgent();
   return ctx.state.agents.filter(a => a.id !== sup?.id && ctx.inRoom(a))
     .map(a => ({ a, p: PRIORITY[ctx.agentStatus(a).status] ?? 9 })).sort((x, y) => x.p - y.p || x.a.name.localeCompare(y.a.name)).map(x => x.a);
 };
+// Modo “Terminais” da Sala: últimas linhas da tarefa mais recente de cada agente (nunca de outro projeto). Só busca o que está na tela e o que mudou.
+ctx.term = {}; const termBusy = new Set();
+ctx.termTask = a => ctx.state.runs.find(t => t.agent.id === a.id && (!ctx.project || t.project.id === ctx.project)) || null;
+function loadTerms() {
+  if (ctx.view !== 'room' || ctx.viewMode() !== 'term') return;
+  const shown = new Set();
+  for (const a of ctx.roomAgents().slice(0, V.TERM_MAX)) {
+    const t = ctx.termTask(a); if (!t) continue; shown.add(t.id);
+    const c = ctx.term[t.id], live = ['running', 'cancelling'].includes(t.status), stamp = t.status + '|' + t.updatedAt;
+    if (termBusy.has(t.id) || (c && c.stamp === stamp && (!live || Date.now() - c.at < 2500))) continue;
+    termBusy.add(t.id);
+    api('tasks/' + t.id + '/tail').then(tail => {
+      ctx.term[t.id] = { stamp, at: Date.now(), html: V.termLinesHtml(tail) };
+      document.querySelectorAll('.term-out[data-task="' + t.id + '"]').forEach(el => { const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40; el.innerHTML = ctx.term[t.id].html; if (stick) el.scrollTop = el.scrollHeight; });
+    }).catch(() => {}).finally(() => termBusy.delete(t.id));
+  }
+  for (const id of Object.keys(ctx.term)) if (!shown.has(id)) delete ctx.term[id];
+}
 ctx.agentStatus = agent => {
   const label = k => V.AGENT_STATUS[k];
   const c = ctx.state.connectors.find(x => x.id === agent.provider), chk = ctx.checks?.find(x => x.id === agent.provider);
   if (c && !c.available || chk && (!chk.installed || chk.authenticated === false)) return { status: 'disconnected', label: label('disconnected') + (chk?.authenticated === false ? ' (sem login)' : ' (CLI ausente)') };
-  // Ocupado em qualquer projeto conta como ocupado; falha, conclusão e inatividade valem só para o projeto atual.
+  // Um mesmo agente pode estar ligado a mais de um projeto: o estado ocupado é global,
+  // mas nunca mostramos aqui o prompt ou a tarefa que pertence a outro projeto.
   const all = ctx.state.runs.filter(t => t.agent.id === agent.id), mine = all.filter(t => !ctx.project || t.project.id === ctx.project);
-  const by = st => all.find(t => st.includes(t.status));
+  const by = st => mine.find(t => st.includes(t.status));
   let t;
-  if ((t = by(['running', 'cancelling']))) return { status: 'running', label: label('running'), task: t };
+  if ((t = all.find(x => ['running', 'cancelling'].includes(x.status)))) {
+    const own = mine.find(x => x.id === t.id); return { status: 'running', label: own ? label('running') : 'Ocupado em outro projeto', task: own || null };
+  }
   const proposed = ctx.state.plans.find(p => p.status === 'proposed' && (!ctx.project || p.projectId === ctx.project));
   if (proposed && agent.id === ctx.supervisorAgent()?.id) return { status: 'decision', label: label('decision') + ' (plano proposto)', task: null };
   if ((t = by(['needs_decision']))) return { status: 'decision', label: label('decision'), task: t };
@@ -137,7 +172,7 @@ async function refresh() {
   try {
     ctx.state = await api('state'); syncProviderNames();
     checkDesktopNotify();
-    if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
+    if (!ctx.state.projects.some(p => p.id === ctx.project) && !(ctx.project === '' && store.get('cr.general', '') === '1' && ctx.state.projects.length)) setProject(ctx.state.projects[0]?.id || '', true);
     for (const f of Object.values(ctx.flows)) if (f?.id) api('flows/' + f.id).then(v => { ctx.flows[f.id] = v; render(); }).catch(() => {});
     if (ctx.detail) ctx.detail = await api('tasks/' + ctx.detail.id).catch(() => ctx.detail);
     await refreshLive();
@@ -205,8 +240,8 @@ function handleSse(block) {
 }
 
 // ---------- Renderização ----------
-const VIEWS = { room: V.viewRoom, tasks: V.viewTasks, exec: V.viewExecution, projects: V.viewProjects, teams: W.viewTeams, recipes: viewRecipes, agents: W.viewAgents, deliveries: W.viewDeliveries, skills: W.viewSkills, usage: W.viewUsage, routines: W.viewRoutines, connections: W.viewConnections, settings: W.viewSettings };
-const TITLES = { room: 'Sala', tasks: 'Tarefas', exec: 'Execução', projects: 'Projetos', teams: 'Equipes', recipes: 'Receitas', agents: 'Agentes e ferramentas', deliveries: 'Entregas', skills: 'Skills', usage: 'Consumo e limites', routines: 'Rotinas', connections: 'Conexões', settings: 'Configurações' };
+const VIEWS = { home: V.viewHome, room: V.viewRoom, tasks: V.viewTasks, exec: V.viewExecution, projects: V.viewProjects, teams: W.viewTeams, recipes: viewRecipes, agents: W.viewAgents, deliveries: W.viewDeliveries, skills: W.viewSkills, usage: W.viewUsage, routines: W.viewRoutines, connections: W.viewConnections, settings: W.viewSettings };
+const TITLES = { home: 'Início', room: 'Sala de agentes', tasks: 'Tarefas', exec: 'Execução', projects: 'Projetos', teams: 'Equipes', recipes: 'Receitas', agents: 'Agentes e ferramentas', deliveries: 'Entregas', skills: 'Skills', usage: 'Consumo e limites', routines: 'Rotinas', connections: 'Conexões', settings: 'Configurações' };
 function snapshotForm() {
   const out = {}, a = document.activeElement;
   document.querySelectorAll('#view [id], #view [name], #composer-root [id], #panel [name], #panel [id]').forEach(el => { if (!('value' in el)) return; const k = el.id || (el.form?.id || '') + ':' + el.name; out[k] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -236,10 +271,12 @@ function render() {
   $('shell').classList.toggle('panel-open', !!content);
   restoreForm(snap);
   if (ctx.view === 'room' && ctx.viewMode() === 'canvas') { const slot = $('canvas-slot'); if (slot) { slot.innerHTML = canvasHtml(ctx); bindCanvas(slot, ctx, { onOpen: openAgentMenu, onLink: linkAgents, onUnlink: unlinkAgents, onEnd: () => { if (renderQueued) { renderQueued = false; render(); } } }); } }
+  if (ctx.view === 'room' && ctx.viewMode() === 'term') { document.querySelectorAll('.term-out').forEach(el => { el.scrollTop = el.scrollHeight; }); loadTerms(); }
   if (ctx.view === 'room' && ctx.viewMode() === 'scene') { const slot = $('office'); if (slot) { officeHost ||= document.createElement('div'); officeHost.id = 'office'; officeHost.className = 'office-host'; slot.replaceWith(officeHost); drawOffice(); } }
   document.querySelectorAll('.barchart i[data-h]').forEach(i => i.style.height = i.dataset.h + '%');
   const rt = ctx.state.runtime; $('runtime-foot').textContent = rt.version ? `v${rt.version} · serviço ${rt.memoryMB} MB${rt.paused ? ' · novas tarefas pausadas' : ''}` : '';
   $('runtime-foot').title = 'Fechar esta janela não encerra o serviço: os agentes continuam trabalhando. Para encerrar, use "Fechar o Code Room" no menu Iniciar.';
+  const tip = $('footer-tip'); if (tip && !footerTipTimer) { tip.textContent = FOOTER_TIPS[footerTipIndex]; footerTipTimer = setInterval(() => { footerTipIndex = (footerTipIndex + 1) % FOOTER_TIPS.length; const el = $('footer-tip'); if (el) el.textContent = FOOTER_TIPS[footerTipIndex]; }, 12000); }
   tickClocks();
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
@@ -396,14 +433,14 @@ async function loadAsst() {
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
 // Guarda (até 3 por destino) o que foi pedido a uma equipe ou agente pelo chat, para o chat mostrar o pedido e o andamento.
 function rememberSent(target, text, ref) { const all = ctx.ui.sent ?? (ctx.ui.sent = store.get('cr.sent', {})); all[target] = [{ text: String(text).slice(0, 400), at: new Date().toISOString(), ...ref }, ...(all[target] || [])].slice(0, 3); store.set('cr.sent', all); renderAsst(); }
-async function askAssistant(text) {
+async function askAssistant(text, { includeContext = true } = {}) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
   const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
   ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
-  const ok = await asstCall('ask', { text, projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() });
+  const ok = await asstCall('ask', { text, ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
   if (!ok) { await loadAsst(); notify('A mensagem não foi enviada. Seu texto continua na barra: tente de novo.', true); }   // antes: a mensagem aparecia e sumia, e o texto era apagado
   return ok;
 }
@@ -453,16 +490,26 @@ async function go(view) {
   if (view === 'deliveries') { const first = W.deliveryList(ctx)[0]; if (first) selectDelivery(first.key, true); }
   render(); $('view').focus({ preventScroll: true }); window.scrollTo(0, 0);
 }
-function setProject(id, silent) { ctx.project = id; ctx.room = null; store.set('cr.project', id); ctx.skills = []; ctx.audit = null; ctx.projectContext = null; if (!silent) { ctx.detail = null; loadSkills(); } }
+function setProject(id, silent) {
+  ctx.project = id; ctx.room = null; ctx.ui.chatAll = false; store.set('cr.project', id); ctx.skills = []; ctx.audit = null; ctx.projectContext = null;
+  if (!silent) store.set('cr.general', id ? '' : '1');   // “Todos os projetos (geral)” é uma escolha da pessoa: a atualização da tela não a troca pelo primeiro projeto
+  const target = ctx.ui.target || '';
+  if (id && ((target.startsWith('a:') && !ctx.projectAgentIds().has(target.slice(2))) || (target.startsWith('t:') && !ctx.projectTeamIds().has(target.slice(2))) || (target === 's' && !ctx.supervisorAgent()))) ctx.ui.target = 'assistant';
+  if (!silent) { ctx.detail = null; loadSkills(); }
+}
+async function loadAgentLibrary() { try { ctx.agentLibrary = await api('agents/library'); render(); } catch {} }
 async function loadSkills(withAudit) {
-  if (!ctx.project) return; const id = ctx.project;
-  try { const s = await api('skills?project=' + encodeURIComponent(id)); if (id === ctx.project) ctx.skills = s; render(); } catch {}
+  const id = ctx.project, query = id ? '?project=' + encodeURIComponent(id) : '';
+  await Promise.all([
+    api('skills' + query).then(skills => { if (id === ctx.project) { ctx.skills = skills; render(); } }).catch(() => {}),
+    api('skills/library').then(library => { if (id === ctx.project) { ctx.skillLibrary = library; render(); } }).catch(() => {}),
+  ]);
 }
 async function loadRefs(id) { try { ctx.refs = await api(`projects/${id}/references`); } catch { ctx.refs = null; } if (ctx.ui.panel === 'context') render(); }
 async function loadContext(id) { ctx.refs = null; loadRefs(id); ctx.gitInfo = null; ctx.githubInfo = null; loadGit(id, true); try { ctx.projectContext = await api(`projects/${id}/context`); render(); } catch {} }
 // Git do projeto: carrega o estado do repositório (e, se o GitHub CLI estiver logado, PRs e verificações) ao abrir o painel do projeto ou as Entregas.
 async function loadGit(id, withHub) { if (!id) return; try { ctx.gitInfo = await api(`projects/${id}/git`); } catch { ctx.gitInfo = { available: false, repo: false }; } if (withHub && ctx.gitInfo?.repo) { try { ctx.githubInfo = await api(`projects/${id}/github`); } catch { ctx.githubInfo = null; } } else if (withHub) ctx.githubInfo = null; if (ctx.ui.panel === 'context' || ctx.view === 'deliveries') render(); }
-async function loadChecks(force) { if (ctx.checks && !force) return; try { ctx.checks = await api('connectors/check'); render(); } catch {} }
+async function loadChecks(force) { if (ctx.checks && !force) return true; try { ctx.checks = await api('connectors/check'); render(); return true; } catch { return false; } }
 async function loadModules() { try { ctx.modules = await api('modules'); render(); } catch {} }
 async function loadPublish() { try { ctx.publish = await api('publish/status'); if (['connections', 'routines'].includes(ctx.view)) render(); } catch {} }
 async function loadLimits() { try { ctx.limits = await api('usage/limits'); if (ctx.view === 'usage') render(); } catch {} }
@@ -531,7 +578,7 @@ const actions = {
   'asst-task': (id, el) => openTask(id, el?.dataset.tab || 'arquivos'),
   'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
-  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'list' ? 'scene' : 'list'; savePrefs(); render(); }, 'view-mode': id => { ctx.prefs.mode = ['scene', 'list', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'term' ? 'scene' : 'term'; savePrefs(); render(); }, 'view-mode': id => { ctx.prefs.mode = ['scene', 'term', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => {
@@ -547,11 +594,19 @@ const actions = {
   'accept-plan': async id => { await api(`plans/${id}/accept`, {}); notify('Plano aceito. As tarefas foram criadas.'); await refresh(); renderAsst(); },
   opts: async () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; const tg = V.targetOf(ctx); if (ctx.ui.optsOpen && tg.startsWith('a:')) { const ag = ctx.state.agents.find(x => x.id === tg.slice(2)); if (ag && !ctx.models?.[tg]) { try { const info = await api('models?provider=' + encodeURIComponent(ag.provider)); ctx.models = { ...(ctx.models || {}), [tg]: info.models }; ctx.efforts = { ...(ctx.efforts || {}), [tg]: info.efforts }; } catch {} } } render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
   'new-project': () => { ctx.ui.panel = 'new-project'; render(); $('panel').querySelector('input')?.focus(); },
+  'home-pick-project': id => { setProject(id); render(); },
+  'home-prompt': id => { const text = { code: 'Quero desenvolver uma melhoria neste projeto. Primeiro entenda o contexto e proponha um plano curto para eu revisar.', review: 'Revise a entrega mais recente deste projeto. Aponte problemas e riscos antes de sugerir qualquer alteração.', research: 'Quero pesquisar um tema e organizar os achados em uma entrega clara, com fontes para eu conferir.', video: 'Quero criar um conteúdo em vídeo. Ajude a estruturar a ideia, o roteiro e as etapas para revisão.' }[id]; const ta = $('home-mission'); if (ta && text) { ta.value = text; ta.focus(); ta.setSelectionRange(text.length, text.length); } },
+  'project-team-suggest': async id => { const p = ctx.state.projects.find(x => x.id === id); if (!p) throw new Error('Projeto não encontrado.'); if (ctx.project !== p.id) setProject(p.id); ctx.ui.target = 'assistant'; ctx.ui.chatAll = false; await go('room'); setChatOpen(true); await askAssistant(`Monte uma equipe para o projeto “${p.name}”, que está em foco. Antes de propor, conheça o projeto em somente leitura: leia o README (se houver), o arquivo de dependências (package.json, requirements.txt ou equivalente) e a estrutura de pastas. Não abra arquivos de segredo (.env, chaves) e não altere nada. Diga em poucas linhas o que o projeto é e em que estado está. Se o material não bastar, faça até 3 perguntas objetivas antes de propor. Com base suficiente, proponha uma equipe pequena (2 a 5 agentes), reaproveitando agentes existentes e os especialistas da Biblioteca quando fizer sentido, e escolha a IA e o modelo de cada um conforme o guia de IAs instaladas (modelo mais forte para orquestrar e revisar). Proponha as ações criar_agente necessárias (somente leitura por padrão; edição só para quem precisa) e criar_equipe com o campo “projeto” igual ao nome exato “${p.name}”. Não inicie tarefas; aguarde minha aprovação de cada ação.`); },
   'pick-project': id => { setProject(id); go('room'); }, 'proj-filter': id => { ctx.ui.projFilter = id; render(); },
   'open-folder': async id => { await api(`projects/${id}/open`, {}); notify('Pasta aberta no Explorer.'); },
   'proj-context': async id => { ctx.ui.panel = 'context'; ctx.ui.panelId = id; ctx.projectContext = null; render(); await loadContext(id); },
   'close-panel': () => { ctx.ui.panel = null; render(); },
-  'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } render(); },
+  'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'conn-tab': id => { ctx.ui.connTab = id; render(); window.scrollTo(0, 0); }, 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } if (id === 'library') loadAgentLibrary(); render(); },
+  'agent-hire-pack': async id => { const r = await api('agents/library/hire-pack', { id, projectId: ctx.project || undefined }); await refresh(); await loadAgentLibrary(); notify(`${r.created.length ? `Contratados: ${r.created.join(', ')}.` : 'Todos os especialistas desta equipe já estavam na sua lista.'}${r.reused.length ? ` Reaproveitados: ${r.reused.join(', ')}.` : ''}${r.team ? ` Equipe “${r.team}” criada.` : ''}${r.projectId ? ' Tudo já está neste projeto.' : ''}`); },
+  'digest-dismiss': () => { ctx.prefs.digestSeen = new Date().toDateString(); savePrefs(); render(); },
+  'digest-ask': async () => { ctx.prefs.digestSeen = new Date().toDateString(); savePrefs(); ctx.ui.target = 'assistant'; setChatOpen(true); render(); await askAssistant('Acabei de voltar. Olhe o estado atual e me diga, em poucas linhas, o que está pendente (entregas para revisar, tarefas que falharam, pedidos aguardando aprovação, projetos parados) e por onde vale começar. Se alguma falha tiver correção, proponha.'); },
+  'agent-hire': async (id, el) => { const provider = el?.closest('.lib-card')?.querySelector('.lib-provider')?.value; if (!provider) throw new Error('Conecte uma IA em Conexões antes de contratar.'); const r = await api('agents/library/hire', { id, provider, projectId: ctx.project || undefined }); await refresh(); await loadAgentLibrary(); notify(`“${r.agent.name}” contratado${r.projectId ? ' e trazido para este projeto' : ''}. Ele começa ${r.agent.mode === 'write' ? 'podendo editar arquivos do projeto' : 'em somente leitura'}; ajuste em Meus agentes quando quiser.`); },
+  'asst-rename': async () => { const cur = ctx.asst?.name || 'Nico', n = prompt('Como o Assistente deve se chamar? (até 24 letras)', cur); if (n == null) return; ctx.asst = { ...ctx.asst, ...(await api('assistant/name', { name: n })) }; render(); renderAsst(); notify(`Pronto: o Assistente agora se chama ${ctx.asst.name}.`); },
   'asst-autonomy': id => { if (id === 'pilot' && !confirm('Ligar o modo piloto?\n\nO Assistente passa a agir como a sua IA no terminal: cria e edita arquivos na pasta do projeto em foco, roda programas liberados (node, git, ffmpeg…), usa skills, ferramentas MCP e o seu Chrome.\n\nNada é postado, enviado ou pago sem o seu “sim”, mas ele pode mexer nos seus arquivos. Use só em pastas que você aceita que sejam alteradas. Você pode voltar ao modo consulta quando quiser.')) return; return asstCall('autonomy', { mode: id }); },
   'asst-pilot-note-dismiss': () => { store.set('cr.pilot-note-dismissed', true); renderAsst(); },
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
@@ -585,7 +640,14 @@ const actions = {
   },
   toggle: async id => {
     const p = ctx.prefs;
-    if (id === 'pref-net-lan' || id === 'pref-net-ts') { const c = ctx.net.config; ctx.net = await api('network', { lan: id === 'pref-net-lan' ? !c.lan : c.lan, tailscale: id === 'pref-net-ts' ? !c.tailscale : c.tailscale }); ctx.pairing = null; render(); return; }
+    if (id === 'pref-net-lan' || id === 'pref-net-ts') {
+      if (ctx.ui.networkBusy) return;
+      const c = ctx.net.config; ctx.ui.networkBusy = true; render();
+      try { ctx.net = await api('network', { lan: id === 'pref-net-lan' ? !c.lan : c.lan, tailscale: id === 'pref-net-ts' ? !c.tailscale : c.tailscale }); ctx.pairing = null; }
+      catch (e) { notify(e.message, true); }
+      finally { ctx.ui.networkBusy = false; render(); }
+      return;
+    }
     if (id === 'pref-startup') {   // um clique de cada vez: o segundo só vale depois que o primeiro terminou (senão o estado antigo desfaz o clique)
       if (ctx.ui.startupBusy) return; ctx.ui.startupBusy = true;
       try { ctx.startup = await api('startup', { on: !ctx.startup?.on }); notify(ctx.startup.on ? 'O Code Room vai abrir com o Windows.' : 'O Code Room não abre mais com o Windows.'); } catch (e) { notify(e.message, true); } finally { ctx.ui.startupBusy = false; }
@@ -602,19 +664,27 @@ const actions = {
   },
   'tool-sel': id => { ctx.ui.toolSel = id; render(); }, 'tool-help': id => { ctx.ui.toolSel = id; ctx.ui.agentsTab = 'tools'; render(); },
   'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
+  'connector-login': async id => { const r = await api('connectors/login', { provider: id }); notify(`Terminal aberto para entrar no ${V.PROVIDER[id] || id}. Conclua o login no fluxo oficial e depois verifique a conexão.`); return r; },
+  // Testar resposta: pedido mínimo à IA (gasta uma resposta curta). O resultado fica na tela até o próximo teste.
+  'connector-test': async (id, el) => { const model = el?.dataset?.model || ''; ctx.ui.respTest = { ...(ctx.ui.respTest || {}), [id]: { running: true } }; render(); let r; try { r = await api('connectors/test', { provider: id, model }); } catch (e) { r = { ok: false, error: e.message }; } ctx.ui.respTest[id] = r; render(); notify(r.ok ? `${V.PROVIDER[id] || id} respondeu em ${Math.round((r.ms || 0) / 1000)} s${r.model ? ` (modelo ${r.model})` : ''}.` : `${V.PROVIDER[id] || id} não respondeu: ${r.error}${r.hint ? ' ' + r.hint : ''}`, !r.ok); return r; },
+  'connector-check': async () => { ctx.ui.toolChecking = true; render(); ctx.checks = null; const ok = await loadChecks(true); ctx.ui.toolChecking = false; render(); notify(ok ? 'Detecção de ferramentas atualizada.' : 'Não foi possível atualizar a detecção. Verifique se o Code Room está conectado.', !ok); },
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
+  'project-delete': async id => { const p = ctx.state.projects.find(x => x.id === id); if (!p || !confirm(`Excluir o projeto “${p.name}” do Code Room?
+
+A pasta no computador NÃO é apagada e o histórico de tarefas continua guardado. Ligações do Canvas e o contexto deste projeto são removidos.`)) return; const r = await api(`projects/${id}/delete`, { confirm: true }); ctx.ui.panel = null; if (ctx.project === id) setProject('', true); await refresh(); notify(`Projeto “${r.name}” excluído do Code Room. A pasta continua em ${r.path}.`); },
   'agent-delete': async id => { const a = ctx.state.agents.find(x => x.id === id); if (!a || !confirm(`Excluir o agente “${a.name}”?
 
 Isso apaga o perfil dele (nome, instruções, liberações). As tarefas e entregas antigas continuam no histórico. Não dá para desfazer.`)) return; try { await api(`agents/${id}/delete`, { confirm: true }); ctx.ui.panel = null; await refresh(); notify(`Agente “${a.name}” excluído.`); } catch (e) { notify(e.message, true); } },
   'team-delete': async id => { const t = ctx.state.teams.find(x => x.id === id); if (!t || !confirm(`Excluir a equipe “${t.name}”?
 
 Os agentes dela continuam existindo; só a equipe (papéis e ordem) é apagada. Não dá para desfazer.`)) return; try { await api(`teams/${id}/delete`, { confirm: true }); await refresh(); notify(`Equipe “${t.name}” excluída.`); } catch (e) { notify(e.message, true); } },
-  'member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; closeAgentMenu(); await api('projects/members', { projectId: pid, remove: [id] }); await refresh(); notify('Agente tirado do projeto (ele continua existindo e pode voltar quando quiser).'); },
+  'member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; closeAgentMenu(); const linked = ctx.projectTeamIdsFor(pid), teams = ctx.state.teams.filter(t => linked.has(t.id) && (t.members || []).some(m => m.agentId === id)).map(t => t.name), worked = ctx.state.runs.some(t => t.project?.id === pid && t.agent?.id === id); await api('projects/members', { projectId: pid, remove: [id] }); await refresh(); notify('Agente tirado do projeto (ele continua existindo e pode voltar quando quiser).' + (teams.length ? ` A equipe “${teams.join('”, “')}” também foi desvinculada, porque ele faz parte dela.` : '') + (worked ? ' Ele ainda aparece aqui porque já executou tarefas neste projeto.' : '')); },
+  'team-member-remove': async (id, el) => { const pid = el?.dataset?.project || ctx.project; if (!pid) return; await api('projects/members', { projectId: pid, removeTeams: [id] }); await refresh(); notify('Equipe desvinculada do projeto. Os agentes que também foram trazidos individualmente continuam ligados.'); },
   'skill-view': id => { ctx.ui.skillView = id || ''; ctx.ui.skillMore = false; render(); },
   'skill-fav': id => skillPref('fav', id), 'skill-hide': id => skillPref('hide', id),
   'skill-sel': id => { ctx.ui.skillSel = id; render(); }, 'skill-more': () => { ctx.ui.skillMore = true; render(); },
   // ---- Rádio da Sala: lo-fi gerado no navegador. Desligada por padrão; só toca quando a pessoa clica (o navegador não permite tocar sozinho). ----
-  'radio-next': () => { radio?.nextTrack(); if (radio?.playing) flashRadioArtwork('next'); },
+  'radio-next': () => { if (!radio?.playing) return; const next = radio.nextTrack(); $('radio-track').textContent = `próxima faixa: ${TRACKS[next].name}`; updateRadioUi(); flashRadioArtwork('next'); },
   'radio-volume-toggle': () => { if (!radio?.playing) return; radioControlsExpanded = !radioControlsExpanded; updateRadioUi(); },
   'radio-toggle': async () => {
     if (radio?.playing) { radio.stop(); radio = null; radioControlsExpanded = false; }
@@ -633,24 +703,32 @@ Os agentes dela continuam existindo; só a equipe (papéis e ordem) é apagada. 
   'fj-delete': async id => { const j = ctx.state.folderJobs.find(x => x.id === id); if (!j || !confirm(`Remover a pasta de entrada “${j.name}”? Os arquivos e as tarefas ficam como estão.`)) return; await api(`folderjobs/${id}/delete`, {}); await refresh(); },
   'notice-seen': async id => { await api('notices/seen', { id }); await refresh(); },
   'notice-open': async (id, b) => { await api('notices/seen', { id }); ctx.ui.fjOpen = b?.dataset.job || null; await refresh(); await go('routines'); },
-  'prov-open': async () => { ctx.ui.provForm = emptyForm(); ctx.ui.provTest = {}; if (!ctx.providers) await loadProviders(); $('prov-dialog').showModal(); renderProv(); loadProviders(); },
+  'prov-open': async () => { ctx.ui.provForm = emptyForm(); ctx.ui.provTest = {}; ctx.ui.provCli = {}; if (!ctx.providers) await loadProviders(); $('prov-dialog').showModal(); renderProv(); loadProviders(); },
   'prov-close': () => { $('prov-dialog').close(); },
   'prov-pick': key => { const c = ctx.providers?.catalog?.find(x => x.key === key); if (!c) return; ctx.ui.provForm = formFromCatalog(c); ctx.ui.provTest = { ...(ctx.ui.provTest || {}), form: null }; renderProv(); },
+  'prov-add-catalog': async key => { const c = ctx.providers?.catalog?.find(x => x.key === key); if (!c || c.added) return; ctx.providers = await api('providers', payloadFromForm(formFromCatalog(c))); await refresh(); renderProv(); notify(`${c.name} foi adicionada. Agora entre na conta da CLI e teste uma resposta antes de usá-la em agentes.`); },
+  'provider-cli-action': async (id, b) => { const action = b?.dataset.action; if (action === 'update' && !confirm('Abrir o Kiro CLI e executar o comando oficial de atualização agora? O Code Room não usa a opção de forçar downgrade.')) return; const r = action === 'login' ? await api('connectors/login', { provider: id }) : await api('connectors/cli-action', { provider: id, action }); notify(action === 'update' ? 'Terminal aberto com o comando oficial de atualização do Kiro CLI.' : `Terminal aberto para entrar no ${V.PROVIDER[id] || 'Kiro CLI'}. Depois, clique em “Verificar login”.`); return r; },
+  'provider-cli-check': async id => { const r = await api('connectors/kiro/check', {}); ctx.ui.provCli = { ...(ctx.ui.provCli || {}), [id]: r }; renderProv(); notify(r.message, r.authenticated === false || r.status === 'error' || r.status === 'timeout'); },
+  'provider-help': async (id, b) => { const name = b?.dataset.name || id; const prompt = `Me ajude, passo a passo, a conectar ${name} no Code Room. Primeiro descubra se a CLI está instalada e acessível no PATH, se a autenticação já foi feita e qual comando/formato precisa ser configurado. Se faltar informação, peça apenas o dado necessário. Não repita nenhuma tarefa com erro.`; ctx.ui.target = 'assistant'; await go('room'); setChatOpen(true); setTimeout(() => { const ta = $('mission'); if (ta) { ta.value = prompt; ta.focus(); ta.setSelectionRange(prompt.length, prompt.length); } }, 140); },
   'prov-edit': async id => { const s = ctx.providers?.custom?.find(x => x.id === id); if (!s) return; ctx.ui.provForm = formFromSpec(s); ctx.ui.provTest = { ...(ctx.ui.provTest || {}), form: null }; $('prov-dialog').showModal(); renderProv(); },
   'prov-delete': async id => { const s = ctx.providers?.custom?.find(x => x.id === id); if (!s || !confirm(`Remover “${s.name}”? Os agentes que usam esta IA precisam ser trocados antes.`)) return; ctx.providers = await api('providers/delete', { id }); await refresh(); notify('IA removida.'); },
   'prov-test': id => testProv({ id }, id),
   'prov-test-form': () => { readProvForm(); testProv(payloadFromForm(ctx.ui.provForm), 'form'); },
   'skill-cat': id => { ctx.ui.skillCat = id || ''; ctx.ui.skillMore = false; render(); },
+  'skill-library-install': async id => { await api('skills/library/install', { id }); await loadSkills(); notify('Skill inicial adicionada. Revise-a e escolha os agentes que poderão usá-la.'); },
   'asst-toggle': () => setChatOpen(!ctx.ui.asstOpen),
   'chat-open': () => setChatOpen(true),
   'chat-min': () => setChatOpen(false),
   'asst-thread-rename': id => { ctx.ui.renameId = id; renderAsst(); const i = document.querySelector('.cw-rename'); if (i) { i.focus(); i.select(); } },
-  'fix-with-ai': id => {
-    const t = (ctx.detail?.id === id ? ctx.detail : null) || ctx.state.runs.find(x => x.id === id); if (!t) return;
-    const why = String(t.reason || t.error || '').replace(/\s+/g, ' ').slice(0, 700), kind = t.failureKind ? ` (tipo: ${t.failureKind})` : '';
-    return askAssistant(`A tarefa ${t.id} do agente “${t.agent?.name || '?'}” (${t.agent?.provider || '?'}) terminou com problema${kind}: ${why}
-
-Descubra a causa e proponha a correção como ação para eu aprovar (por exemplo liberar um programa ou uma ferramenta, ajustar o agente ou a permissão). Não repita a tarefa sem a correção.`);
+  'fix-with-ai': async id => {
+    let t = (ctx.detail?.id === id ? ctx.detail : null) || ctx.state.runs.find(x => x.id === id); if (!t) return;
+    try { t = await api('tasks/' + id); } catch {}
+    const kind = t.failureKind || 'não classificado', model = t.agent?.model || 'padrão da conta', actual = t.actualModel || t.modelReported || 'não informado pela CLI';
+    const why = String(t.reason || t.error || '').replace(/\s+/g, ' ').slice(0, 700);
+    return askAssistant(`Corrija a falha da tarefa ${t.id} no Code Room.
+Dados: tipo=${kind}; agente=${t.agent?.name || 'desconhecido'}; provedor=${t.agent?.provider || 'desconhecido'}; modelo pedido=${model}; modelo informado=${actual}; tentativas=${t.attemptCount ?? 'indisponível'}.
+Motivo registrado: ${why || '(vazio)'}
+Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code Room, proponha as ações para eu aprovar: ajustar_agente (trocar modelo, esforço, permissão ou a IA do agente) e, em seguida, repetir_tarefa com o id ${t.id}. Se a correção depender de mim fora do Code Room (entrar na conta da CLI, instalar um programa, esperar a cota voltar), diga exatamente o que fazer e onde, e não proponha repetir. Se não der para saber a causa só com isto, diga o que falta e peça que eu copie o trecho da aba Eventos. Não invente causa.`, { includeContext: false });
   },
   'asst-help': id => { const al = ctx.asst?.alerts?.find(x => x.id === id); if (al) return askAssistant(al.ask); },
   'asst-alert-dismiss': id => asstCall('alerts/dismiss', { id }),
@@ -668,6 +746,7 @@ Descubra a causa e proponha a correção como ação para eu aprovar (por exempl
   'asst-reset': () => asstCall('reset'),
   'asst-suggest': q => { const ta = $('mission'); if (!ta) return; ta.value = q; ta.focus(); ta.setSelectionRange(q.length, q.length); },
   'asst-apply': async id => { try { await applyAsst(id); } catch (e) { notify(e.message, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); } },
+  'asst-team-help': async () => { await askAssistant('A equipe que acabei de criar ainda não está ligada a um projeto. Ajude-me a escolher o projeto atual ou pergunte qual devo usar, confira a equipe disponível e proponha um fluxo para eu aprovar. Não inicie tarefas nem aplique outras ações sem minha aprovação.'); },
   'asst-apply-all': async mid => {
     const msg = ctx.asst?.messages?.find(x => x.id === mid); const todo = (msg?.actions || []).filter(a => a.status === 'pending');
     for (const a of todo) { if (!a.valid) { notify(`Parei antes de “${a.summary || 'uma proposta'}”: ${a.error || 'inválida'}.`, true); break; } try { await applyAsst(`${mid}:${a.idx}`); } catch (e) { notify(`Parei em “${a.summary}”: ${e.message}`, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); break; } }
@@ -875,7 +954,6 @@ document.addEventListener('change', async e => {
     else if (t.id === 'usage-period') { ctx.ui.usagePeriod = t.value; render(); } else if (t.id === 'usage-project') { ctx.ui.usageProject = t.value; render(); }
     else if (t.id === 'routine-proj') { ctx.ui.routineProj = t.value; render(); }
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
-    else if (t.id === 'target' && t.value === '@all') { ctx.ui.chatAll = !ctx.ui.chatAll; render(); renderAsst(); }
     else if (t.id === 'target') { ctx.sim = null; ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
     else if (t.dataset?.act === 'skill-agent') {
@@ -891,12 +969,18 @@ document.addEventListener('input', e => {
   if (m) { ctx.ui[m] = t.value; if (t.id !== 'review-note') render(); else { const c = t.parentElement.querySelector('.muted.small'); if (c) c.textContent = `${t.value.length}/500`; } }
 });
 
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.matches?.('.mini-form textarea, .am-form textarea')) { e.preventDefault(); e.target.form.requestSubmit(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.matches?.('.mini-form textarea, .am-form textarea, .term-form textarea')) { e.preventDefault(); e.target.form.requestSubmit(); } });
 
 // ---------- Formulários ----------
 document.addEventListener('submit', async e => {
   e.preventDefault(); const f = e.target, fid = f.getAttribute('id');
   try {
+    if (fid === 'home-composer') {
+      const text = String(new FormData(f).get('prompt') || '').trim(), projectId = String(new FormData(f).get('projectId') || ''); if (!text) return;
+      if (projectId !== ctx.project) { setProject(projectId); render(); }
+      ctx.ui.target = 'assistant'; if (await askAssistant(text)) { const ta = $('home-mission'); if (ta) ta.value = ''; }
+      return;
+    }
     if (fid === 'hermes-form') {   // servidor do Hermes: o servidor valida de novo tudo o que chega
       ctx.hermes = await api('hermes', { host: $('hermes-host').value, port: $('hermes-port').value, key: $('hermes-key').value, bin: $('hermes-bin').value, trustNew: $('hermes-trust').checked });
       ctx.hermesTest = null; await refresh(); loadChecks(true); notify('Servidor do Hermes salvo. Clique em “Testar a conexão”.'); render(); return;
@@ -913,13 +997,19 @@ document.addEventListener('submit', async e => {
       if (dictation?.listening) dictation.stop(); cancelSpeech(window);   // ao enviar, para de ouvir e de falar
       let target = $('target').value, text = $('mission').value.trim(); const criteria = lines($('criteria')?.value), requestId = crypto.randomUUID(), skillIds = [];
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
-      const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase());
+      const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase() && (!ctx.project || ctx.projectAgentIds().has(a.id)));
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
       if (target === 'assistant') { if (await askAssistant(text)) $('mission').value = ''; return; }
       let projId = ctx.project; const px = extractProject(text, ctx.state.projects); if (px.project) { projId = px.project.id; text = px.text; } else if (px.ambiguous) throw new Error('Mais de um projeto combina com o # que você escreveu. Escreva o nome inteiro.');
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
       if (!projId) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
+      if (projId !== ctx.project) {
+        const members = ctx.projectAgentIdsFor(projId), teams = ctx.projectTeamIdsFor(projId);
+        if (target.startsWith('a:') && !members.has(target.slice(2))) throw new Error('Este agente não está ligado ao projeto citado. Traga-o pelo menu de contexto do projeto primeiro.');
+        if (target.startsWith('t:') && !teams.has(target.slice(2))) throw new Error('Esta equipe não está ligada ao projeto citado. Traga-a pelo menu de contexto do projeto primeiro.');
+        if (target === 's') throw new Error('Para usar o Supervisor, selecione o projeto desejado no topo antes de enviar.');
+      }
       $('send').disabled = true;
       if (target === 's') { await api('plans', { projectId: projId, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
       else if (target.startsWith('t:')) { const fl = await api('flows', { projectId: projId, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); rememberSent(target, text, { flowId: fl.id }); notify('Fluxo iniciado. O andamento aparece no chat.'); }
@@ -931,8 +1021,11 @@ document.addEventListener('submit', async e => {
       const fd = new FormData(f), t = await api(`tasks/${fd.get('id')}/followup`, { agentId: fd.get('agentId'), message: fd.get('message'), requestId: crypto.randomUUID() });
       notify(t.resumed ? 'Continuando a mesma sessão.' : 'Nova missão iniciada com o resumo e os arquivos da anterior.'); await refresh(); return openTask(t.id);
     } else if (fid === 'login-form') { key = $('access-key').value.trim(); ctx.ui.loginError = ''; start(); }
-    else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area, createSub: d.createSub === '1' }); if (d.team) store.set('cr.team.' + p.id, d.team); ctx.ui.panel = null; setProject(p.id); await refresh(); notify('Projeto criado.'); }
-    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.web = f.elements.web.checked; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; if (!d.id) delete d.id; await api('agents', d); $('agent-dialog').close(); await refresh(); notify('Agente salvo.'); }
+    else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area, createSub: d.createSub === '1' }); if (d.team) await api('projects/members', { projectId: p.id, addTeams: [d.team] }); ctx.ui.panel = null; setProject(p.id); await refresh(); notify(d.team ? 'Projeto criado com a equipe inicial ligada.' : 'Projeto criado.'); if (!d.team && d.area !== 'Financeiro' && ctx.asstOk !== false && confirm(`Projeto “${p.name}” criado.\n\nQuer que o Assistente leia a pasta (README, dependências e estrutura) e sugira uma equipe para tocar este projeto? Nada é criado sem a sua aprovação.`)) await actions['project-team-suggest'](p.id); }
+    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.web = f.elements.web.checked; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; const isNew = !d.id; if (isNew) delete d.id; const saved = await api('agents', d); const joined = isNew && ctx.project && saved?.id; if (joined) await api('projects/members', { projectId: ctx.project, add: [saved.id] }); $('agent-dialog').close(); await refresh(); notify((joined ? `Agente salvo e trazido para o projeto “${ctx.projectNameOf(ctx.project)}”.` : 'Agente salvo.') + (isNew && saved?.provider !== 'hermes' ? ' Testando a resposta da IA em segundo plano…' : ''));
+      // Agente novo: confere logo se a IA dele responde, para o erro não aparecer só na primeira tarefa. Uma vez por IA e modelo nesta sessão.
+      if (isNew && saved?.provider && saved.provider !== 'hermes') { const k = saved.provider + '|' + (saved.model || ''); ctx.ui.respSeen ??= new Set(); if (!ctx.ui.respSeen.has(k)) { ctx.ui.respSeen.add(k); api('connectors/test', { provider: saved.provider, model: saved.model || '' }).then(r => { ctx.ui.respTest = { ...(ctx.ui.respTest || {}), [saved.provider]: r }; notify(r.ok ? `“${saved.name}” está pronto: ${V.PROVIDER[saved.provider] || saved.provider} respondeu ao teste.` : `Atenção: a IA de “${saved.name}” não respondeu ao teste. ${r.error || ''} ${r.hint || 'Confira o login em Conexões.'}`, !r.ok); render(); }).catch(() => {}); } }
+    }
     else if (fid === 'flow-form') { const d = Object.fromEntries(new FormData(f)); await api('flows', { projectId: ctx.project, teamId: d.team, requestId: crypto.randomUUID(), objective: d.objective, criteria: lines(d.criteria), maxReviewRounds: ctx.prefs.rounds || 1 }); f.reset(); notify('Fluxo iniciado.'); await refresh(); }
     else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v); await api('settings/concurrency', { global: n(d.global), provider: { codex: n(d.codex), claude: n(d.claude) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
     else if (fid === 'token-budget-form') { const fd = new FormData(f); await api('settings/token-budget', { limit: fd.get('limit'), enabled: fd.get('enabled') === 'on' }); await Promise.all([refresh(), loadEconomy()]); notify('Teto salvo.'); }
@@ -960,7 +1053,7 @@ document.addEventListener('submit', async e => {
     else if (fid === 'recipe-form') { await api('recipes', readRecipeForm(f)); ctx.ui.panel = null; ctx.ui.recipeDraft = null; notify('Receita salva.'); await refresh(); }
     else if (fid === 'recipe-run-form') { const d = Object.fromEntries(new FormData(f)); await api(`recipes/${d.rid}/run`, { objective: d.objective }); ctx.ui.panel = null; notify('Rodada iniciada.'); await refresh(); }
     else if (fid === 'fj-form') { readFjForm(); const j = await api('folderjobs', payloadFromJobForm(ctx.ui.fjForm)); $('fj-dialog').close(); ctx.ui.fjOpen = j.id; await refresh(); notify(j.counts.total ? `${j.counts.total} arquivo(s) encontrados. O lote começou.` : 'Pasta de entrada criada. Ponha os arquivos nela.'); }
-    else if (fid === 'prov-form') { readProvForm(); ctx.providers = await api('providers', payloadFromForm(ctx.ui.provForm)); $('prov-dialog').close(); await refresh(); notify('IA conectada. Agora ela aparece ao criar um agente.'); }
+    else if (fid === 'prov-form') { readProvForm(); ctx.providers = await api('providers', payloadFromForm(ctx.ui.provForm)); $('prov-dialog').close(); await refresh(); notify('Configuração da CLI salva. Entre na conta e teste a resposta antes de usar em um agente.'); }
     else if (fid === 'obs-form') {   // vínculo com o Obsidian: o servidor valida de novo tudo (cofre, pastas e caminhos)
       const byProject = {}; for (const el of f.querySelectorAll('[data-obs-proj]')) if (el.value.trim()) byProject[el.dataset.obsProj] = el.value.trim();
       ctx.obsidian = await api('obsidian/config', { enabled: $('obs-enabled').checked, vault: $('obs-vault').value, exclude: $('obs-exclude').value.split(',').map(x => x.trim()).filter(Boolean), allowWrite: f.querySelector('input[name=obs-mode]:checked')?.value === 'write', writeFolder: $('obs-wfolder').value, byProject });
@@ -976,6 +1069,7 @@ async function fillModelOptions(provider, current = {}) {
   const f = $('agent-form'), sel = f.elements.effort, dl = $('agent-models'); let info = { models: [], efforts: [] };
   try { info = await api('models?provider=' + encodeURIComponent(provider)); } catch {}
   dl.innerHTML = (info.models || []).map(m => `<option value="${V.esc(m.id)}">${V.esc(m.label)}</option>`).join('');
+  const hint = $('model-hint'); if (hint) hint.textContent = info.models?.length ? 'Escolha uma sugestão ou digite o ID de modelo aceito pela CLI. Em cada tarefa, o Code Room mostra o modelo reportado pelo provedor quando disponível.' : 'Não há catálogo disponível para esta IA nesta máquina. Você ainda pode digitar o ID aceito pela CLI; vazio usa o padrão da conta.';
   const keep = current.effort ?? sel.value; sel.innerHTML = '<option value="">Padrão da IA</option>' + (info.efforts || []).map(e => `<option value="${e.id}">${V.esc(e.label)}</option>`).join(''); sel.value = (info.efforts || []).some(e => e.id === keep) ? keep : '';
   sel.disabled = !(info.efforts || []).length; $('effort-hint').textContent = sel.disabled ? 'Esta IA não tem ajuste de esforço.' : 'Mais esforço pensa mais e gasta mais cota. “Padrão da IA” usa o que ela já está configurada.';
 }
@@ -1035,7 +1129,7 @@ function updatePop() {
   const items = t.ch === '/'
     ? skillChoices(t.q).map(s => ({ label: '/' + s.name, hint: s.description.slice(0, 90), insert: '/' + s.name + ' ' }))
     : t.ch === '#' ? ctx.state.projects.filter(p => !t.q || p.name.toLowerCase().includes(t.q.replace(/_/g, ' '))).slice(0, 8).map(p => ({ label: '#' + p.name, hint: p.area || 'Projeto', insert: projectToken(p.name) + ' ' }))
-    : ctx.state.agents.filter(a => !t.q || a.name.toLowerCase().includes(t.q)).slice(0, 8).map(a => ({ label: '@' + a.name, hint: `${PROVIDER_NAMES[a.provider] || a.provider} · ${a.role}`, insert: '@' + a.name.replace(/\s+/g, '_') + ' ' }));
+    : ctx.state.agents.filter(a => (!ctx.project || ctx.projectAgentIds().has(a.id)) && (!t.q || a.name.toLowerCase().includes(t.q))).slice(0, 8).map(a => ({ label: '@' + a.name, hint: `${PROVIDER_NAMES[a.provider] || a.provider} · ${a.role}`, insert: '@' + a.name.replace(/\s+/g, '_') + ' ' }));
   if (!items.length) { old?.remove(); pop = { items: [], t, sel: 0 }; return; }
   const sel = Math.min(pop?.sel || 0, items.length - 1); pop = { items, t, sel };
   const html = `<div id="slash-pop" class="slash-pop" role="listbox" aria-label="${({ '/': 'Skills', '#': 'Projetos' })[t.ch] || 'Agentes'}"><div class="slash-h">${({ '/': 'Skills instaladas (valem para qualquer agente)', '#': 'Projetos (a missão vai para o projeto escolhido)' })[t.ch] || 'Agentes'}</div>${items.map((it, i) => `<button type="button" role="option" aria-selected="${i === sel}" class="${i === sel ? 'on' : ''}" data-pick="${i}"><b>${esc2(it.label)}</b><small>${esc2(it.hint)}</small></button>`).join('')}</div>`;
@@ -1046,7 +1140,7 @@ function pickItem(i) {
   ta.value = ta.value.slice(0, t.from) + items[i].insert + ta.value.slice(t.to); const c = t.from + items[i].insert.length; ta.setSelectionRange(c, c); ta.focus();
   $('slash-pop')?.remove(); pop = null;
 }
-document.addEventListener('input', e => { if (e.target.id === 'mission') { if (pop) pop.sel = 0; updatePop(); } });
+document.addEventListener('input', e => { if (e.target.id === 'mission') { if (pop) pop.sel = 0; updatePop(); } if (e.target.id === 'provider-search') { const q = e.target.value.trim().toLocaleLowerCase(); document.querySelectorAll('.prov-pick').forEach(b => { b.hidden = !b.textContent.toLocaleLowerCase().includes(q); }); } });
 document.addEventListener('keyup', e => { if (e.target.id === 'mission' && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) updatePop(); });
 document.addEventListener('mousedown', e => { const b = e.target.closest?.('#slash-pop [data-pick]'); if (b) { e.preventDefault(); pickItem(Number(b.dataset.pick)); } });
 document.addEventListener('keydown', e => {   // captura: roda antes do Enter que envia a missão
@@ -1069,7 +1163,7 @@ async function start() {
   try {
     ctx.state = await api('state'); ctx.authed = true;
     sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
-    if (!ctx.state.projects.some(p => p.id === ctx.project)) setProject(ctx.state.projects[0]?.id || '', true);
+    if (!ctx.state.projects.some(p => p.id === ctx.project) && !(ctx.project === '' && store.get('cr.general', '') === '1' && ctx.state.projects.length)) setProject(ctx.state.projects[0]?.id || '', true);
     loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); setInterval(() => { if (ctx.authed && !document.hidden === false) loadAsst(); else if (ctx.authed) loadAsst(); }, 60000); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
     if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }

@@ -39,6 +39,10 @@ try {
   }
   if (-not $state) { throw 'O serviço do pacote não respondeu em 12,5 segundos.' }
   if ($state.runtime.version -ne (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json).version) { throw "Versão inesperada no pacote: $($state.runtime.version)." }
+  $library = Invoke-RestMethod -Uri "$base/api/skills/library" -Headers @{'X-Code-Room-Key' = $key} -TimeoutSec 5
+  if ($library.Count -ne 3 -or @($library | Where-Object { -not $_.available }).Count -gt 0) { throw 'A biblioteca de skills iniciais não está completa no pacote.' }
+  $starter = Invoke-RestMethod -Method Post -Uri "$base/api/skills/library/install" -Headers @{'X-Code-Room-Key' = $key} -ContentType 'application/json' -Body '{"id":"planejar-entrega"}' -TimeoutSec 5
+  if (-not $starter.installed -or -not (Test-Path -LiteralPath (Join-Path $data 'minhas-skills\planejar-entrega\SKILL.md'))) { throw 'O pacote não conseguiu instalar uma skill inicial na pasta de dados isolada.' }
   $usage = (Invoke-WebRequest -Uri "$base/views2.js" -TimeoutSec 3 -UseBasicParsing).Content
   $onboarding = (Invoke-WebRequest -Uri "$base/onboarding.js" -TimeoutSec 3 -UseBasicParsing).Content
   $updates = (Invoke-WebRequest -Uri "$base/updates-ui.js" -TimeoutSec 3 -UseBasicParsing).Content
@@ -54,7 +58,7 @@ try {
     if ($image.StatusCode -ne 200 -or $image.Headers['Content-Type'] -notmatch 'image/webp') { throw "O servidor não entregou $asset como WebP." }
   }
   if ($index -notmatch 'data-playing-src="/assets/radio-tocando\.webp"') { throw 'O índice não aponta o player para as imagens WebP locais.' }
-  Write-Host "OK: pacote portátil iniciou isolado, API autenticada respondeu v$($state.runtime.version), Uso sem tabela duplicada, primeiro acesso, atualizações e rádio presentes."
+  Write-Host "OK: pacote portátil iniciou isolado, API autenticada respondeu v$($state.runtime.version), biblioteca de skills instalou em dados isolados, Uso sem tabela duplicada, primeiro acesso, atualizações e rádio presentes."
 }
 finally {
   if ($process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue; [void]$process.WaitForExit(5000) }

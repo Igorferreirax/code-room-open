@@ -51,6 +51,7 @@ try:
         rows = pg.locator('.onb-row').all_inner_texts()
         check('triagem: Codex aparece Conectado', 'Conectado' in rows[0] and 'Codex' in rows[0], rows[0])
         check('triagem: Claude mostra "falta entrar" e o comando de login', 'Instalado: falta entrar' in rows[1] and 'claude auth login' in rows[1], rows[1])
+        check('triagem: oferece abrir o login oficial do CLI', pg.locator('.onb-row [data-act=connector-login]').count() == 1 and 'Abrir terminal e entrar' in rows[1], rows[1])
         check('triagem: Gemini mostra "não encontrado" e como instalar', 'Não encontrado' in rows[2] and 'site oficial' in rows[2], rows[2])
         check('triagem: botão Pular e Ver o tutorial presentes', pg.locator('[data-act=onb-skip]').count() == 1 and pg.locator('[data-act=onb-tour]').count() == 1)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'onb-setup.png'))
@@ -62,21 +63,21 @@ try:
 
         # tutorial inteiro
         pg.click('[data-act=onb-tour]'); pg.wait_for_selector('.tour', timeout=5000); time.sleep(0.4)
-        TITLES = ['A Sala', 'Projetos', 'Tarefas', 'Equipes', 'Receitas', 'Agentes e ferramentas', 'Entregas', 'Skills', 'Consumo e limites', 'Rotinas', 'Conexões', 'Configurações']
-        NAV = ['room', 'projects', 'tasks', 'teams', 'recipes', 'agents', 'deliveries', 'skills', 'usage', 'routines', 'connections', 'settings']
+        TITLES = ['Início e Assistente', 'A Sala', 'Projetos', 'Tarefas', 'Equipes', 'Receitas', 'Agentes e ferramentas', 'Entregas', 'Skills', 'Consumo e limites', 'Rotinas', 'Conexões', 'Configurações']
+        NAV = ['home', 'room', 'projects', 'tasks', 'teams', 'recipes', 'agents', 'deliveries', 'skills', 'usage', 'routines', 'connections', 'settings']
         seen_ok = True
         for i, (title, nav) in enumerate(zip(TITLES, NAV)):
             t = pg.locator('.tour h2').inner_text(); hl = pg.evaluate("[...document.querySelectorAll('.tour-hl')].map(e => e.dataset.nav)")
             cur = pg.evaluate("document.querySelector('#rail [aria-current=page]')?.dataset.nav")
-            if not (t == title and hl == [nav] and cur == nav and f'passo {i + 1} de 12' in pg.locator('.tour').inner_text().lower()): seen_ok = False; print('   passo', i + 1, t, hl, cur)
-            if i == 2:   # volta um passo e avança de novo
+            if not (t == title and hl == [nav] and cur == nav and f'passo {i + 1} de 13' in pg.locator('.tour').inner_text().lower()): seen_ok = False; print('   passo', i + 1, t, hl, cur)
+            if i == 3:   # volta um passo e avança de novo
                 pg.click('[data-act=onb-back]'); time.sleep(0.3); check('tutorial: Voltar leva ao passo anterior', pg.locator('.tour h2').inner_text() == 'Projetos')
                 pg.click('[data-act=onb-next]'); time.sleep(0.3)
-            if i == 5:   # setas do teclado
+            if i == 6:   # setas do teclado
                 pg.keyboard.press('ArrowRight'); time.sleep(0.3); check('tutorial: seta direita avança', pg.locator('.tour h2').inner_text() == 'Entregas')
                 pg.keyboard.press('ArrowLeft'); time.sleep(0.3); check('tutorial: seta esquerda volta', pg.locator('.tour h2').inner_text() == 'Agentes e ferramentas')
-            if i < 11: pg.click('[data-act=onb-next]'); time.sleep(0.35)
-        check('tutorial: 12 passos, cada um abre a tela e destaca o botão certo do menu', seen_ok)
+            if i < 12: pg.click('[data-act=onb-next]'); time.sleep(0.35)
+        check('tutorial: 13 passos, cada um abre a tela e destaca o botão certo do menu', seen_ok)
         check('tutorial: o último passo oferece Concluir', pg.locator('[data-act=onb-next]').inner_text() == 'Concluir')
         pg.click('[data-act=onb-next]'); time.sleep(0.4)
         flags = pg.evaluate("JSON.parse(localStorage.getItem('cr.onb') || '{}')")

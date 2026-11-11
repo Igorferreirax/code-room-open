@@ -24,6 +24,9 @@ test('ações: extrai só blocos code-room-action válidos, limpa o texto, limit
 test('criar_equipe: nomes viram ids reais; papel, agente inexistente, nome ambíguo e equipe repetida são recusados', () => {
   const ok = normalizeAction({ acao: 'criar_equipe', nome: ' Equipe Dev ', membros: [{ papel: 'desenvolvedor', agente: 'desenvolvedor' }, { papel: 'revisor', agente: 'Gemini' }] }, world());
   assert.equal(ok.valid, true); assert.deepEqual(ok.payload, { name: 'Equipe Dev', members: [{ role: 'desenvolvedor', agentId: 'a1' }, { role: 'revisor', agentId: 'a3' }] }); assert.match(ok.summary, /Criar a equipe “Equipe Dev”: desenvolvedor → Desenvolvedor, revisor → Gemini/);
+  const linked = normalizeAction({ acao: 'criar_equipe', nome: 'Equipe do Canal', projeto: 'Canal', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }] }, world());
+  assert.equal(linked.valid, true); assert.equal(linked.payload.projectId, 'p1'); assert.match(linked.summary, /vinculá-la ao projeto “Canal”/);
+  assert.match(normalizeAction({ acao: 'criar_equipe', nome: 'Equipe Perdida', projeto: 'Fantasma', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }] }, world()).error, /projeto “Fantasma” não existe/);
   const err = (m, re, n = 'Nova') => { const r = normalizeAction({ acao: 'criar_equipe', nome: n, membros: m }, world()); assert.equal(r.valid, false); assert.match(r.error, re); };
   err([{ papel: 'chefe', agente: 'Gemini' }], /Papel inválido: chefe/); err([{ papel: 'revisor', agente: 'Fantasma' }], /não existe/); err([{ papel: 'revisor', agente: 'Revisor' }], /mais de um agente/); err([], /1 a 12/); err(Array(13).fill({ papel: 'revisor', agente: 'Gemini' }), /1 a 12/);
   err([{ papel: 'revisor', agente: 'Gemini' }], /Já existe uma equipe/, 'equipe antiga'); err([{ papel: 'revisor', agente: 'Gemini' }], /precisa de um nome/, '   ');
@@ -181,6 +184,14 @@ test('encadeamento: itens propostos na mesma resposta valem como existentes (pro
   const eq = normalizeAction({ acao: 'criar_equipe', nome: 'Equipe Doc', membros: [{ papel: 'desenvolvedor', agente: 'Montador' }, { papel: 'revisor', agente: 'Revisor X' }] }, w, { ...planned, teams: [] }); assert.equal(eq.valid, true);
   assert.equal(normalizeAction({ acao: 'iniciar_tarefa', projeto: 'Doc', equipe: 'Equipe Doc', objetivo: 'Editar' }, w, planned).valid, true);
   assert.equal(normalizeAction({ acao: 'iniciar_tarefa', projeto: 'Doc', equipe: 'Equipe Doc', objetivo: 'Editar' }, w).valid, false, 'sem o planejado, não existe');
+});
+
+test('Assistente: equipe aprovada com projeto é vinculada sem transformar membros em vínculos individuais', async () => {
+  const { asst, say, done, store, dev, rev } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  say(block({ acao: 'criar_equipe', nome: 'Equipe Canal', projeto: 'canal', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }, { papel: 'revisor', agente: 'Revisor' }] }));
+  await asst.ask('Monte uma equipe para o projeto canal'); const msg = (await done()).messages.at(-1); assert.equal(msg.actions[0].valid, true);
+  const out = await asst.apply(msg.id, 0), project = store.get('projects', 'p-canal'), team = store.list('teams')[0];
+  assert.match(out.result, /vinculada ao projeto/); assert.equal(out.projectId, project.id); assert.deepEqual(project.teamIds, [team.id]); assert.deepEqual(project.agentIds || [], []);
 });
 
 test('fluxo: documentário do zero: 1 resposta com projeto, agentes, equipe e tarefa; aplicar em ordem executa tudo; fora de ordem é recusado', async () => {

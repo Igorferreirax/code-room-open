@@ -35,7 +35,9 @@ function nodeHtml(ctx, a, p) {
 
 export function canvasHtml(ctx) {
   const agents = ctx.state.agents.filter(a => ctx.inRoom ? ctx.inRoom(a) : (!ctx.room || a.room === ctx.room));
-  if (!agents.length) return `<div class="cv-empty">Crie agentes em “Agentes e ferramentas” para vê-los aqui.</div>`;
+  if (!agents.length) return ctx.project
+    ? `<div class="cv-empty">Este projeto ainda não tem agentes ligados. Traga uma equipe ou um agente pelo menu “Trazer”, ou <button type="button" class="link" data-act="project-team-suggest" data-id="${esc(ctx.project)}">peça ao Assistente para sugerir uma equipe</button> a partir da leitura da pasta.</div>`
+    : `<div class="cv-empty">Crie agentes em “Agentes e ferramentas” para vê-los aqui.</div>`;
   const pos = layout(agents, loadPos(ctx.project)), ids = new Set(agents.map(a => a.id));
   const links = (ctx.state.links || []).filter(l => l.projectId === ctx.project && ids.has(l.from) && ids.has(l.to));
   const W = Math.max(...Object.values(pos).map(p => p.x)) + NW + PAD, H = Math.max(...Object.values(pos).map(p => p.y)) + NH + PAD;
@@ -43,7 +45,8 @@ export function canvasHtml(ctx) {
   // A linha "corre" quando o destino está de fato recebendo trabalho do remetente: tarefa ativa do destino que veio de uma tarefa do remetente (ligação ou fluxo de equipe).
   const live = l => runs.some(r => r.agent.id === l.to && ['running', 'queued'].includes(r.status) && ((r.linkFrom && byId[r.linkFrom]?.agent.id === l.from) || (r.dependsOn || []).some(id => byId[id]?.agent.id === l.from)));
   const teamEdges = [];
-  for (const t of ctx.state.teams || []) {
+  const teams = ctx.project && ctx.projectTeamIds ? (ctx.state.teams || []).filter(t => ctx.projectTeamIds().has(t.id)) : (ctx.state.teams || []);
+  for (const t of teams) {
     const dev = t.members.find(m => m.role === 'desenvolvedor'), rev = t.members.find(m => m.role === 'revisor');
     if (dev && rev && ids.has(dev.agentId) && ids.has(rev.agentId) && !links.some(l => l.from === dev.agentId && l.to === rev.agentId)) teamEdges.push({ from: dev.agentId, to: rev.agentId, name: t.name });
   }
@@ -74,10 +77,10 @@ export function bindCanvas(root, ctx, { onOpen, onLink, onUnlink, onEnd }) {
     const unlink = e.target.closest('[data-unlink]'); if (unlink) return;
     const out = e.target.closest('.cv-port.out');
     if (out) {   // desenha a ligação
-      e.preventDefault(); dragging = true; const from = out.dataset.out, start = port(pos[from], 'out'); temp.hidden = false; cv.setPointerCapture?.(e.pointerId);
+      e.preventDefault(); dragging = true; const from = out.dataset.out, start = port(pos[from], 'out'); temp.hidden = false;
       const move = ev => { const w = toWorld(ev); temp.setAttribute('d', curve(start, w)); cv.querySelectorAll('.cv-node').forEach(n => n.classList.toggle('target', n.dataset.agent !== from && n.contains(document.elementFromPoint(ev.clientX, ev.clientY)))); };
-      const up = ev => { cv.removeEventListener('pointermove', move); cv.removeEventListener('pointerup', up); cv.removeEventListener('pointercancel', up); temp.hidden = true; dragging = false; cv.querySelectorAll('.cv-node.target').forEach(n => n.classList.remove('target')); const to = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.cv-node')?.dataset.agent; if (to && to !== from) onLink(from, to); onEnd?.(); };
-      cv.addEventListener('pointermove', move); cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); return;
+      const up = ev => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up); temp.hidden = true; dragging = false; cv.querySelectorAll('.cv-node.target').forEach(n => n.classList.remove('target')); const to = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.cv-node')?.dataset.agent; if (to && to !== from) onLink(from, to); onEnd?.(); };
+      document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up); return;
     }
     const node = e.target.closest('.cv-node'); if (!node) return;
     const id = node.dataset.agent, start = { x: e.clientX, y: e.clientY }, orig = { ...pos[id] }; let moved = false;
