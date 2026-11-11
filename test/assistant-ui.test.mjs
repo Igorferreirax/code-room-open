@@ -57,34 +57,37 @@ const cctx = (over = {}) => ({ ui: {}, prefs: {}, asstOk: true, project: 'p1', a
   agentStatus: () => ({ status: 'idle', label: 'Inativo' }), supervisorAgent: () => null, ...over });
 
 test('janela do chat: interruptor Conversa/Piloto no cabeçalho do Assistente (aria, rótulo e destino do clique)', () => {
-  const off = chatHeaderHtml(cctx()); assert.match(off, /class="cw-mode" role="switch" aria-checked="false" data-act="asst-autonomy" data-id="pilot"/); assert.match(off, /<span>Conversa<\/span>/); assert.match(off, /só propõe/);
-  const c = cctx(); c.asst.autonomy = 'pilot'; const on = chatHeaderHtml(c); assert.match(on, /class="cw-mode on" role="switch" aria-checked="true" data-act="asst-autonomy" data-id="ask"/); assert.match(on, /<span>Piloto<\/span>/); assert.match(on, /modo piloto/);
+  assert.ok(!chatHeaderHtml(cctx()).includes('asst-autonomy'), 'com o menu fechado o cabeçalho fica limpo'); assert.match(chatHeaderHtml(cctx()), /data-act="cw-menu" aria-expanded="false"/);
+  const off = chatHeaderHtml(cctx({ ui: { cwMenu: true } })); assert.match(off, /class="cw-mode" role="switch" aria-checked="false" data-act="asst-autonomy" data-id="pilot"/); assert.match(off, /<span>Conversa<\/span>/); assert.match(off, /Claude Code · conversa/);
+  const c = cctx({ ui: { cwMenu: true } }); c.asst.autonomy = 'pilot'; const on = chatHeaderHtml(c); assert.match(on, /class="cw-mode on" role="switch" aria-checked="true" data-act="asst-autonomy" data-id="ask"/); assert.match(on, /<span>Piloto<\/span>/); assert.match(on, /· piloto/);
   c.asst.pending = { kind: 'ask' }; assert.match(chatHeaderHtml(c), /data-id="ask"[^>]*disabled/, 'trocar de modo espera a resposta em andamento');
-  assert.ok(!chatHeaderHtml(cctx({ ui: { target: 'a:a1' } })).includes('asst-autonomy'), 'só no Assistente');
+  assert.ok(!chatHeaderHtml(cctx({ ui: { target: 'a:a1', cwMenu: true } })).includes('asst-autonomy'), 'só no Assistente');
 });
 
 test('janela do chat: cabeçalho muda com quem se fala (Assistente, agente, equipe) e mostra as conversas só no Assistente', () => {
-  assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · só propõe/); assert.match(chatHeaderHtml(cctx()), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
+  const menu = cctx({ ui: { cwMenu: true } });
+  assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · conversa/); assert.match(chatHeaderHtml(menu), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
+  assert.ok(!chatHeaderHtml(cctx()).includes('asst-new-thread'), 'as conversas ficam dentro do menu ☰');
   const scoped = cctx(); scoped.asst.threads[0].projectName = 'Canal de vídeo'; assert.match(whoIs(scoped).sub, /Canal de vídeo/, 'o projeto da conversa ativa fica visível');
-  const two = cctx(); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false, waiting: true }, { id: 't2', title: '<b>Código</b>', active: true }];
-  const h = chatHeaderHtml(two); assert.match(h, /aria-selected="true"[^>]*data-id="t2"|data-id="t2"[^>]*>/); assert.match(h, /esperando resposta/); assert.match(h, /asst-thread-del" data-id="t2"/); assert.ok(!h.includes('<b>Código</b>'));
-  const ag = chatHeaderHtml(cctx({ ui: { target: 'a:a1' } })); assert.match(ag, /Diretor[\s\S]*missão direta/); assert.ok(!ag.includes('asst-new-thread'), 'conversas só no Assistente');
+  const two = cctx({ ui: { cwMenu: true } }); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false, waiting: true }, { id: 't2', title: '<b>Código</b>', active: true }];
+  const h = chatHeaderHtml(two); assert.match(h, /data-id="t2" aria-current="true"/); assert.match(h, /esperando resposta/); assert.match(h, /asst-thread-del" data-id="t2"/); assert.ok(!h.includes('<b>Código</b>'));
+  assert.match(chatHeaderHtml({ ...two, ui: {} }), /cw-menu-btn[\s\S]*cw-wait/, 'conversa esperando resposta marca o botão do menu');
+  const ag = chatHeaderHtml(cctx({ ui: { target: 'a:a1', cwMenu: true } })); assert.match(ag, /Diretor[\s\S]*missão direta/); assert.ok(!ag.includes('asst-new-thread'), 'conversas só no Assistente'); assert.ok(!ag.includes('cw-menu-btn'));
   assert.match(chatHeaderHtml(cctx({ ui: { target: 't:t9' } })), /Equipe Doc/); assert.equal(whoIs(cctx({ ui: { target: 'a:inexistente' } })).kind, 'none');
 });
 
-test('renomear conversa: lápis só na aba ativa; campo inline limita tamanho e escapa o título', () => {
-  const two = cctx(); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false }, { id: 't2', title: '<b>Código</b>', active: true }];
+test('renomear conversa: lápis em cada conversa do menu; campo inline limita tamanho e escapa o título', () => {
+  const two = cctx({ ui: { cwMenu: true } }); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false }, { id: 't2', title: '<b>Código</b>', active: true }];
   const html = chatHeaderHtml(two);
-  assert.match(html, /asst-thread-rename" data-id="t2" aria-label="Renomear esta conversa"/);
-  assert.doesNotMatch(html, /asst-thread-rename" data-id="t1/);
-  assert.match(html, /duplo clique para renomear/);
-  const editing = chatHeaderHtml(cctx({ ui: { renameId: 't2' }, asst: { ...two.asst, threads: two.asst.threads } }));
+  assert.match(html, /asst-thread-rename" data-id="t2" aria-label="Renomear a conversa &lt;b&gt;Código&lt;\/b&gt;"/);
+  assert.match(html, /asst-thread-rename" data-id="t1/);
+  const editing = chatHeaderHtml(cctx({ ui: { renameId: 't2', cwMenu: true }, asst: { ...two.asst, threads: two.asst.threads } }));
   assert.match(editing, /<input class="cw-rename" data-rename="t2" value="&lt;b&gt;Código&lt;\/b&gt;" maxlength="40" aria-label="Nome da conversa">/);
   assert.doesNotMatch(editing, /asst-thread-rename" data-id="t2/);
   const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /e\.key === 'Enter'.{0,120}saveRename\(e\.target, true\)/s);
   assert.match(app, /e\.key === 'Escape'.{0,160}saveRename\(e\.target, false\)/s);
-  assert.match(app, /\.cw-th\.on \[data-act=asst-thread\]/, 'duplo clique só edita a conversa ativa');
+  assert.match(app, /\.cw-dr-list li\.on \[data-act=asst-thread\]/, 'duplo clique só edita a conversa ativa');
 });
 
 test('clipe de missão individual: oferece modelo e esforço opcionais sem afetar equipes ou Assistente', () => {

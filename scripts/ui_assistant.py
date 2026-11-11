@@ -100,13 +100,18 @@ try:
         S['briefing'] = None; S['briefed'] = True; S['knowledge'] = 'ok'
         try: pg.wait_for_selector('.as-empty', timeout=8000)
         except Exception: pass
-        check('ao terminar a leitura, abre a conversa sozinho (sem recarregar)', pg.is_visible('.as-empty') and 'Oi! Eu ajudo' in pg.inner_text('#asst'), pg.inner_text('#asst')[:120])
-        check('as conversas aparecem como abas com o botão de nova', pg.is_visible('.cw-th.on') and pg.is_visible('[data-act=asst-new-thread]'))
+        check('ao terminar a leitura, abre a conversa sozinho (sem recarregar)', pg.is_visible('.as-empty') and 'Oi! Eu sou' in pg.inner_text('#asst'), pg.inner_text('#asst')[:120])
+        def menu_open():
+            if not pg.is_visible('#cw-drawer'): pg.click('.cw-menu-btn'); nap(0.3)
+        def menu_close():
+            if pg.is_visible('#cw-drawer'): pg.click('.cw-scrim', position={'x': 380, 'y': 300}); nap(0.3)
+        check('cabeçalho limpo: as conversas não ficam soltas no topo', pg.locator('.cw-dr-list').count() == 0 and pg.is_visible('.cw-menu-btn'))
+        menu_open(); check('o menu ☰ mostra as conversas e o botão de nova', pg.is_visible('.cw-dr-list li.on') and pg.is_visible('[data-act=asst-new-thread]') and pg.is_visible('[data-act=asst-autonomy]')); pg.keyboard.press('Escape'); nap(0.3); check('Esc fecha o menu', pg.locator('#cw-drawer').count() == 0)
         pg.click('.as-empty .chip >> nth=2'); check('sugestão preenche a barra do chat sem enviar', 'equipe' in pg.input_value('#mission') and not [c for c in calls if c[0] == 'ask'])
         pg.fill('#mission', 'Crie uma equipe de desenvolvimento'); pg.keyboard.press('Shift+Enter'); pg.keyboard.type('segunda linha'); check('Shift+Enter quebra a linha sem enviar', '\n' in pg.input_value('#mission') and not [c for c in calls if c[0] == 'ask'])
         pg.fill('#mission', 'Crie uma equipe de desenvolvimento'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls if c[0] == 'ask']); nap(0.4)
         check('Enter envia: a pergunta aparece na hora, "Pensando…" e a barra esvazia', calls[-1][0] == 'ask' and calls[-1][1]['text'] == 'Crie uma equipe de desenvolvimento' and calls[-1][1].get('projectId') == P['id'] and 'Pensando' in pg.inner_text('#chat') and pg.input_value('#mission') == '' and 'Crie uma equipe' in pg.inner_text('.as-msg.me'), (calls[-3:], pg.input_value('#mission'), pg.inner_text('#asst')[-160:]))
-        check('o título da conversa vira o assunto da primeira pergunta', 'Crie uma equipe' in pg.inner_text('.cw-th.on'), pg.inner_text('.cw-threads'))
+        menu_open(); check('o título da conversa vira o assunto da primeira pergunta', 'Crie uma equipe' in pg.inner_text('.cw-dr-list li.on'), pg.inner_text('.cw-dr-list')); menu_close()
         # minimiza durante a resposta; chega a resposta: balão mostra aviso
         pg.click('[data-act=chat-min]'); nap(0.3); check('minimizar esconde a janela e mostra o balão em andamento', pg.is_visible('#chat-bubble') and not pg.is_visible('#chat') and pg.locator('.cb-busy').count() == 1)
         S['pending'] = None; S['messages'].append({'id': 'a1', 'role': 'assistant', 'text': 'Sugiro **duas** coisas:\n- criar a equipe\n- abrir as skills <img src=x onerror=alert(1)>', 'at': '2026-11-07T10:00:05Z', 'actions': [act(0), act(1, False, error='O agente “Z” não existe.', summary='Criar a equipe “Fantasma”'), act(2, True, 'abrir_tela', 'Abrir a tela skills')]})
@@ -119,20 +124,20 @@ try:
         pg.click('.as-card >> nth=1 >> [data-act=asst-dismiss]'); nap(0.5); check('Descartar marca a proposta como descartada', 'Descartada' in pg.inner_text('.as-card >> nth=1') and pg.locator('.as-card >> nth=1 >> button').count() == 0)
         pg.click('.as-card >> nth=2 >> [data-act=asst-apply]'); nap(1.0); check('Abrir leva para a tela de Skills e a janela continua aberta', pg.is_visible('#chat') and 'skill' in pg.inner_text('#view').lower())
         # várias conversas
-        pg.click('[data-act=asst-new-thread]'); nap(0.5); check('Nova conversa: abre uma aba vazia e a anterior continua guardada', pg.locator('.cw-th:not(.add)').count() == 2 and pg.is_visible('.as-empty') and calls[-1][0] == 'thread/new')
+        menu_open(); pg.click('[data-act=asst-new-thread]'); nap(0.5); vazia = pg.is_visible('.as-empty') and pg.locator('#cw-drawer').count() == 0; menu_open(); check('Nova conversa: fecha o menu, abre uma conversa vazia e a anterior continua guardada', pg.locator('.cw-dr-list li').count() == 2 and vazia and calls[-1][0] == 'thread/new'); menu_close()
         pg.fill('#mission', 'Revise o código do projeto'); pg.keyboard.press('Enter'); nap(0.6); S['pending'] = None; S['messages'].append({'id': 'a2', 'role': 'assistant', 'text': 'Resposta da conversa 2', 'at': '2026-11-07T10:01:00Z', 'actions': []}); nap(2.0)
-        pg.click('.cw-th:not(.add) >> nth=0 >> button'); nap(0.6); check('voltar à primeira conversa mostra o histórico dela, não o da segunda', 'Sugiro' in pg.inner_text('#asst') and 'Resposta da conversa 2' not in pg.inner_text('#asst'))
-        pg.on('dialog', lambda d: d.accept()); pg.click('[data-act=asst-thread-del]'); until(lambda: calls[-1][0] == 'thread/delete'); nap(0.5); check('apagar uma conversa (com confirmação) remove a aba', pg.locator('.cw-th:not(.add)').count() == 1 and calls[-1][0] == 'thread/delete', (pg.locator('.cw-th:not(.add)').count(), calls[-3:]))
-        pg.click('[data-act=asst-thread-rename]'); pg.wait_for_selector('.cw-rename'); pg.fill('.cw-rename', 'Equipe de vídeo (teste)'); pg.keyboard.press('Enter'); until(lambda: calls[-1][0] == 'thread/rename'); nap(0.5)
-        check('renomear: o lápis abre o campo, Enter grava e a aba mostra o novo nome', calls[-1] == ('thread/rename', {'id': S['thread'], 'title': 'Equipe de vídeo (teste)'}) and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-th.on') and pg.locator('.cw-rename').count() == 0, calls[-1])
-        pg.dblclick('.cw-th.on [data-act=asst-thread]'); pg.wait_for_selector('.cw-rename'); pg.keyboard.press('Escape'); nap(0.3); check('duplo clique também abre o campo e Esc cancela sem gravar', pg.locator('.cw-rename').count() == 0 and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-th.on'))
+        menu_open(); pg.click('.cw-dr-list li >> nth=0 >> .cw-dr-item'); nap(0.6); check('voltar à primeira conversa mostra o histórico dela, não o da segunda', 'Sugiro' in pg.inner_text('#asst') and 'Resposta da conversa 2' not in pg.inner_text('#asst'))
+        pg.on('dialog', lambda d: d.accept()); menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-del]'); until(lambda: calls[-1][0] == 'thread/delete'); nap(0.5); menu_open(); check('apagar uma conversa (com confirmação) tira ela do menu', pg.locator('.cw-dr-list li').count() == 1 and calls[-1][0] == 'thread/delete', (pg.locator('.cw-dr-list li').count(), calls[-3:]))
+        menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-rename]'); pg.wait_for_selector('.cw-rename'); pg.fill('.cw-rename', 'Equipe de vídeo (teste)'); pg.keyboard.press('Enter'); until(lambda: calls[-1][0] == 'thread/rename'); nap(0.5)
+        check('renomear: o lápis abre o campo, Enter grava e a aba mostra o novo nome', calls[-1] == ('thread/rename', {'id': S['thread'], 'title': 'Equipe de vídeo (teste)'}) and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-dr-list li.on') and pg.locator('.cw-rename').count() == 0, calls[-1])
+        menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-rename]'); pg.wait_for_selector('.cw-rename'); pg.keyboard.press('Escape'); nap(0.3); check('Esc cancela a troca de nome sem gravar', pg.locator('.cw-rename').count() == 0 and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-dr-list li.on')); menu_close()
         # missão direta: mesma janela, mesma barra
         pg.select_option('#target', 'a:' + AG['id']); nap(0.6)
-        check('trocar o destino muda a foto, o nome e o corpo para "missão direta" (sem abas de conversa)', 'Diretor' in pg.inner_text('#chat-head') and 'missão direta' in pg.inner_text('#chat-head') and 'Missão direta' in pg.inner_text('#asst') and pg.locator('.cw-threads').count() == 0)
+        check('trocar o destino muda a foto, o nome e o corpo para "missão direta" (sem abas de conversa)', 'Diretor' in pg.inner_text('#chat-head') and 'missão direta' in pg.inner_text('#chat-head') and 'Missão direta' in pg.inner_text('#asst') and pg.locator('.cw-menu-btn').count() == 0)
         pg.fill('#mission', 'Pesquise temas para o próximo vídeo'); pg.keyboard.press('Enter'); nap(1.5)
         tk = api('state')['runs']; check('a missão direta vira uma tarefa de verdade para o agente (mesma barra, mesmo servidor)', any(r['agent']['name'] == 'Diretor' and 'Pesquise temas' in r['prompt'] for r in tk), [r['prompt'] for r in tk])
-        pg.select_option('#target', 'assistant'); nap(0.4); check('voltar ao Assistente restaura as abas', pg.locator('.cw-threads').count() == 1 and 'Assistente' in pg.inner_text('#chat-head'))
-        pg.click('[data-act=asst-reset]'); until(lambda: pg.locator('.as-msg').count() == 0); nap(0.3); check('Limpar conversa esvazia só a conversa atual e mantém a apresentação', pg.locator('.as-msg').count() == 0 and pg.is_visible('.as-empty'), (pg.locator('.as-msg').count(), pg.is_visible('.as-empty'), calls[-3:]))
+        pg.select_option('#target', 'assistant'); nap(0.4); check('voltar ao Assistente restaura o menu de conversas', pg.locator('.cw-menu-btn').count() == 1 and 'Assistente' in pg.inner_text('#chat-head'))
+        menu_open(); pg.click('[data-act=asst-reset]'); until(lambda: pg.locator('.as-msg').count() == 0); nap(0.3); check('Limpar conversa esvazia só a conversa atual e mantém a apresentação', pg.locator('.as-msg').count() == 0 and pg.is_visible('.as-empty'), (pg.locator('.as-msg').count(), pg.is_visible('.as-empty'), calls[-3:]))
         # lembra o estado
         pg.reload(); pg.wait_for_selector('#rail button', timeout=15000); nap(0.8); check('o chat lembra que estava aberto depois de recarregar', pg.is_visible('#chat') and not pg.is_visible('#chat-bubble'))
         pg.click('[data-act=chat-min]'); pg.reload(); pg.wait_for_selector('#rail button', timeout=15000); nap(0.8); check('e lembra que estava minimizado', pg.is_visible('#chat-bubble') and not pg.is_visible('#chat'))

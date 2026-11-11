@@ -748,8 +748,9 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
     if (perm !== 'granted') return notify('O navegador não liberou os avisos. Libere nas permissões do site (ícone ao lado do endereço) e tente de novo.', true);
     ctx.prefs.desktopNotify = true; savePrefs(); for (const n of ctx.state?.notices || []) seenNotify.add('n:' + n.id); renderAsst(); notify('Avisos do Windows ligados: você será avisado de lote concluído, falha e resposta do Assistente quando o app estiver em segundo plano.');
   },
-  'asst-new-thread': () => asstCall('thread/new', { projectId: ctx.project || undefined }),
-  'asst-thread': id => asstCall('thread/select', { id }),
+  'asst-new-thread': () => { ctx.ui.cwMenu = false; return asstCall('thread/new', { projectId: ctx.project || undefined }); },
+  'asst-thread': id => { ctx.ui.cwMenu = false; return asstCall('thread/select', { id }); },
+  'cw-menu': () => { ctx.ui.cwMenu = !ctx.ui.cwMenu; renderAsst(); if (ctx.ui.cwMenu) document.querySelector('#cw-drawer .cw-dr-item[aria-current=true], #cw-drawer button')?.focus(); else document.querySelector('.cw-menu-btn')?.focus(); },
   'asst-thread-del': id => { if (confirm('Apagar esta conversa? O histórico dela some.')) return asstCall('thread/delete', { id }); },
   'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
   'asst-reset': () => asstCall('reset'),
@@ -951,6 +952,7 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && ctx.ui.cvBig) { ctx.ui.cvBig = false; render(); return; }
+  if (e.key === 'Escape' && ctx.ui.cwMenu) { ctx.ui.cwMenu = false; renderAsst(); document.querySelector('.cw-menu-btn')?.focus(); return; }
   if (ctx.ui.onb && !e.target.closest?.('input,textarea,select')) {
     if (e.key === 'Escape') { e.preventDefault(); return finishOnboarding(false); }
     if (ctx.ui.onb.mode === 'tour' && e.key === 'ArrowRight') { e.preventDefault(); return actions['onb-next'](); }
@@ -1176,7 +1178,7 @@ document.addEventListener('keydown', e => {   // captura: roda antes do Enter qu
 const saveRename = async (input, save) => { const id = ctx.ui.renameId; if (!id) return; ctx.ui.renameId = null; const t = input.value.trim(); if (save && t) await asstCall('thread/rename', { id, title: t }); else renderAsst(); };
 document.addEventListener('keydown', e => { if (!e.target.matches?.('.cw-rename')) return; if (e.key === 'Enter') { e.preventDefault(); saveRename(e.target, true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); saveRename(e.target, false); } }, true);
 document.addEventListener('focusout', e => { if (e.target.matches?.('.cw-rename')) saveRename(e.target, true); });
-document.addEventListener('dblclick', e => { const b = e.target.closest?.('.cw-th.on [data-act=asst-thread]'); if (b) actions['asst-thread-rename'](b.dataset.id); });
+document.addEventListener('dblclick', e => { const b = e.target.closest?.('.cw-dr-list li.on [data-act=asst-thread]'); if (b) actions['asst-thread-rename'](b.dataset.id); });
 document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); });
 $('update-dialog').addEventListener('cancel', e => { if (ctx.updates?.download?.state === 'installing') e.preventDefault(); });
 $('update-dialog').addEventListener('close', () => { ctx.ui.updOpen = false; });
