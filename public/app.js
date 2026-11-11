@@ -364,7 +364,7 @@ const seenNotify = new Set(store.get('cr.notified', []));
 function desktopNotify(id, title, body) {
   if (!ctx.prefs?.desktopNotify || typeof Notification === 'undefined' || Notification.permission !== 'granted' || seenNotify.has(id)) return;
   seenNotify.add(id); store.set('cr.notified', [...seenNotify].slice(-100)); if (!document.hidden) return;
-  try { const n = new Notification(title, { body, tag: id, icon: '/assets/favicon.png' }); n.onclick = () => { focus(); n.close(); }; } catch {}
+  try { const n = new Notification(title, { body, tag: id, icon: '/assets/favicon.png?v=marca2' }); n.onclick = () => { focus(); n.close(); }; } catch {}
 }
 function checkDesktopNotify() {
   for (const n of ctx.state?.notices || []) desktopNotify('n:' + n.id, n.title, n.text);

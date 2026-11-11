@@ -851,6 +851,8 @@ async function networkView() {
 // O executor só assume o trabalho depois de ocupar a porta: assim, qualquer claim antigo pertence a um serviço morto.
 server.listen(port, '127.0.0.1', async () => {
   updates.start();
+  // Primeira abertura de uma versão nova: pede ao Windows para renovar o cache de ícones (o atalho mostra a logo nova sem reiniciar o PC).
+  try { const lv = store.get('settings', 'lastVersion')?.v; if (lv !== VERSION) { store.put('settings', { id: 'lastVersion', v: VERSION }); if (lv && process.platform === 'win32') execFile('ie4uinit.exe', ['-show'], { windowsHide: true, timeout: 15000 }, () => {}); } } catch {}
   console.log(`Code Room → http://127.0.0.1:${port}/#${key}`);
   try { await runner.start(); routines.start(); folderJobs.start(); moduleList().catch(() => {}); } catch (e) { console.error('Falha ao iniciar o executor:', e.message); }
   try { await syncListeners(); for (const b of bound) console.log(`Acesso remoto (${b.kind}): http://${b.ip}:${port}/`); } catch (e) { console.error('Rede:', e.message); }

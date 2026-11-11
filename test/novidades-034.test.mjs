@@ -100,7 +100,7 @@ test('HTTP: excluir projeto preserva a pasta, o Financeiro recusa o Antigravity 
     const name = await post('/api/assistant/name', { name: 'Luna' }); assert.equal(name.status, 200); assert.equal(name.body.name, 'Luna');
     assert.equal((await post('/api/connectors/test', { provider: 'nao-existe' })).status, 400);
     const state = await (await fetch(base + '/api/state', { headers })).json();
-    if (state.connectors.some(c => c.id === 'agy')) {
+    if (state.connectors.some(c => c.id === 'agy' && (c.path || c.installed))) {   // só onde o Antigravity está instalado (no CI do GitHub não está)
       const fin = (await post('/api/projects', { name: 'Caixa', path: proj, area: 'Financeiro' })).body;
       const ag = (await post('/api/agents', { name: 'Gemini', role: 'x', room: 'Financeiro', provider: 'agy', model: '', mode: 'read', skillIds: [] })).body;
       const t = await post('/api/tasks', { projectId: fin.id, agentId: ag.id, requestId: 'fin-1', objective: 'somar' }); assert.equal(t.status, 400); assert.match(t.body.error, /Antigravity pesquisa na web/);

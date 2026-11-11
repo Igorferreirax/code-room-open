@@ -60,7 +60,7 @@ export function updateQuickHtml(ctx) {
 }
 export function topbarHtml(ctx) {
   const online = ctx.state.agents.filter(a => ctx.agentStatus(a).status !== 'disconnected').length;
-  return `<div class="brand"><img class="brand-mark" src="/assets/favicon.png" alt="" aria-hidden="true"><span class="brand-name">Code <b>Room</b></span>${ctx.prefs.displayName ? `<span class="workspace-greeting">Olá, ${esc(ctx.prefs.displayName)}. <span>Este é o seu Workspace.</span></span>` : ''}</div>
+  return `<div class="brand"><img class="brand-mark" src="/assets/favicon.png?v=marca2" alt="" aria-hidden="true"><span class="brand-name">Code <b>Room</b></span>${ctx.prefs.displayName ? `<span class="workspace-greeting">Olá, ${esc(ctx.prefs.displayName)}. <span>Este é o seu Workspace.</span></span>` : ''}</div>
   <label class="project-pill"><span class="sr-only">Projeto</span><select id="project-select">${ctx.state.projects.length ? `<option value="" ${ctx.project ? '' : 'selected'}>Todos os projetos (geral)</option>` + ctx.state.projects.map(p => `<option value="${esc(p.id)}" ${p.id === ctx.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('') : '<option value="">Nenhum projeto</option>'}</select></label>
   <div class="top-right">${updateQuickHtml(ctx)}<button type="button" class="btn ghost sm asst-btn" data-act="asst-toggle" aria-pressed="${!!ctx.ui.asstOpen}">Assistente</button><span class="online"><span class="dot d-${ctx.connection === 'live' ? 'ok' : ctx.connection === 'lost' ? 'warn' : 'idle'}"></span><span>${online} ${online === 1 ? 'agente conectado' : 'agentes conectados'}</span></span>
   <span class="pill ${ctx.connection === 'live' ? 'ok' : 'warn'}" role="status">${{ live: 'Conectado', connecting: 'Conectando…', lost: 'Reconectando…', off: 'Desconectado' }[ctx.connection]}</span>
@@ -69,7 +69,7 @@ export function topbarHtml(ctx) {
 
 // ---------- Entrada ----------
 export function viewLogin(ctx) {
-  return `<div class="login"><div class="tb"><div class="brand"><img class="brand-wordmark" src="/assets/logo-wide.png" alt="Code Room" width="230" height="48"></div></div>
+  return `<div class="login"><div class="tb"><div class="brand"><img class="brand-wordmark" src="/assets/logo-wide.png?v=marca2" alt="Code Room" width="230" height="48"></div></div>
   <div class="body"><div class="hero-side">${heroScene()}</div>
   <form class="box" id="login-form" autocomplete="off"><h1>Seu espaço de trabalho,<br><b>conectado.</b></h1><p class="sub">Projetos, agentes e ideias em um só lugar.</p>
     <div class="tabs" role="tablist"><span class="tab on" role="tab" aria-selected="true">${icon('terminal', 18)} Acesso local</span></div>
@@ -135,7 +135,7 @@ export const NEW_LOOK_ITEMS = [
 export function newLookCard(ctx) {
   if (ctx.prefs?.newLookSeen === NEW_LOOK || !((ctx.state.projects || []).length || (ctx.state.runs || []).length)) return '';
   const open = !!ctx.ui?.newLookOpen;
-  return `<section class="newlook" aria-label="Novidades da versão ${NEW_LOOK}"><img src="/assets/favicon.png" alt="" aria-hidden="true" width="44" height="44"><div class="newlook-body"><b>O Code Room está de cara nova</b><span class="muted">Quer ver as novas funcionalidades?</span>
+  return `<section class="newlook" aria-label="Novidades da versão ${NEW_LOOK}"><img src="/assets/favicon.png?v=marca2" alt="" aria-hidden="true" width="44" height="44"><div class="newlook-body"><b>O Code Room está de cara nova</b><span class="muted">Quer ver as novas funcionalidades?</span>
     ${open ? `<ul class="newlook-list">${NEW_LOOK_ITEMS.map(([ic, t, d]) => `<li>${icon(ic, 18)}<span><b>${esc(t)}</b><small>${esc(d)}</small></span></li>`).join('')}</ul>` : ''}</div>
     <div class="newlook-act">${open ? '' : `<button type="button" class="btn sm" data-act="newlook-open">Ver novidades</button>`}<button type="button" class="btn ghost sm" data-act="newlook-dismiss">${open ? 'Entendi' : 'Agora não'}</button></div></section>`;
 }

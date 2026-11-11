@@ -19,11 +19,11 @@ test('menção de projeto (#): nome com _ ou -, sem acento, em qualquer parte do
 
 test('marca padronizada (0.3.4): logo pixel nova no app, na landing e no instalador', () => {
   const root = fileURLToPath(new URL('..', import.meta.url)), land = fileURLToPath(new URL('../../Code Room Landing/', import.meta.url)), sha = f => createHash('sha256').update(readFileSync(f)).digest('hex');
-  const views = readFileSync(root + 'public/views.js', 'utf8'); assert.equal((views.match(/<span class="brand-name">Code <b>Room<\/b><\/span>/g) || []).length, 1, 'o topo usa o nome em texto ao lado do ícone'); assert.match(views, /class="brand-wordmark" src="\/assets\/logo-wide\.png" alt="Code Room"/, 'o login usa a logo horizontal com texto alternativo'); assert.ok(!/logo\(|wordmark\(|catLogo/.test(views));
+  const views = readFileSync(root + 'public/views.js', 'utf8'); assert.equal((views.match(/<span class="brand-name">Code <b>Room<\/b><\/span>/g) || []).length, 1, 'o topo usa o nome em texto ao lado do ícone'); assert.match(views, /class="brand-wordmark" src="\/assets\/logo-wide\.png(\?v=[\w.]+)?" alt="Code Room"/, 'o login usa a logo horizontal com texto alternativo'); assert.ok(!/logo\(|wordmark\(|catLogo/.test(views));
   for (const f of ['favicon.png', 'icon-256.png', 'icon-512.png', 'logo-wide.png', 'home-banner.webp', 'ai-antigravity.png']) assert.ok(existsSync(root + 'public/assets/' + f), `${f} existe`);
   for (const f of ['brand.js']) assert.ok(!existsSync(root + 'public/' + f), `${f} (marca antiga) foi removido`);
   assert.ok(existsSync(root + 'installer/code-room.ico') && existsSync(root + 'installer/code-room.png') && existsSync(root + 'installer/wizard/selo-110.bmp'), 'ícone e selo do instalador existem');
-  assert.match(readFileSync(root + 'public/index.html', 'utf8'), /href="\/assets\/favicon\.png"/);
+  assert.match(readFileSync(root + 'public/index.html', 'utf8'), /href="\/assets\/favicon\.png(\?v=[\w.]+)?"/);
   if (existsSync(land + 'index.html')) {
     const html = readFileSync(land + 'index.html', 'utf8'); assert.ok(!html.includes('class="mark"'), 'landing sem o quadradinho pixel antigo'); assert.match(html, /rel="icon" type="image\/png" href="assets\/marca\/favicon\.png"/); assert.ok((html.match(/Code <b>Room<\/b>/g) || []).length >= 2, 'topo e rodapé com o nome em texto');
     assert.equal(sha(land + 'assets/marca/favicon.png'), sha(root + 'public/assets/favicon.png'), 'o favicon da landing é o mesmo do app');

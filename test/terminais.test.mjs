@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, mkdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, delimiter } from 'node:path';
 import { viewRoom, topbarHtml, agentTerm, termLinesHtml } from '../public/views.js';
 
 // Modo "Terminais" da Sala: um painel só de leitura por agente, com a saída recente da tarefa dele neste projeto.
@@ -34,10 +34,12 @@ test('o seletor de projeto do topo tem “Todos os projetos (geral)” e o marca
 
 test('GET /api/tasks/:id/tail devolve poucas linhas curtas e 404 para tarefa inexistente', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'code-room-tail-')); const port = 19000 + Math.floor(Math.random() * 10000);
-  const child = spawn(process.execPath, ['server/main.mjs'], { cwd: resolve('.'), env: { ...process.env, CODE_ROOM_DATA: dir, CODE_ROOM_PORT: String(port), CODE_ROOM_NO_OPEN: '1' }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Um "codex" de mentira no PATH (cópia do Node): o teste não depende do Codex instalado (no CI do GitHub ele não existe).
+  const bin = join(dir, 'bin'); await mkdir(bin); await copyFile(process.execPath, join(bin, process.platform === 'win32' ? 'codex.exe' : 'codex'));
+  const child = spawn(process.execPath, ['server/main.mjs'], { cwd: resolve('.'), env: { ...process.env, PATH: bin + delimiter + process.env.PATH, CODE_ROOM_DATA: join(dir, 'data'), CODE_ROOM_PORT: String(port), CODE_ROOM_NO_OPEN: '1' }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     await Promise.race([once(child.stdout, 'data'), new Promise((_, reject) => setTimeout(() => reject(new Error('Servidor não iniciou')), 8000))]);
-    const key = (await readFile(join(dir, 'access.key'), 'utf8')).trim(), base = `http://127.0.0.1:${port}`, headers = { 'X-Code-Room-Key': key, 'Content-Type': 'application/json' };
+    const key = (await readFile(join(dir, 'data', 'access.key'), 'utf8')).trim(), base = `http://127.0.0.1:${port}`, headers = { 'X-Code-Room-Key': key, 'Content-Type': 'application/json' };
     const post = async (path, body) => (await fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body) })).json();
     assert.equal((await fetch(base + '/api/tasks/nao-existe/tail', { headers })).status, 404);
     assert.equal((await fetch(base + '/api/tasks/nao-existe/tail')).status, 401, 'exige a chave como as outras rotas');

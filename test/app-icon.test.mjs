@@ -16,7 +16,7 @@ test('janela de app: o manifesto é válido e os ícones existem com o tamanho d
 
 test('janela de app: o index liga o manifesto e o ícone grande; o servidor entrega o manifesto com o tipo certo', () => {
   const html = readFileSync(pub('index.html'), 'utf8');
-  assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/); assert.match(html, /sizes="256x256" href="\/assets\/icon-256\.png"/); assert.match(html, /name="theme-color"/);
+  assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/); assert.match(html, /sizes="256x256" href="\/assets\/icon-256\.png(\?v=[\w.]+)?"/); assert.match(html, /name="theme-color"/);
   const srv = readFileSync(new URL('../server/main.mjs', import.meta.url), 'utf8');
   assert.match(srv, /url\.pathname === '\/manifest\.webmanifest'[\s\S]{0,160}application\/manifest\+json/);
 });
