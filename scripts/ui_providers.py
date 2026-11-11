@@ -56,7 +56,7 @@ try:
         d = api(f"tasks/{t0['id']}"); check('a resposta da IA ficou registrada', 'resposta:' in json.dumps(d, ensure_ascii=False), str(d)[:200])
         pg.click('[data-nav=room]'); time.sleep(1.0); pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode:'list'}))"); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=room]'); pg.wait_for_selector('.activity-card', timeout=15000); time.sleep(0.8)
         act = pg.inner_text('.activity-card'); check('Sala mostra "Atividade recente" com o agente e o que ele fez', 'Atividade recente' in act and 'Pesquisador Próprio' in act and 'concluiu' in act, act)
-        tip = pg.get_attribute('.term-h', 'title') or pg.get_attribute('.status-strip .s', 'title') or ''; check('ao passar o mouse no agente, a dica mostra a última atividade', 'Última atividade' in tip and 'Pesquise temas' in tip, tip)
+        tip = pg.get_attribute('.cv-node', 'title') or pg.get_attribute('.term-h', 'title') or pg.get_attribute('.status-strip .s', 'title') or ''; check('ao passar o mouse no agente, a dica mostra a última atividade', 'Última atividade' in tip and 'Pesquise temas' in tip, tip)
         # skills por categoria (no ambiente isolado só existem as skills que o servidor achar)
         sk = tempfile.mkdtemp(prefix='cr-skills-')
         for n, d in (('editar-video-vertical', 'Edita videos verticais com legendas'), ('revisar-codigo', 'Revisa codigo e seguranca'), ('seo-audit-extra', 'Auditoria de SEO e marketing'), ('coisa-estranha', 'Algo sem categoria')):

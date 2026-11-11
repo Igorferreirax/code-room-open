@@ -17,9 +17,10 @@ test('menção de projeto (#): nome com _ ou -, sem acento, em qualquer parte do
   assert.equal(extractProject('x #Interno', P).project, null, 'projeto interno do Assistente nunca é alvo'); assert.equal(extractProject('', P).text, ''); assert.equal(extractProject('#Documentário', []).project, null);
 });
 
-test('marca padronizada: só o nome "Code Room" e o ícone CR, igual no app, na landing e no instalador', () => {
+test('marca padronizada (0.3.4): logo pixel nova no app, na landing e no instalador', () => {
   const root = fileURLToPath(new URL('..', import.meta.url)), land = fileURLToPath(new URL('../../Code Room Landing/', import.meta.url)), sha = f => createHash('sha256').update(readFileSync(f)).digest('hex');
-  const views = readFileSync(root + 'public/views.js', 'utf8'); assert.equal((views.match(/<span class="brand-name">Code <b>Room<\/b><\/span>/g) || []).length, 2, 'topo e login usam o mesmo nome em texto'); assert.ok(!/logo\(|wordmark\(|catLogo/.test(views));
+  const views = readFileSync(root + 'public/views.js', 'utf8'); assert.equal((views.match(/<span class="brand-name">Code <b>Room<\/b><\/span>/g) || []).length, 1, 'o topo usa o nome em texto ao lado do ícone'); assert.match(views, /class="brand-wordmark" src="\/assets\/logo-wide\.png" alt="Code Room"/, 'o login usa a logo horizontal com texto alternativo'); assert.ok(!/logo\(|wordmark\(|catLogo/.test(views));
+  for (const f of ['favicon.png', 'icon-256.png', 'icon-512.png', 'logo-wide.png', 'home-banner.webp', 'ai-antigravity.png']) assert.ok(existsSync(root + 'public/assets/' + f), `${f} existe`);
   for (const f of ['brand.js']) assert.ok(!existsSync(root + 'public/' + f), `${f} (marca antiga) foi removido`);
   assert.ok(existsSync(root + 'installer/code-room.ico') && existsSync(root + 'installer/code-room.png') && existsSync(root + 'installer/wizard/selo-110.bmp'), 'ícone e selo do instalador existem');
   assert.match(readFileSync(root + 'public/index.html', 'utf8'), /href="\/assets\/favicon\.png"/);

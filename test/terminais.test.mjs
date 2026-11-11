@@ -15,9 +15,9 @@ const fake = (mode, term = {}) => ({ project: 'p1', maxStations: 3, term, state:
   roomAgents: () => [a, b], supervisorAgent: () => null, rooms: () => [], roomMode: () => '@projeto', projectAgentIds: () => new Set([a.id, b.id]), viewMode: () => mode, termTask: x => (x.id === a.id ? run : null),
   agentStatus: x => ({ status: x.id === a.id ? 'running' : 'idle', label: x.id === a.id ? 'Trabalhando' : 'Livre' }), usageTotals: () => ({ input: 0, inCount: 0, cost: 0, costCount: 0 }), currentMission: () => null });
 
-test('Sala oferece o modo Terminais e desenha um painel por agente, sem vazar HTML da saída', () => {
+test('painéis de terminal: um por agente, sem vazar HTML da saída; a barra da Sala tem só Cenário e Canvas', () => {
   const html = viewRoom(fake('term', { t1: { html: termLinesHtml({ prompt: 'Criar a tela', status: 'running', lines: [{ type: 'activity', text: 'lendo <b>index.html</b>' }, { type: 'error', text: 'falhou' }] }) } }));
-  assert.match(html, /data-act="view-mode" data-id="term" aria-pressed="true">Terminais/);
+  assert.doesNotMatch(html, /data-act="view-mode" data-id="term"/, 'os terminais agora ficam no Canvas (Mostrar terminais)'); assert.match(html, /data-act="view-mode" data-id="canvas"/);
   assert.equal((html.match(/class="term"/g) || []).length, 2, 'um painel por agente');
   assert.match(html, /class="term-out" data-task="t1"/); assert.match(html, /\$ Criar a tela/);
   assert.match(html, /lendo &lt;b&gt;index\.html&lt;\/b&gt;/, 'a saída do agente é escapada'); assert.match(html, /class="tl-error">falhou/);

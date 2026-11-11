@@ -10,13 +10,14 @@ import { hermesCardHtml } from './hermes-ui.js';
 import { obsidianCardHtml } from './obsidian-ui.js';
 import { auditHtml } from './audit-ui.js';
 import { socialCardHtml } from './social-ui.js';
+import { notifyCardHtml, metricsCardHtml } from './notify-ui.js';
 import { apisCardHtml } from './apis-ui.js';
 import { syncCardHtml } from './sync-ui.js';
 import { economyCardHtml } from './economy-ui.js';
 import { outboundCardHtml } from './outbound-ui.js';
 import { folderJobsCardHtml } from './folderjobs-ui.js';
 import { esc, STATUS, PROVIDER, CAPS, ROLES, AREAS, AREA_DOT, num, hm, dur, kb, dotOf, pill, empty, note, inProject, idx, hero, tabs, toggle } from './views.js';
-import { brandIcon } from './brand-icons.js';
+import { brandIcon, aiLogo, AI_NAMES } from './brand-icons.js';
 
 export const COMMANDS = {
   codex: { name: 'Codex CLI', desc: 'Codificação e automação via terminal', install: 'npm install -g @openai/codex', login: 'codex login', update: 'npm install -g @openai/codex@latest' },
@@ -26,7 +27,7 @@ export const COMMANDS = {
   gemini: { name: 'Gemini CLI', desc: 'Agente do Google para desenvolvimento', install: 'npm install -g @google/gemini-cli', login: '', update: '' }
 };
 const toolInfo = (ctx, id) => ctx.checks?.find(c => c.id === id) || { id, installed: ctx.state.connectors.find(c => c.id === id)?.available ?? false, path: null, version: null, authenticated: null };
-const toolLogo = id => id === 'agy' ? `<span class="logo">${icon('sparkle', 34)}</span>` : id === 'hermes' ? `<span class="logo">${icon('globe', 32)}</span>` : id === 'claude' ? `<span class="logo claude">${icon('asterisk', 34)}</span>` : id === 'gemini' ? `<span class="logo">${icon('sparkle', 34)}</span>` : `<span class="logo term">${icon('terminal', 32)}</span>`;
+const toolLogo = id => ['codex', 'claude', 'gemini', 'agy'].includes(id) ? `<span class="logo ai-${id}" title="${esc(AI_NAMES[id])}">${aiLogo(id, 34)}</span>` : id === 'hermes' ? `<span class="logo">${icon('globe', 32)}</span>` : `<span class="logo term">${icon('terminal', 32)}</span>`;
 
 // ---------- Equipes ----------
 export function viewTeams(ctx) {
@@ -39,7 +40,7 @@ export function viewTeams(ctx) {
       <div><label class="lab" for="m-ag-${i}">Agente</label><select id="m-ag-${i}" data-field="agentId" data-i="${i}">${st.agents.map(x => `<option value="${esc(x.id)}" ${m.agentId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
       <div><span class="lab">Ferramenta</span><span class="chip">${icon('terminal', 16)} ${esc(a ? PROVIDER[a.provider] : '—')}</span></div>
       <div><span class="lab">Modelo e skills</span><div class="chips"><span class="chip">${esc(a?.model || 'modelo padrão')}</span>${(a?.capabilities || []).map(k => `<span class="chip">${esc(CAPS[k] || k)}</span>`).join('')}${a ? `<span class="chip">${a.skillIds.length} skill(s)</span>` : ''}</div></div>
-      <button class="iconbtn" data-act="del-member" data-id="${i}" aria-label="Remover papel">${icon('x', 20)}</button></div>`;
+      <button class="iconbtn" data-act="del-member" data-id="${i}" aria-label="Tirar ${esc(a?.name || 'este agente')} da equipe" title="Tirar da equipe (o agente continua existindo; para apagar o perfil, use Agentes)">${icon('x', 20)}</button></div>`;
   }).join('');
   const dev = d.members.find(m => m.role === 'desenvolvedor'), rev = d.members.find(m => m.role === 'revisor');
   const rounds = ctx.prefs.rounds || 1;
@@ -134,10 +135,10 @@ export function viewConnections(ctx) {
     return `<button class="tool ${sel === id ? 'on' : ''}" data-act="tool-sel" data-id="${id}">${toolLogo(id)}<span><strong style="font-size:1.2rem">${esc(COMMANDS[id].name)}</strong><br><span class="muted">${esc(COMMANDS[id].desc)}</span><span class="st"><span><span class="dot d-${i.installed ? (ok ? 'ok' : 'warn') : 'idle'}"></span> ${i.installed ? (ok ? 'Conectado' : 'Detectado') : 'Não encontrado'}</span><span>${i.installed ? (ok ? `Acesso autorizado${i.method ? ' (' + esc(i.method) + ')' : ''}` : i.authenticated === false ? 'Sem login' : 'Login não verificado') : 'Instale o CLI'}</span></span></span><span class="btn ${ok ? 'ghost' : ''}" style="pointer-events:none">${ok ? 'Testar conexão' : 'Autenticar'}</span></button>`;
   };
   // A tela era uma página única com dez blocos abertos; agora cada assunto fica numa aba. Os blocos continuam no DOM (só escondidos) para atalhos e formulários não perderem o que foi digitado.
-  const ctab = ['ias', 'contexto', 'redes', 'avancado'].includes(ctx.ui.connTab) ? ctx.ui.connTab : 'ias', pane = id => (id === ctab ? '' : 'hidden');
+  const ctab = ['ias', 'contexto', 'redes', 'avisos', 'avancado'].includes(ctx.ui.connTab) ? ctx.ui.connTab : 'ias', pane = id => (id === ctab ? '' : 'hidden');
   const mods = ctx.modules, s = { verified: ['ok', 'verificado'], unverified: ['warn', 'não verificado'], unavailable: ['bad', 'indisponível'] };
   return `<div class="page">${hero('Conecte suas ferramentas', 'Integre seus provedores e ferramentas para começar a trabalhar com o Code Room.', 'conexoes')}
-  ${tabs([['ias', 'IAs', 'terminal'], ['contexto', 'Notas e chaves', 'file'], ['redes', 'Redes e canais', 'send'], ['avancado', 'Avançado', 'settings']], ctab, 'conn-tab')}
+  ${tabs([['ias', 'IAs', 'terminal'], ['contexto', 'Notas e chaves', 'file'], ['redes', 'Redes e métricas', 'send'], ['avisos', 'Avisos', 'bell'], ['avancado', 'Avançado', 'settings']], ctab, 'conn-tab')}
   <div class="conn-pane" ${pane('ias')}>
   ${cur === -1 ? '' : `<div class="wizard" aria-label="Passos de configuração">${wiz}</div>`}
   <div class="cols c-2-1" style="grid-template-columns:minmax(0,1fr) 400px"><section class="card"><h2>Ferramentas disponíveis</h2><p class="muted" style="margin-bottom:12px">Conecte as ferramentas que você vai usar neste projeto. Você pode configurar outras depois.</p>${card('codex')}${card('claude')}${card('agy')}
@@ -154,7 +155,8 @@ export function viewConnections(ctx) {
     <h3 style="margin:16px 0 8px">Recursos disponíveis</h3><div class="chips"><span class="chip">${icon('file', 16)} Arquivos</span><span class="chip">${icon('terminal', 16)} Comandos</span></div></aside></div>
   ${providersCardHtml(ctx)}${hermesCardHtml(ctx)}</div>
   <div class="conn-pane" ${pane('contexto')}>${obsidianCardHtml(ctx)}${apisCardHtml(ctx)}</div>
-  <div class="conn-pane" ${pane('redes')}>${socialCardHtml(ctx)}${channelsCard(ctx)}${outboundCardHtml(ctx)}</div>
+  <div class="conn-pane" ${pane('redes')}>${metricsCardHtml(ctx)}${socialCardHtml(ctx)}${channelsCard(ctx)}${outboundCardHtml(ctx)}</div>
+  <div class="conn-pane" ${pane('avisos')}>${notifyCardHtml(ctx)}</div>
   <div class="conn-pane" ${pane('avancado')}>${syncCardHtml(ctx)}
   <section class="card"><h2>Módulos e capacidades</h2>${mods ? mods.map(m => `<div class="module"><strong>${esc(m.name)}</strong> ${Object.entries(m.capabilities).map(([k, v]) => `<span class="pill ${s[v.status][0]}" title="${esc(v.detail)}" style="margin-left:6px">${esc(CAPS[k] || k)}: ${s[v.status][1]}</span>`).join('')}</div>`).join('') : empty('Verificando…')}<p class="muted small" style="margin-top:8px">Uma capacidade só aparece como verificada depois de uma sonda real neste computador.</p></section></div>
   <div class="composer-bar" style="display:flex;align-items:center;gap:14px;margin:14px -26px 0"><span class="muted" style="flex:1;display:flex;gap:10px;align-items:center">${icon('info', 18)} API e assinatura podem ter cobranças diferentes.</span><button class="btn" data-nav="${cur === 1 ? 'teams' : cur === 2 ? 'projects' : 'room'}">Continuar ${icon('arrow', 18)}</button></div></div>`;
@@ -276,7 +278,7 @@ export function viewUsage(ctx) {
       <div class="stat"><div><span class="lbl"><span class="dot d-live"></span>Estimativa adicional</span><strong>${est.counted ? 'US$ ' + est.usd.toFixed(2).replace('.', ',') : 'indisponível'}</strong><small>${est.counted ? `Pela sua tabela de preços, em ${est.counted} tarefa(s) sem custo reportado. Não é cobrança.` : 'Informe seus preços abaixo para estimar tarefas sem custo reportado.'}</small></div></div>
       <div class="stat"><div><span class="lbl"><span class="dot" style="background:var(--viol)"></span>Execuções</span><strong>${runs.length}</strong><small>Execuções no período</small></div>${icon('terminal', 34)}</div></div>
     <section class="card"><div class="card-h"><h2>Custo reportado por projeto</h2><span class="muted small"><span class="dot d-ok"></span> Custo reportado (US$)</span></div>${byProj.length ? `<div class="barchart" role="img" aria-label="Custo reportado por projeto">${byProj.map(x => `<div class="b" title="US$ ${x.u.cost.toFixed(4)}"><i data-h="${Math.max(2, Math.round(x.u.cost / max * 100))}"></i></div>`).join('')}</div><div class="barlbl">${byProj.map(x => `<span>${esc(x.p.name)}<br>US$ ${x.u.cost.toFixed(2).replace('.', ',')}</span>`).join('')}</div>` : empty('Nenhum custo reportado no período. O Codex não informa custo.')}</section>
-    <section class="card"><h2>Consumo por provedor</h2><div class="tbl"><table><thead><tr><th>Provedor</th><th>Tokens (reportados)</th><th>Custo reportado</th><th>Estimativa adicional</th></tr></thead><tbody>${prov.map(r => `<tr><td><span style="display:inline-flex;gap:10px;align-items:center">${icon(r.id === 'claude' ? 'asterisk' : 'terminal', 20)} ${esc(PROVIDER[r.id])}</span></td><td>${r.u.inCount || r.u.outCount ? num((r.u.input || 0) + (r.u.output || 0)) : 'indisponível'}</td><td>${r.u.costCount ? `<span class="dot d-ok"></span> US$ ${r.u.cost.toFixed(2).replace('.', ',')}` : 'Indisponível'}</td><td>${(() => { const e = estimateOf(ctx, runs.filter(x => x.agent.provider === r.id)); return e.counted ? 'US$ ' + e.usd.toFixed(2).replace('.', ',') : '—'; })()}</td></tr>`).join('')}</tbody></table></div><p class="muted small" style="margin-top:8px">Cache lido não entra nos totais. Ausência de informação nunca é tratada como zero.</p></section></div>
+    <section class="card"><h2>Consumo por provedor</h2><div class="tbl"><table><thead><tr><th>Provedor</th><th>Tokens (reportados)</th><th>Custo reportado</th><th>Estimativa adicional</th></tr></thead><tbody>${prov.map(r => `<tr><td><span style="display:inline-flex;gap:10px;align-items:center">${aiLogo(r.id, 20) || icon('terminal', 20)} ${esc(PROVIDER[r.id])}</span></td><td>${r.u.inCount || r.u.outCount ? num((r.u.input || 0) + (r.u.output || 0)) : 'indisponível'}</td><td>${r.u.costCount ? `<span class="dot d-ok"></span> US$ ${r.u.cost.toFixed(2).replace('.', ',')}` : 'Indisponível'}</td><td>${(() => { const e = estimateOf(ctx, runs.filter(x => x.agent.provider === r.id)); return e.counted ? 'US$ ' + e.usd.toFixed(2).replace('.', ',') : '—'; })()}</td></tr>`).join('')}</tbody></table></div><p class="muted small" style="margin-top:8px">Cache lido não entra nos totais. Ausência de informação nunca é tratada como zero.</p></section></div>
   <aside><section class="card"><h2>Limites da execução</h2>
     <div class="limit">${icon('layers', 30)}<span>Máximo de execuções simultâneas<big>${c.global}</big><small class="muted">Número máximo de tarefas em paralelo.</small></span><span class="stepper-n"><button data-act="step" data-id="global:-1" aria-label="Diminuir">${icon('minus', 16)}</button><button data-act="step" data-id="global:1" aria-label="Aumentar">${icon('plus', 16)}</button></span></div>
     <div class="limit">${icon('clock', 30)}<span>Duração máxima por execução<big>${timeoutMin} min</big><small class="muted">Execuções que excederem esse tempo serão encerradas.</small></span><span class="stepper-n"><button data-act="step" data-id="timeout:-5" aria-label="Diminuir">${icon('minus', 16)}</button><button data-act="step" data-id="timeout:5" aria-label="Aumentar">${icon('plus', 16)}</button></span></div>
@@ -303,6 +305,8 @@ export function routineReportRows(ctx, routines, limit = 30) {
     let status, detail, taskId = null;
     if (h.status === 'skipped') { status = '<span class="pill warn">Ignorada</span>'; detail = h.reason; }
     else if (h.status === 'failed_to_start') { status = '<span class="pill bad">Falhou ao iniciar</span>'; detail = h.reason; }
+    else if (h.status === 'notified') { status = '<span class="pill ok">Resultado enviado</span>'; detail = h.reason; }
+    else if (h.status === 'notify_failed') { status = '<span class="pill bad">Aviso não enviado</span>'; detail = h.reason; }
     else {
       const task = h.taskId ? ctx.state.runs.find(x => x.id === h.taskId) : null;
       if (task) { status = pill(task.status); detail = task.reason || (task.status === 'completed' ? `${(task.deliverables || []).length} arquivo(s)` : ''); taskId = task.id; }
@@ -422,6 +426,8 @@ export function panelRoutine(ctx) {
   <label class="f">Executor<select disabled><option>PC local</option></select></label><p class="muted small" style="margin-top:6px">${icon('info', 14)} Requer computador ligado.</p>
   <label class="f">Comportamento de execução<select disabled><option>Não iniciar se já estiver em execução</option></select></label>
   <label class="f">Tentativas em caso de falha<select name="attempts">${[1, 2, 3].map(n => `<option ${r?.attempts === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+  ${(() => { const nt = ctx.notify, box = (id, label, on) => `<label class="dv-opt"><input type="checkbox" name="dv_${id}" ${r?.deliver?.[id] ? 'checked' : ''} ${on ? '' : 'disabled'}> ${label}${on ? '' : ' <small class="muted">(conecte em Conexões › Avisos)</small>'}</label>`;
+    return `<fieldset class="f dv"><legend>Enviar o resultado também por</legend>${box('telegram', 'Telegram', nt?.telegram?.configured || r?.deliver?.telegram)}${box('email', 'E-mail (Gmail)', nt?.email?.configured || r?.deliver?.email)}<p class="muted small">Além de ficar em Entregas. Projetos da área Financeiro não enviam para fora.</p></fieldset>`; })()}
   <div class="btn-row" style="margin-top:16px"><button type="button" class="btn outline" data-act="routine-test">${icon('play', 16)} Testar agora</button><button class="btn">${icon('save', 16)} Salvar rotina</button></div></form>`;
 }
 

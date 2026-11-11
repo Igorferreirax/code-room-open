@@ -152,6 +152,18 @@ export class Publisher {
     const md = `# Desempenho dos vídeos publicados\n\nGerado pelo Code Room. "indisponível" = o YouTube ainda não informou; nunca é zero. Use isto para ajustar gancho, ritmo e temas dos próximos episódios (o que reteve mais público?).\n\n| Título | Publicado | Views | Curtidas | Retenção média | Tempo médio (s) | Medido em |\n|---|---|---|---|---|---|---|\n${rows.join('\n') || '| (nenhum vídeo medido ainda) | | | | | | |'}\n`;
     await writeFile(join(project.path, 'DESEMPENHO.md'), md);
   }
+  // Painel de métricas: números públicos do canal e dos últimos vídeos (Data API, cota baixa: 3 chamadas por leitura).
+  async channelReport(max = 15) {
+    const num = x => x == null ? null : Number(x);
+    const c = (await this.#api('/channels?part=snippet,statistics,contentDetails&mine=true')).items?.[0];
+    if (!c) throw new Error('Esta conta do Google não tem canal no YouTube.');
+    const uploads = c.contentDetails?.relatedPlaylists?.uploads; let videos = [];
+    if (uploads) {
+      const ids = ((await this.#api(`/playlistItems?part=contentDetails&maxResults=${Math.min(50, max)}&playlistId=${encodeURIComponent(uploads)}`)).items || []).map(i => i.contentDetails?.videoId).filter(Boolean);
+      if (ids.length) videos = ((await this.#api(`/videos?part=snippet,statistics&id=${ids.map(encodeURIComponent).join(',')}`)).items || []).map(v => ({ id: v.id, title: String(v.snippet?.title || '').slice(0, 140), publishedAt: v.snippet?.publishedAt || null, views: num(v.statistics?.viewCount), likes: num(v.statistics?.likeCount), comments: num(v.statistics?.commentCount) }));
+    }
+    return { channel: { id: c.id, title: c.snippet?.title || c.id, subscribers: c.statistics?.hiddenSubscriberCount ? null : num(c.statistics?.subscriberCount), views: num(c.statistics?.viewCount), videos: num(c.statistics?.videoCount) }, videos };
+  }
   cancel(id) { const p = this.store.get('posts', id); if (!p || p.status !== 'rascunho') throw new Error('Só dá para cancelar um rascunho.'); p.status = 'cancelado'; return this.store.put('posts', p); }
   // Envia um arquivo de vídeo qualquer ao YouTube (usado pelas redes sociais). A aprovação por postagem acontece antes, em social.mjs.
   async uploadVideo(file, { title, description = '', tags = [], privacy = 'private' }) {

@@ -142,7 +142,9 @@ export const agyHeadlessNote = mode => `[Execução automática pelo Code Room: 
 `;
 // A CLI saiu sem resposta porque uma ferramenta pediu permissão e o modo sem tela negou (mensagem “no output produced … auto-denied” do Antigravity).
 export function deniedTool(text = '') { const t = String(text); if (!/auto-denied|headless mode cannot prompt/i.test(t)) return null; return t.match(/required the "?([\w.-]{1,40})"? permission/i)?.[1] || 'ferramenta'; }
+export const MODEL_ERROR = /invalid model|not recognized as a known model|unknown model|model_not_found|model .{0,60}(not found|does not exist|is not supported|isn't supported|not available)/i;
 export function classifyFailure(text = '') {
+  if (MODEL_ERROR.test(text)) return 'model';
   if (/not logged in|log ?in|sign ?in|unauthori[sz]ed|\b401\b|authentication|invalid api key|credential/i.test(text)) return 'auth';
   if (/rate.?limit|usage limit|quota|\b429\b|too many requests/i.test(text)) return 'rate_limit';
   return null;

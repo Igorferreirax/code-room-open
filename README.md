@@ -1,4 +1,8 @@
-# Code Room
+<p align="center"><img src="docs/img/logo-wide.png" alt="Code Room" width="560"></p>
+
+<h1 align="center">Code Room</h1>
+
+<p align="center"><img src="docs/img/inicio.png" alt="Tela inicial do Code Room: banner da sala, conversa com o Assistente e projetos" width="900"></p>
 
 **Seus agentes de IA trabalhando juntos, na mesma sala.** O Code Room roda no seu computador, junta as IAs de linha de comando que você já usa (Codex, Claude Code e Gemini/Antigravity) e faz uma passar o trabalho para a outra. Nada sai sem a sua aprovação.
 
@@ -23,7 +27,9 @@ Se o Code Room te ajudou, **[deixe uma estrela ⭐](https://github.com/Igorferre
 - **Repasses entre agentes.** O trabalho concluído de um vira a tarefa do próximo, com resumo e arquivos. No Canvas, arraste de um agente a outro para ligá-los. Há limite de idas e voltas, e o ciclo para quando alguém escreve “SEM PENDÊNCIAS”.
 - **Equipes.** Fluxo desenvolvedor → revisor, com plano do supervisor validado pelo backend.
 - **Aprovação antes de sair.** A prévia espera em `AGUARDANDO_APROVACAO/<CANAL>`. *Aprovar* entrega o pacote em `POSTAR_<CANAL>`. *Pedir ajuste* refaz só o que você apontar. *Reprovar* move tudo para a `LIXEIRA` (nada é apagado de vez). Nada é publicado sozinho.
-- **Rotinas.** Por horário, manuais ou quando um arquivo aparece.
+- **Rotinas.** Por horário, manuais ou quando um arquivo aparece. O resultado pode chegar também no seu **Telegram** ou no seu **Gmail** (Conexões › Avisos).
+- **Métricas das redes.** Inscritos, visualizações e desempenho dos vídeos do YouTube conectado, com a evolução da semana (Conexões › Redes e métricas).
+- **Biblioteca de agentes.** 12 especialistas (inclusive segurança) e equipes prontas para contratar.
 - **Consumo honesto.** O que o provedor não informa aparece como “indisponível”, nunca como zero nem inventado.
 - **Uso por IA.** Cartões resumem as janelas de uso que cada provedor reporta, com o horário da leitura e o reset; a tabela detalhada existente continua abaixo.
 - **Assistente.** Conversas podem ser renomeadas; o contexto inclui o status atual das tarefas, equipes e pastas de entrada. Cada pergunta também indica se usou o projeto, a tela aberta e referências do Obsidian.

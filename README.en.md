@@ -1,4 +1,8 @@
-# Code Room
+<p align="center"><img src="docs/img/logo-wide.png" alt="Code Room" width="560"></p>
+
+<h1 align="center">Code Room</h1>
+
+<p align="center"><img src="docs/img/inicio.png" alt="Code Room home screen: room banner, Assistant chat and projects" width="900"></p>
 
 **Your AI agents, working together in the same room.** Code Room runs on your own computer, brings together the command-line AIs you already use (Codex, Claude Code and Gemini/Antigravity) and lets one hand its work to the next. Nothing leaves without your approval.
 
@@ -11,7 +15,9 @@ If Code Room helps you, **[leave a star ⭐](https://github.com/Igorferreirax/co
 - **Hand-offs between agents.** The finished work of one becomes the task of the next, with a summary and files. On the Canvas, drag from one agent to another to link them. Round trips are limited, and the loop stops when someone writes "SEM PENDÊNCIAS" (no pending items).
 - **Teams.** Developer → reviewer flow, with a supervisor plan validated by the backend.
 - **Approval before anything goes out.** The preview waits in `AGUARDANDO_APROVACAO/<CHANNEL>`. *Approve* delivers the package to `POSTAR_<CHANNEL>`. *Ask for changes* redoes only what you point out. *Reject* moves everything to `LIXEIRA` (trash; nothing is deleted for good). Nothing is published on its own.
-- **Routines.** By schedule, manual, or when a file appears.
+- **Routines.** By schedule, manual, or when a file appears. Results can also reach your **Telegram** or **Gmail** (Connections › Notices).
+- **Social metrics.** Subscribers, views and per-video performance of the connected YouTube channel, with the weekly change.
+- **Agent library.** 12 specialists (security included) and ready-made teams to hire.
 - **Honest usage.** Whatever the provider does not report shows as "unavailable" (`indisponível`), never as zero or invented.
 - **Talk to an agent right where it sits.** Click an agent (in the Room or on the Canvas) to open a small bubble next to it: status, what it is doing live, and a box to give it a mission on the spot. *Pin to window* moves the chat to a side window; up to 3 agents side by side.
 - **Connect other tools (MCP).** Claude Code, Codex and others can query Code Room (and, if you allow it, create tasks) with their own revocable token. Approving and deleting are never exposed. See [docs/MCP.md](docs/MCP.md).

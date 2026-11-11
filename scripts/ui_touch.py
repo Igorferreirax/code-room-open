@@ -16,8 +16,9 @@ try:
     def api(path, body=None):
         r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
         return json.load(urllib.request.urlopen(r, timeout=30))
-    api('projects', {'name': 'toque', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
-    for n in ('Ana', 'Caio', 'Dora'): api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})
+    pj = api('projects', {'name': 'toque', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
+    ids = [api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})['id'] for n in ('Ana', 'Caio', 'Dora')]
+    api('projects/members', {'projectId': pj['id'], 'add': ids})   # desde a 0.3.4 cada projeto mostra só os agentes ligados a ele
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); page = ctx.new_page()
@@ -40,18 +41,14 @@ try:
             for l in api('state')['links']: api(f"links/{l['id']}/delete", {})
             time.sleep(0.8)
             def preparar():
-                page.evaluate("document.querySelector('#cv').scrollLeft = 0"); time.sleep(0.3)   # cada rodada começa da mesma posição
+                page.click('[data-cv-zoom=fit]'); time.sleep(0.4)   # cada rodada começa com todos os cartões enquadrados (o Canvas tem câmera: zoom e arrastar o fundo)
                 # escolhe dois cartões vizinhos (o Canvas rola para os lados) e centraliza os dois na tela
                 pair = page.evaluate("""() => { const cv = document.querySelector('#cv'); const ns = [...document.querySelectorAll('.cv-node')].map(e => { const r = e.getBoundingClientRect(), p = e.querySelector('.cv-port.out').getBoundingClientRect(); return { name: e.textContent.trim().split(' ')[0], px: p.x + cv.scrollLeft, cx: r.x + r.width / 2 + cv.scrollLeft, y: r.y }; });
                   let best = null; for (const a of ns) for (const b of ns) if (a !== b && b.cx > a.px && (!best || b.cx - a.px < best[2])) best = [a, b, b.cx - a.px]; return best && { from: best[0].name, to: best[1].name, mid: (best[0].px + best[1].cx) / 2 }; }""")
                 if not pair: return None
-                page.locator('.cv-node', has_text=pair['from']).scroll_into_view_if_needed(); time.sleep(0.2)
-                page.evaluate("(mid) => { const cv = document.querySelector('#cv'); cv.scrollLeft = mid - 195; }", pair['mid']); time.sleep(0.5)
+                page.locator('#cv').scroll_into_view_if_needed(); time.sleep(0.3)
                 o = page.locator('.cv-node', has_text=pair['from']).locator('.cv-port.out').bounding_box(); d = page.locator('.cv-node', has_text=pair['to']).bounding_box()
-                cabe = lambda o, d: o and d and 10 < o['x'] < 370 and d['x'] < 330 and o['y'] < 700
-                if not cabe(o, d) and o:   # na ponta da rolagem o meio não centraliza: põe a porta perto da borda esquerda
-                    page.evaluate("(dx) => { document.querySelector('#cv').scrollLeft += dx; }", o['x'] - 60); time.sleep(0.4)
-                    o = page.locator('.cv-node', has_text=pair['from']).locator('.cv-port.out').bounding_box(); d = page.locator('.cv-node', has_text=pair['to']).bounding_box()
+                cabe = lambda o, d: o and d and 4 < o['x'] < 386 and 0 < d['x'] < 380 and 0 < o['y'] < 800
                 if not cabe(o, d): return None
                 return o, d
             prep = None

@@ -34,7 +34,8 @@ export function validateRoutine(input, old = null) {
   const target = input.target || {};
   if (!['agent', 'team', 'recipe'].includes(target.type) || typeof target.id !== 'string') throw new Error('Escolha um agente, uma equipe ou uma receita.');
   const attempts = Number.isInteger(input.attempts) ? Math.min(3, Math.max(1, input.attempts)) : 1;
-  return { id: old?.id || randomUUID(), name, description: text(input.description, 300, 'Descrição', false), projectId: text(input.projectId, 100, 'Projeto'), target: { type: target.type, id: target.id }, objective, criteria: (input.criteria || []).slice(0, 12).map(c => text(c, 500, 'Critério')), trigger, overlap: 'skip_if_running', attempts, status: old?.status || (trigger.type === 'manual' ? 'ready' : 'active'), lastSlot: old?.lastSlot || null, history: old?.history || [], createdAt: old?.createdAt || new Date().toISOString() };
+  const dv = input.deliver === undefined ? (old?.deliver || {}) : (input.deliver || {}), deliver = { telegram: dv.telegram === true, email: dv.email === true };   // onde o resultado chega além do Code Room
+  return { id: old?.id || randomUUID(), name, description: text(input.description, 300, 'Descrição', false), projectId: text(input.projectId, 100, 'Projeto'), target: { type: target.type, id: target.id }, objective, criteria: (input.criteria || []).slice(0, 12).map(c => text(c, 500, 'Critério')), trigger, overlap: 'skip_if_running', attempts, deliver, status: old?.status || (trigger.type === 'manual' ? 'ready' : 'active'), lastSlot: old?.lastSlot || null, history: old?.history || [], createdAt: old?.createdAt || new Date().toISOString() };
 }
 
 // O que fazer agora com esta rotina? Função pura, testável.
@@ -108,7 +109,9 @@ export class Routines {
   save(input) {
     const old = input.id ? this.store.get('routines', input.id) : null;
     if (input.id && !old) throw new Error('Rotina inexistente.');
-    const saved = this.store.put('routines', validateRoutine(input, old)); this.sync(); return saved;
+    const r = validateRoutine(input, old);
+    if ((r.deliver.telegram || r.deliver.email) && this.store.get('projects', r.projectId)?.area === 'Financeiro') throw new Error('Projetos financeiros não enviam resultados por Telegram ou e-mail.');
+    const saved = this.store.put('routines', r); this.sync(); return saved;
   }
   setStatus(id, status) {
     const r = this.store.get('routines', id); if (!r) throw new Error('Rotina inexistente.');

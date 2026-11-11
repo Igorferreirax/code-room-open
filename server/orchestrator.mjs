@@ -92,6 +92,7 @@ export class Orchestrator {
     if (task.batchId) { try { this.batches?.onFinal(task); } catch (e) { this.store.event(task.id, { type: 'diagnostic', text: `Falha no lote: ${e.message}`, at: new Date().toISOString() }); } return; }
     if (task.status === 'completed' && task.kind === 'work' && (task.step !== 'review' || task.result.deliverables.files.length)) this.recordDeliverable(task);
     if (task.kind === 'plan') return this.onPlanFinished(task);
+    if (!task.flowId && String(task.requestId || '').startsWith('routine:') && ['completed', 'failed', 'blocked', 'interrupted'].includes(task.status)) { try { this.routineDone?.({ requestId: task.requestId, status: task.status, text: task.status === 'completed' ? this.attemptAnswer(task) || task.result?.summary : task.reason || task.result?.summary, project: task.project }); } catch {} }
     if (!task.flowId) return this.forwardLinks(task);
     const flow = this.store.get('flows', task.flowId); if (!flow) return;
     if (task.status === 'completed') {
@@ -101,7 +102,12 @@ export class Orchestrator {
       }
       if (flow.kind === 'sequential' && task.step === 'review') this.afterReview(flow, task);
     }
-    this.refreshFlow(flow.id);
+    const f = this.refreshFlow(flow.id);
+    if (f.status !== 'running' && String(f.requestId || '').startsWith('routine:') && !f.notifiedAt) {   // rotina com equipe: avisa uma vez, com a última entrega do desenvolvedor
+      f.notifiedAt = now(); this.store.put('flows', f);
+      const dev = f.taskIds.map(id => this.store.get('tasks', id)).filter(t => t?.status === 'completed' && t.step !== 'review').at(-1);
+      try { this.routineDone?.({ requestId: f.requestId, status: f.status, text: dev ? this.attemptAnswer(dev) || dev.result?.summary : '', project: task.project }); } catch {}
+    }
   }
 
   // ---------- ligações entre agentes (Canvas): o trabalho concluído de A vira tarefa de B, com resumo e arquivos ----------

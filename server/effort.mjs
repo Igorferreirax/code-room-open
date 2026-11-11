@@ -11,6 +11,21 @@ export function cleanEffort(provider, value) {
   if (!ok.includes(v)) throw new Error(`Esforço inválido para esta IA. Use: ${ok.join(', ')}.`);
   return v;
 }
+// Acha o modelo aceito pela IA mais parecido com o que a pessoa (ou o Assistente) escreveu: "Gemini Flash 3.8" vira
+// "gemini-3.8-flash-medium". Compara palavras, sem depender da ordem; no empate prefere o nível médio. Sem semelhança suficiente: null.
+const words = s => String(s ?? '').toLowerCase().replace(/\(([^)]*)\)/g, ' $1 ').split(/[^a-z0-9.]+/).map(w => w.replace(/^\.+|\.+$/g, '')).filter(Boolean);
+export function matchModel(input, models = []) {
+  const want = String(input ?? '').trim(); if (!want || !models.length) return null;
+  const exact = models.find(m => m.id.toLowerCase() === want.toLowerCase() || String(m.label || '').toLowerCase() === want.toLowerCase()); if (exact) return exact.id;
+  const w = [...new Set(words(want))]; if (!w.length) return null;
+  let best = null;
+  for (const m of models) {
+    const have = new Set([...words(m.id), ...words(m.label)]), hit = w.filter(x => have.has(x)).length;
+    const score = hit * 10 + (have.has('medium') ? 2 : 0) - m.id.length / 100;
+    if (hit && (!best || score > best.score)) best = { id: m.id, hit, score };
+  }
+  return best && best.hit >= Math.max(1, Math.ceil(w.length * 0.6)) ? best.id : null;
+}
 // Nome do modelo: só caracteres de identificador (vai para a linha de comando da IA, sem shell, mas mantemos curto e limpo).
 export function cleanModel(value) {
   const v = String(value ?? '').trim(); if (!v) return '';

@@ -12,6 +12,15 @@ do meio (0.**3**.0).
 ## [0.3.4] - 2026-11-11
 
 ### Adicionado
+- **Cara nova:** logo nova (o personagem pixel com o notebook) no app, no ícone do Windows, no instalador, na landing e no README; banner largo da sala acima da conversa no Início, no lugar do cartão pequeno ao lado do “Bom dia”; e um aviso, uma vez só, para quem atualiza: “O Code Room está de cara nova”, com a lista das novidades.
+- **Avisos no Telegram e no Gmail** (Conexões › Avisos): o resultado das rotinas chega no seu celular ou no seu e-mail. O Telegram usa o seu bot e acha a conversa sozinho depois do `/start`; o Gmail usa uma senha de app (a senha da conta nunca é pedida). Cada rotina escolhe onde entregar; o histórico mostra se o envio deu certo. Projetos Financeiro nunca enviam.
+- **Painel de métricas** (Conexões › Redes e métricas): inscritos, visualizações, vídeos e o desempenho dos últimos vídeos do YouTube conectado, com a variação da semana e um gráfico da evolução; mais a contagem de postagens publicadas pelo Code Room em cada rede nos últimos 30 dias. Lê o YouTube no máximo a cada 30 minutos.
+- **Logos oficiais das IAs** (OpenAI/Codex, Claude, Gemini e Antigravity) em Conexões, Agentes e Consumo.
+- **Canvas com zoom e “mãozinha”:** a rodinha do mouse aproxima e afasta no ponto do cursor, arrastar o fundo passeia pelo fluxo, os botões + e − e “Ver tudo” enquadram todos os agentes. Os cartões podem ir para qualquer lado, sem limite de espaço. Zoom e posição ficam guardados por projeto.
+- **Terminais do Canvas com campo de mensagem:** “Mostrar terminais” mostra a saída ao vivo de cada agente, com barra de rolagem que funciona e o campo “Mensagem para (agente)” embaixo. O modo “Terminais” separado saiu da barra da Sala (quem usava abre direto no Canvas com os terminais).
+- **Botão de atualização no topo:** fica verde com um ponto quando sai versão nova; um clique baixa (com animação e porcentagem) e confere o arquivo; depois vira “Instalar”. Não precisa mais abrir Configurações › Atualizações.
+- **Corrigir o modelo e repetir:** quando a IA recusa o nome do modelo (ex.: “Gemini Flash 3.8”), a tarefa mostra esse botão; o Code Room troca pelo modelo aceito mais parecido (`gemini-3.8-flash-medium`) e roda de novo. Nomes aproximados também são convertidos ao salvar o agente.
+- **“Tirar do projeto (mantém o perfil)”** ao lado de “Excluir agente” no painel do agente; o “x” da equipe explica que só tira da equipe.
 - **Biblioteca de agentes** (Agentes › Biblioteca): 12 especialistas prontos, entre eles Auditor de segurança, Programador, Revisor de código, Arquiteto, Testador, Pesquisador, Redator, Diretor de vídeo, Designer de interface, Analista de dados, DevOps e Documentador. **Equipes prontas** (código, vídeo, revisão de segurança) contratam quem falta, montam a equipe e trazem tudo para o projeto. O Code Room sugere a IA de cada um entre as conectadas.
 - **Modo Terminais na Sala** (no lugar da Lista): um painel por agente com a saída ao vivo da tarefa dele no projeto, de quem ele recebe e para quem passa o trabalho, e um campo para mandar mensagem direto ao agente.
 - **Boas-vindas do dia** no Início: uma vez por dia, mostra entregas esperando revisão, tarefas com problema, pedidos aguardando aprovação e projetos parados, com o atalho para ver com o Assistente por onde começar.
@@ -29,6 +38,9 @@ do meio (0.**3**.0).
 - Início, skills iniciais, sugestão de equipe, login das CLIs pelo terminal oficial e suporte ao Kiro CLI.
 
 ### Corrigido
+- **Repetir uma tarefa usava o agente antigo:** a tarefa guardava a cópia do agente de quando foi criada, então trocar o modelo, a IA ou a permissão (por você ou pelo Assistente) não valia ao repetir. Agora repete com o agente como ele está.
+- **Falha de modelo inválido** aparecia como “erro de saída” genérico; agora é reconhecida (“model”) e o “Testar a IA deste agente” explica o que fazer.
+- Logo com brilho vazando para fora dos cantos arredondados; cartão de dica do Início com imagem espremida.
 - **Antigravity terminava com “O provedor terminou sem devolver resposta”:** em somente leitura devolvia só um plano e, ao tentar rodar um programa, a execução sem tela negava e saía sem resposta. O pedido agora avisa a CLI, e a falha aparece explicada (“ferramenta negada”), com a mensagem da CLI no motivo.
 - **Projetos Financeiro recusam o Antigravity**, que pesquisa na web por conta própria.
 - “Continuar a conversa” listava os agentes do projeto aberto, e não os do projeto da tarefa.
@@ -37,7 +49,7 @@ do meio (0.**3**.0).
 - O modelo usado pelo Codex aparecia como “não informado”; agora mostra o padrão do `config.toml`.
 
 ### Melhorado
-- **Conexões** em quatro abas (IAs, Notas e chaves, Redes e canais, Avançado), sem o cartão “Em breve” e sem o passo a passo depois de configurado.
+- **Conexões** em cinco abas (IAs, Notas e chaves, Redes e métricas, Avisos, Avançado), sem o cartão “Em breve” e sem o passo a passo depois de configurado.
 - Isolamento por projeto na Sala, no chat, no Canvas, nos fluxos e nos planos do Supervisor.
 - Foco visível pelo teclado, retorno ao passar o mouse e alvos de toque maiores nos painéis novos.
 - Todos os roteiros de interface atualizados; `npm test` com limite de tempo por teste.

@@ -48,6 +48,8 @@ import { SyncIas } from './sync-ias.mjs';
 import { Outbox, loggedFetch } from './outbound.mjs';
 import { usageReport, suggest as economySuggest, applySuggestions, undoEconomy } from './economy.mjs';
 import { Social, CATALOG as SOCIAL_CATALOG } from './social.mjs';
+import { Notifier } from './notify.mjs';
+import { Metrics } from './metrics.mjs';
 import { cleanRefs, scanReference } from './referencias.mjs';
 import { cleanConfig as obsClean, checkVault as obsCheck, findNotes as obsFind, termsOf as obsTerms, renderBlock as obsRender, saveNote as obsSave, clearCache as obsClear, DEFAULTS as OBS_DEFAULTS } from './obsidian.mjs';
 import { mcpInfo, mcpActivate, mcpDeactivate } from './mcpsetup.mjs';
@@ -68,7 +70,7 @@ import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 import { createSkillFile } from './myskills.mjs';
 import { FolderJobs } from './folderjobs.mjs';
 import { describeFolder, folderLine } from './folderinfo.mjs';
-import { cleanModel, cleanEffort, effortsFor, EFFORT_LABEL } from './effort.mjs';
+import { cleanModel, cleanEffort, effortsFor, EFFORT_LABEL, matchModel } from './effort.mjs';
 import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, MAX_CUSTOM, findProgram, launcher } from './providers.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -172,7 +174,7 @@ async function gitCommitTask(t) {
 // ---------- Histórico de ações (trilha de auditoria): o que foi iniciado, aprovado, ajustado ou cancelado, por onde e quando ----------
 const AUDIT_ROUTES = [
   [/^\/api\/(?:runs|tasks)$/, 'iniciou uma tarefa'], [/^\/api\/flows$/, 'iniciou uma missão de equipe'], [/^\/api\/plans$/, 'pediu um plano ao supervisor'], [/^\/api\/plans\/[\w-]+\/accept$/, 'aceitou um plano'], [/^\/api\/subtasks\/[\w-]+\/approve$/, 'aprovou um pedido de ajuda entre agentes'], [/^\/api\/social\/posts\/[\w]+\/approve$/, 'aprovou uma postagem em rede social'], [/^\/api\/apis$/, 'salvou uma chave na biblioteca de APIs'], [/^\/api\/economy\/apply$/, 'aplicou sugestões de economia nos agentes'], [/^\/api\/agents\/[\w-]+\/delete$/, 'excluiu um agente'], [/^\/api\/teams\/[\w-]+\/delete$/, 'excluiu uma equipe'], [/^\/api\/projects\/members$/, 'mudou quem trabalha no projeto'], [/^\/api\/economy\/undo$/, 'desfez as sugestões de economia'], [/^\/api\/settings\/token-budget$/, 'mudou o teto diário de tokens'], [/^\/api\/sync-ias\/apply$/, 'instalou skills ou MCP em outras IAs'], [/^\/api\/apis\/[\w-]+\/delete$/, 'removeu uma chave da biblioteca de APIs'], [/^\/api\/social\/accounts$/, 'salvou uma conta de rede social'], [/^\/api\/social\/accounts\/[\w-]+\/delete$/, 'removeu uma conta de rede social'],
-  [/^\/api\/tasks\/([\w-]+)\/approve$/, 'aprovou uma entrega', 'task'], [/^\/api\/tasks\/([\w-]+)\/unblock$/, 'liberou uma ferramenta para um agente', 'task'], [/^\/api\/tasks\/([\w-]+)\/request-changes$/, 'pediu ajustes em uma entrega', 'task'], [/^\/api\/(?:runs|tasks)\/([\w-]+)\/cancel$/, 'cancelou uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/retry$/, 'repetiu uma tarefa', 'task'],
+  [/^\/api\/tasks\/([\w-]+)\/approve$/, 'aprovou uma entrega', 'task'], [/^\/api\/tasks\/([\w-]+)\/unblock$/, 'liberou uma ferramenta para um agente', 'task'], [/^\/api\/tasks\/([\w-]+)\/request-changes$/, 'pediu ajustes em uma entrega', 'task'], [/^\/api\/(?:runs|tasks)\/([\w-]+)\/cancel$/, 'cancelou uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/retry$/, 'repetiu uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/fix-model$/, 'corrigiu o modelo de um agente e repetiu a tarefa', 'task'],
   [/^\/api\/projects\/([\w-]+)\/git\/commit$/, 'commitou uma entrega no Git', 'project'], [/^\/api\/obsidian\/save$/, 'salvou uma entrega no Obsidian'], [/^\/api\/obsidian\/config$/, 'mudou o vínculo com o Obsidian'], [/^\/api\/git\/config$/, 'mudou o commit automático do Git'], [/^\/api\/projects\/([\w-]+)\/references$/, 'mudou as pastas de referência', 'project'],
   [/^\/api\/batches\/[\w-]+\/approve$/, 'liberou os créditos de um lote'], [/^\/api\/batches\/[\w-]+\/episodes\/[\w-]+\/approve-preview$/, 'aprovou a prévia de um episódio'],
   [/^\/api\/posts\/[\w-]+\/confirm$/, 'confirmou uma publicação'], [/^\/api\/assistant\/apply$/, 'aprovou uma ação proposta pelo Assistente'], [/^\/api\/assistant\/autonomy$/, 'mudou o modo do Assistente (conversa/piloto)'], [/^\/api\/devices\/[\w-]+\/revoke$/, 'revogou o acesso de um aparelho'],
@@ -190,7 +192,11 @@ function auditRoute(p, b, auth) {
 // Repetir uma tarefa (rota e Assistente): sobe o limite de tentativas e devolve a tarefa na fila.
 function retryNow(id) {
   const t = store.get('tasks', id); if (!t) throw new Error('Tarefa não encontrada.');
-  t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1)); store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
+  t.limits.maxAttempts = Math.min(5, Math.max(t.limits.maxAttempts, t.attemptCount + 1));
+  // A tarefa guarda uma cópia do agente de quando foi criada; repetir usa o agente como está AGORA (senão a correção de modelo, IA ou permissão não valia).
+  const cur = t.agent?.id ? store.get('agents', t.agent.id) : null;
+  if (cur) { if (cur.provider === 'agy' && t.project?.area === 'Financeiro') throw new Error('Projetos financeiros não usam o Antigravity.'); const { look, revision, ...fresh } = cur; t.agent = { ...t.agent, ...fresh }; }
+  store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
   const r = retryTask(store, id); void runner.pump(); return r;
 }
 const assistant = new Assistant({ retryTask: async id => retryNow(id), saveMemory: async ({ title, text, projectId }) => { const cfg = obsCfg(), pj = projectId ? store.get('projects', projectId) : null; if (cfg.enabled && cfg.vault && cfg.allowWrite && pj?.area !== 'Financeiro') { const r = await obsSave(cfg, { project: pj?.name || 'Geral', area: pj?.area, agent: 'Assistente', title, summary: text, files: [] }); return { where: 'obsidian', rel: r.rel }; } return { where: 'local' }; }, store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide(await networkView(), await diagnoseNetwork({ cfg: netCfg, port, bound, tailscale: await tailscaleStatus() })) });
@@ -228,6 +234,18 @@ const routines = new Routines(store, (r, slot) => {
   if (r.target.type === 'agent') { const { task } = createTask(store, { projectId: r.projectId, agentId: r.target.id, requestId, objective: social.expandMentions(r.objective).text, criteria: r.criteria, limits: { maxAttempts: r.attempts } }); void runner.pump(); return { taskId: task.id }; }
   return { flowId: orchestrator.startSequential({ projectId: r.projectId, teamId: r.target.id, requestId, objective: social.expandMentions(r.objective).text, criteria: r.criteria }).flow.id };
 });
+// Avisos: o resultado da rotina chega no Telegram ou no Gmail da pessoa (Conexões › Avisos), quando a rotina pede.
+const notifier = new Notifier({ dataDir: data, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Avisos') });
+const metrics = new Metrics(store, { publisher });
+orchestrator.routineDone = ({ requestId, status, text: answer, project }) => {
+  const r = store.get('routines', String(requestId).split(':')[1] || ''); if (!r || !(r.deliver?.telegram || r.deliver?.email)) return;
+  const pj = project?.id ? store.get('projects', project.id) : null;
+  notifier.deliver(r, { status, text: answer, projectName: pj?.name || project?.name, area: pj?.area || project?.area }).then(out => {
+    const fresh = store.get('routines', r.id); if (!fresh || !out.length) return;
+    const bad = out.filter(o => !o.ok), names = { telegram: 'Telegram', email: 'e-mail' };
+    routines.record(fresh, { slot: 'aviso', status: bad.length ? 'notify_failed' : 'notified', reason: out.map(o => `${names[o.channel]}: ${o.ok ? 'enviado' : o.error}`).join(' · ') });
+  }).catch(() => {});
+};
 
 function okKey(value) { const a = Buffer.from(value || ''), b = Buffer.from(key); return a.length === b.length && timingSafeEqual(a, b); }
 // 'master' = chave do PC; 'device' = token de um celular pareado (revogável, sem acesso a rede, aparelhos e registro de projetos).
@@ -251,7 +269,23 @@ function saveAgent(b) {
           if (mcpTools.length && b.provider !== 'claude') throw new Error('A liberação de ferramentas MCP só vale para o Claude Code.');
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
           const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
-          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: cleanModel(b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, web: (b.web !== undefined ? b.web === true || b.web === '1' || b.web === 1 : !!old?.web) && b.provider === 'claude', browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: agentModel(b.provider, b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, web: (b.web !== undefined ? b.web === true || b.web === '1' || b.web === 1 : !!old?.web) && b.provider === 'claude', browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+}
+// Nome aproximado ("Gemini Flash 3.8") vira o identificador que a IA aceita, quando a lista dela já foi lida.
+function agentModel(provider, raw) {
+  const v = String(raw ?? '').trim(); if (!v) return '';
+  const hit = matchModel(v, modelCache.get(provider)?.models || []); return hit || cleanModel(v);
+}
+// Corrigir o modelo de uma tarefa que falhou por “modelo inválido”: escolhe o aceito mais parecido (ou o que a pessoa indicou), grava no agente e repete.
+async function fixModel(id, wanted) {
+  const t = store.get('tasks', id); if (!t) throw new Error('Tarefa não encontrada.');
+  if (!['failed', 'blocked', 'interrupted'].includes(t.status)) throw new Error('Só dá para corrigir o modelo de uma tarefa que falhou.');
+  const ag = store.get('agents', t.agent?.id); if (!ag) throw new Error('O agente desta tarefa não existe mais.');
+  let { models } = await modelSuggestions(ag.provider); models = models.filter(m => !/\(já usado\)$/.test(m.label));
+  let next = wanted ? (matchModel(wanted, models) || cleanModel(wanted)) : (matchModel(ag.model || t.agent.model, models) || (models.find(m => /medium/i.test(m.id)) || models[0])?.id || '');
+  if (next === (ag.model || '') && !wanted) next = '';   // o mesmo nome falhou: volta para o padrão da IA
+  saveAgent({ ...ag, model: next, effort: undefined });
+  const r = retryNow(id); return { task: r, model: next || null, label: models.find(m => m.id === next)?.label || null };
 }
 // Sugestões de modelo para o formulário (a pessoa pode digitar qualquer outro): aliases do Claude, lista real do Antigravity e o padrão do Codex.
 const modelCache = new Map(), modelWarmAt = new Map();
@@ -420,6 +454,8 @@ const handle = async (req, res) => {
       if (get && p === '/api/sync-ias') { masterOnly(auth); return send(res, 200, await syncIas().overview()); }
       if (get && p === '/api/apis') { masterOnly(auth); return send(res, 200, { catalog: apiLib.catalog(), keys: apiLib.list() }); }
       if (get && p === '/api/social') { masterOnly(auth); return send(res, 200, { catalog: SOCIAL_CATALOG, accounts: social.accounts(), posts: social.posts() }); }
+      if (get && p === '/api/notify') { masterOnly(auth); return send(res, 200, notifier.status()); }
+      if (get && p === '/api/metrics') { masterOnly(auth); let yt; try { yt = await metrics.youtube({ refresh: url.searchParams.get('refresh') === '1' }); } catch (e) { yt = { connected: true, error: String(e.message || e).slice(0, 200) }; } return send(res, 200, { youtube: yt, posts: metrics.posts() }); }
       if (get && p === '/api/audit') { masterOnly(auth); return send(res, 200, { entries: store.events('_audit').filter(e => e.type === 'audit').reverse().slice(0, 200).map(({ seq, type, ...e }) => e) }); }
       if (get && p === '/api/obsidian') { masterOnly(auth); return send(res, 200, await obsStatus()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
@@ -641,6 +677,7 @@ const handle = async (req, res) => {
           if (b.confirm !== true) throw new Error('Repetir pode duplicar efeitos já produzidos. Confirme com { "confirm": true } depois de conferir os arquivos.');
           return send(res, 200, brief(retryNow(m[1])));
         }
+        if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/fix-model$/))) { const r = await fixModel(m[1], b.model ? String(b.model).slice(0, 80) : ''); return send(res, 200, { task: brief(r.task), model: r.model, label: r.label }); }
         if (p === '/api/settings/limits') {
           const timeoutMin = Number(b.timeoutMin), budgetUsd = b.budgetUsd === '' || b.budgetUsd == null ? null : Number(b.budgetUsd);
           if (!(timeoutMin >= 1 && timeoutMin <= 60)) throw new Error('Duração máxima: de 1 a 60 minutos.');
@@ -743,6 +780,9 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
           if (m[2] === 'dismiss') return send(res, 200, dismissSubtask(store, m[1]));
           const t = approveSubtask(store, orchestrator, m[1]); void runner.pump(); return send(res, 200, brief(t));
         }
+        if (p === '/api/notify/telegram') { masterOnly(auth); return send(res, 200, await notifier.saveTelegram(b)); }
+        if (p === '/api/notify/email') { masterOnly(auth); return send(res, 200, await notifier.saveEmail(b)); }
+        if ((m = p.match(/^\/api\/notify\/(telegram|email)\/(test|remove)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'test' ? await notifier.test(m[1]) : await notifier.remove(m[1])); }
         if (p === '/api/social/accounts') { masterOnly(auth); return send(res, 200, await social.saveAccount(b)); }
         if ((m = p.match(/^\/api\/social\/accounts\/([a-zA-Z0-9-]+)\/(delete|test)$/))) { masterOnly(auth); return send(res, 200, m[2] === 'delete' ? await social.removeAccount(m[1]) : await social.test(m[1])); }
         if (p === '/api/economy/apply') { masterOnly(auth); return send(res, 200, applySuggestions(store, b.ids, economyCtx())); }

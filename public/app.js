@@ -70,7 +70,8 @@ ctx.rooms = () => { const ids = ctx.project ? ctx.projectAgentIds() : null; retu
 ctx.supervisorAgent = () => { const a = ctx.state.agents.find(x => x.id === store.get('cr.sup.' + ctx.project, '')); return a && (!ctx.project || ctx.projectAgentIds().has(a.id)) ? a : null; };
 // As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
 const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
-ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); return m === 'list' ? 'term' : m; };   // a antiga “Lista” virou “Terminais”
+// A antiga “Lista” e o modo “Terminais” viraram o Canvas com os terminais ligados (um lugar só para ver os agentes trabalhando).
+ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return m === 'canvas' ? 'canvas' : 'scene'; };
 // Equipes e agentes só entram no projeto por vínculo explícito ou por trabalho que já executaram nele.
 ctx.projectTeamIdsFor = projectId => {
   const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
@@ -342,6 +343,8 @@ const approvedMsg = r => approvedBase(r) + (r?.proposal ? ' Sugeri uma decisão 
 const approvedBase = r => r?.gitCommit ? `Entrega aprovada e commit ${r.gitCommit} criado (local). Nada foi publicado.` : r?.gitError ? `Entrega aprovada, mas o commit não foi criado: ${r.gitError}` : r?.obsidian ? `Entrega aprovada. Nota nova no Obsidian: ${r.obsidian}. Nada foi publicado.` : r?.obsidianError ? `Entrega aprovada, mas a nota do Obsidian não foi criada: ${r.obsidianError}` : 'Entrega aprovada. Nada foi publicado.';
 async function loadObsidian() { try { ctx.obsidian = await api('obsidian'); } catch { ctx.obsidian = null; } if (ctx.view === 'connections' || ctx.view === 'deliveries') render(); }
 async function loadAudit() { try { ctx.audit = await api('audit'); } catch { ctx.audit = { entries: [] }; } if (ctx.view === 'settings') render(); }
+async function loadNotify() { try { ctx.notify = await api('notify'); } catch { ctx.notify = null; } if (ctx.view === 'connections' || ctx.ui.panel === 'routine') render(); }
+async function loadMetrics(refresh = false) { try { ctx.metrics = await api(`metrics${refresh ? '?refresh=1' : ''}`); } catch (e) { ctx.metrics = { youtube: { connected: true, error: e.message }, posts: {} }; } if (ctx.view === 'connections') render(); }
 async function loadSocial() { try { ctx.social = await api('social'); } catch { ctx.social = null; } if (ctx.view === 'connections' || ctx.ui.asstOpen) render(); }
 async function loadEconomy() { try { ctx.economy = await api('economy'); } catch { ctx.economy = null; } if (ctx.view === 'usage') render(); }
 async function loadOutbound() { try { ctx.outbound = await api('outbound'); } catch { ctx.outbound = null; } if (ctx.view === 'connections') render(); }
@@ -482,7 +485,8 @@ async function go(view) {
   if (view === 'skills') loadSkills(true);
   if (view === 'usage') loadEconomy();
   if (view === 'routines' || view === 'tasks') refresh();   // lotes e tarefas criados por fora (Assistente, outro aparelho) aparecem ao abrir a tela, sem esperar os 15 s do relógio
-  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); loadSocial(); loadApis(); loadSync(); loadOutbound(); }
+  if (view === 'connections') { loadProviders(); loadHermes(); loadObsidian(); loadSocial(); loadApis(); loadSync(); loadOutbound(); loadNotify(); loadMetrics(); }
+  if (view === 'routines' && !ctx.notify) loadNotify();
   if (view === 'deliveries' && !ctx.obsidian) loadObsidian();
   if (view === 'deliveries' && ctx.project && ctx.gitInfo?.projectId !== ctx.project) loadGit(ctx.project, false);
   if (view === 'connections' || view === 'agents') { loadChecks(true); loadModules(); }
@@ -580,7 +584,7 @@ const actions = {
   'asst-task': (id, el) => openTask(id, el?.dataset.tab || 'arquivos'),
   'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
-  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'term' ? 'scene' : 'term'; savePrefs(); render(); }, 'view-mode': id => { ctx.prefs.mode = ['scene', 'term', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => {
@@ -605,6 +609,9 @@ const actions = {
   'close-panel': () => { ctx.ui.panel = null; render(); },
   'new-agent': () => editAgent(), 'edit-agent': id => editAgent(id), 'conn-tab': id => { ctx.ui.connTab = id; render(); window.scrollTo(0, 0); }, 'agents-tab': id => { ctx.ui.agentsTab = id; if (id === 'tools') { loadChecks(true); } if (id === 'library') loadAgentLibrary(); render(); },
   'agent-hire-pack': async id => { const r = await api('agents/library/hire-pack', { id, projectId: ctx.project || undefined }); await refresh(); await loadAgentLibrary(); notify(`${r.created.length ? `Contratados: ${r.created.join(', ')}.` : 'Todos os especialistas desta equipe já estavam na sua lista.'}${r.reused.length ? ` Reaproveitados: ${r.reused.join(', ')}.` : ''}${r.team ? ` Equipe “${r.team}” criada.` : ''}${r.projectId ? ' Tudo já está neste projeto.' : ''}`); },
+  'fix-model': async id => { notify('Corrigindo o modelo…'); const r = await api(`tasks/${id}/fix-model`, {}); await refresh(); notify(r.model ? `Modelo trocado para ${r.label || r.model}. A tarefa voltou para a fila.` : 'O agente passou a usar o modelo padrão da IA. A tarefa voltou para a fila.'); },
+  'newlook-open': () => { ctx.ui.newLookOpen = true; render(); },
+  'newlook-dismiss': () => { ctx.prefs.newLookSeen = V.NEW_LOOK; ctx.ui.newLookOpen = false; savePrefs(); render(); },
   'digest-dismiss': () => { ctx.prefs.digestSeen = new Date().toDateString(); savePrefs(); render(); },
   'digest-ask': async () => { ctx.prefs.digestSeen = new Date().toDateString(); savePrefs(); ctx.ui.target = 'assistant'; setChatOpen(true); render(); await askAssistant('Acabei de voltar. Olhe o estado atual e me diga, em poucas linhas, o que está pendente (entregas para revisar, tarefas que falharam, pedidos aguardando aprovação, projetos parados) e por onde vale começar. Se alguma falha tiver correção, proponha.'); },
   'agent-hire': async (id, el) => { const provider = el?.closest('.lib-card')?.querySelector('.lib-provider')?.value; if (!provider) throw new Error('Conecte uma IA em Conexões antes de contratar.'); const r = await api('agents/library/hire', { id, provider, projectId: ctx.project || undefined }); await refresh(); await loadAgentLibrary(); notify(`“${r.agent.name}” contratado${r.projectId ? ' e trazido para este projeto' : ''}. Ele começa ${r.agent.mode === 'write' ? 'podendo editar arquivos do projeto' : 'em somente leitura'}; ajuste em Meus agentes quando quiser.`); },
@@ -754,6 +761,14 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
     for (const a of todo) { if (!a.valid) { notify(`Parei antes de “${a.summary || 'uma proposta'}”: ${a.error || 'inválida'}.`, true); break; } try { await applyAsst(`${mid}:${a.idx}`); } catch (e) { notify(`Parei em “${a.summary}”: ${e.message}`, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); break; } }
   },
   'asst-dismiss': async id => { const [m, i] = id.split(':'); await asstCall('dismiss', { messageId: m, index: Number(i) }); },
+  'upd-quick': async () => {   // botão do topo: baixa, instala ou verifica, conforme o estado
+    const u = ctx.updates, st = u?.download?.state;
+    if (st === 'downloading' || st === 'installing') return notify(st === 'downloading' ? 'Baixando a atualização…' : 'Instalando…');
+    if (st === 'ready' && u.hasUpdate) return actions['upd-install']();
+    if (u?.hasUpdate && u.latest?.zip && u.latest?.hasSums) { notify(`Baixando a versão ${u.latest.version}…`); return actions['upd-download'](); }
+    if (u?.hasUpdate) return actions['upd-open']();
+    return actions['upd-check']();
+  },
   'upd-open': () => { ctx.ui.updOpen = true; render(); const d = $('update-dialog'); if (!d.open) d.showModal(); },
   'upd-close': () => { ctx.ui.updOpen = false; const d = $('update-dialog'); if (d.open) d.close(); },
   'upd-later': async () => { try { ctx.updates = await api('updates/dismiss', { version: ctx.updates.latest.version }); render(); } catch (e) { notify(e.message, true); } },
@@ -792,6 +807,9 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
   'ap-sub-approve': async id => { await api(`subtasks/${id}/approve`, {}); notify('Pedido aprovado. O outro agente começou.'); await refresh(); renderAsst(); },
   'ap-sub-dismiss': async id => { await api(`subtasks/${id}/dismiss`, {}); await refresh(); renderAsst(); },
   'social-edit': id => { ctx.ui.socialForm = id ? { id, network: ctx.social.accounts.find(a => a.id === id)?.network } : null; render(); },
+  'notify-test': async id => { notify('Enviando o teste…'); await api(`notify/${id}/test`, {}); notify(id === 'telegram' ? 'Teste enviado. Confira o Telegram.' : 'Teste enviado. Confira a caixa de entrada (e o spam).'); },
+  'notify-remove': async id => { if (!confirm('Desconectar este aviso? As rotinas deixam de enviar por aqui.')) return; ctx.notify = await api(`notify/${id}/remove`, {}); render(); },
+  'metrics-refresh': async () => { notify('Lendo o YouTube…'); await loadMetrics(true); },
   'social-del': async id => { if (!confirm('Remover esta conta? As senhas guardadas dela também são apagadas.')) return; await api(`social/accounts/${id}/delete`, {}); ctx.ui.socialForm = null; await loadSocial(); notify('Conta removida.'); },
   'social-test': async id => { ctx.ui.socialTest = { ...(ctx.ui.socialTest || {}), [id]: { ok: true, detail: 'Testando…' } }; render(); try { ctx.ui.socialTest[id] = await api(`social/accounts/${id}/test`, {}); } catch (e) { ctx.ui.socialTest[id] = { ok: false, detail: e.message }; } render(); },
   'social-copy': async id => { const p = ctx.social.posts.find(x => x.id === id); try { await navigator.clipboard.writeText(p.text); notify('Texto copiado. Cole no app da rede.'); } catch { notify('Não consegui copiar. Selecione o texto na fila.', true); } },
@@ -911,13 +929,13 @@ function openRoutineDraft({ task, key, text }) {
   const target = key || (flow?.teamId ? 't:' + flow.teamId : task?.agent ? 'a:' + task.agent.id : '');
   const objective = String(text || flow?.objective || task?.objective || '').replace(/^Corrija a entrega conforme a revisão recebida[^.]*\. Objetivo original: /, '');
   ctx.ui.routineDraft = { fromTask: true, name: objective.replace(/\s+/g, ' ').slice(0, 60) || 'Rotina diária', objective, projectId: task?.project?.id || ctx.project || '', target, time: '08:00' };
-  ctx.ui.panel = 'routine'; ctx.ui.panelId = null; render();
+  ctx.ui.panel = 'routine'; ctx.ui.panelId = null; render(); if (!ctx.notify) loadNotify();
 }
 async function saveRoutine() {
   const f = $('routine-form'), d = Object.fromEntries(new FormData(f)), [tt, tid] = d.target.split(':');
   if (/\[(TEMA|ÁREA|CARGO|LOCAL|TOM|apelido)[^\]]*\]/i.test(d.objective)) throw new Error('Troque os trechos entre [colchetes] do objetivo pelo que você quer.');
   const trigger = d.ttype === 'manual' ? { type: 'manual' } : d.ttype === 'file' ? { type: 'file', ext: d.ext || '' } : { type: 'time', freq: d.freq, time: d.time, ...(d.freq === 'weekly' ? { day: Number(d.day) } : {}) };
-  const r = await api('routines', { ...(d.id ? { id: d.id } : {}), name: d.name, projectId: d.projectId, target: { type: tt === 'a' ? 'agent' : tt === 'r' ? 'recipe' : 'team', id: tid }, objective: d.objective, trigger, attempts: Number(d.attempts) });
+  const r = await api('routines', { ...(d.id ? { id: d.id } : {}), name: d.name, projectId: d.projectId, target: { type: tt === 'a' ? 'agent' : tt === 'r' ? 'recipe' : 'team', id: tid }, objective: d.objective, trigger, attempts: Number(d.attempts), deliver: { telegram: d.dv_telegram === 'on', email: d.dv_email === 'on' } });
   ctx.ui.routineDraft = null; await refresh(); return r;
 }
 document.addEventListener('click', async e => {
@@ -1036,6 +1054,8 @@ document.addEventListener('submit', async e => {
       const fd = new FormData(f), network = ctx.ui.socialForm?.network || fd.get('network'), fields = {}; for (const [k, v] of fd.entries()) if (k.startsWith('f_')) fields[k.slice(2)] = v;
       await api('social/accounts', { id: fd.get('id') || undefined, network, name: fd.get('name'), label: fd.get('label') || undefined, niche: fd.get('niche'), maxPerDay: Number(fd.get('maxPerDay')) || undefined, fields }); ctx.ui.socialForm = null; await loadSocial(); notify('Conta salva.');
     }
+    else if (fid === 'notify-tg-form') { const fd = new FormData(f); ctx.notify = await api('notify/telegram', { botToken: fd.get('botToken') }); notify('Telegram conectado. Use “Mandar teste” para conferir.'); render(); }
+    else if (fid === 'notify-email-form') { const fd = new FormData(f); ctx.notify = await api('notify/email', { user: fd.get('user'), pass: fd.get('pass'), to: fd.get('to') }); notify('Gmail conectado. Use “Mandar teste” para conferir.'); render(); }
     else if (fid === 'social-post-form') { const fd = new FormData(f), w = fd.get('when'); await api('social/posts', { accountId: fd.get('accountId'), text: fd.get('text'), when: w ? new Date(w).toISOString() : undefined }); await Promise.all([refresh(), loadSocial()]); notify('Postagem criada. Aprove no chat (cartão “Aguardando você”).'); render(); }
     else if (fid === 'refs-form') {   // pastas de referência: o servidor valida de novo (caminho, sistema, o próprio projeto, rótulos)
       const dirs = $('refs-dirs').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => { const m = l.match(/^([^=\\/:]{1,40})=(.+)$/); return m ? { label: m[1].trim(), path: m[2].trim() } : { path: l }; });
