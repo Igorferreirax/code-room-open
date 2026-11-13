@@ -1,13 +1,16 @@
 """Roteiro no navegador do Canvas "ao vivo": quem trabalha fica verde, quem espera fica âmbar, quem falhou fica vermelho,
 e o trabalho viaja pela linha de um agente ao outro. Não chama nenhuma IA: a resposta de /api/state é adulterada no navegador
 para simular as tarefas. Uso: python scripts/ui_canvas_live.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request
+import json, os, shutil, subprocess, sys, tempfile, time, urllib.request
 from playwright.sync_api import sync_playwright
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4786
 data = tempfile.mkdtemp(prefix='cr-cv-'); proj_dir = tempfile.mkdtemp(prefix='cr-cv-proj-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+bindir = os.path.join(data, 'bin'); os.makedirs(bindir)
+for name in ('claude', 'codex', 'agy'): shutil.copy(shutil.which('node'), os.path.join(bindir, name + '.exe'))
+env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
+srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -65,7 +68,7 @@ try:
         check('1: Codex e Gemini parados mostram o zZ, sem verde', b['zzz'] and c['zzz'] and b['border'] != GREEN and c['border'] != GREEN); check('1: nenhuma linha anda ainda', not live)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'cv-1.png'))
         a, b, c, live, pulses = show('2 Claude entregou, Codex recebeu e trabalha')
-        check('2: Codex recebeu o trabalho e fica VERDE', 'st-running' in b['cls'] and b['border'] == GREEN and b['typing'], b); check('2: Claude, que já entregou, deixa de ser verde (fica concluído ou parado)', a['border'] != GREEN and ('st-done' in a['cls'] or a['zzz']), a)
+        check('2: Codex recebeu o trabalho e fica VERDE', 'st-running' in b['cls'] and b['border'] == GREEN and b['typing'], b); check('2: Claude, que já entregou, deixa de ser verde (concluído, disponível ou parado)', a['border'] != GREEN and ('st-done' in a['cls'] or 'st-available' in a['cls'] or a['zzz']), a)
         check('2: a linha Claude -> Codex anda, com bolinhas viajando', live == [[A['id'], B['id']]] and pulses == 2, (live, pulses)); pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'cv-2.png'))
         a, b, c, live, pulses = show('3 Codex terminou, Gemini (equipe) revisa')
         check('3: fluxo de EQUIPE também anda (Codex -> Gemini) e o Gemini fica verde', live == [[B['id'], C['id']]] and 'st-running' in c['cls'] and c['border'] == GREEN and pulses == 2, (live, pulses, c['cls']))
