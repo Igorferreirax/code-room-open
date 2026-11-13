@@ -75,6 +75,7 @@ try:
         check('ao vivo: Parar cancela a tarefa', 'cancelada' in page.inner_text('#live-box') or 'Cancelad' in page.inner_text('#live-box') or 'Última tarefa' in page.inner_text('#live-box'))
         # ---- várias janelas de chat ao mesmo tempo ----
         beto = api('agents', {'name': 'Beto Ao Vivo', 'role': 'segunda janela', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})
+        api('projects/members', {'projectId': P['id'], 'add': [beto['id']]})
         page.reload(); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(300)
         page.click('[data-nav=room]'); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)

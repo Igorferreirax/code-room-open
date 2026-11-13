@@ -2,10 +2,11 @@
 # Gera uma "versão 0.99.0" a partir do pacote atual e atualiza de verdade, em três cenários:
 #   A) atualização boa: troca a versão e os dados continuam;  B) pacote inválido: nada é tocado, o serviço segue no ar;
 #   C) versão nova que NÃO abre: volta sozinho para a anterior.
-# Uso:  powershell -ExecutionPolicy Bypass -File installer\test-update.ps1   (rode installer\build.ps1 antes)
+# Uso:  powershell -ExecutionPolicy Bypass -File installer\test-update.ps1 [-ArchivePath dist\Code-Room-0.3.5-portatil-win-x64.zip]
+param([string]$ArchivePath = '')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
-$zip = Get-ChildItem (Join-Path $repo 'dist') -Filter 'Code-Room-*-portatil-win-x64.zip' | Select-Object -First 1
+$zip = if ($ArchivePath) { Get-Item -LiteralPath (Join-Path $repo $ArchivePath) -ErrorAction Stop } else { Get-ChildItem (Join-Path $repo 'dist') -Filter 'Code-Room-*-portatil-win-x64.zip' | Select-Object -First 1 }
 if (-not $zip) { throw 'Rode installer\build.ps1 antes.' }
 $old = (Get-Content (Join-Path $repo 'package.json') -Raw | ConvertFrom-Json).version; $new = '0.99.0'
 $work = Join-Path $env:TEMP ('cr-upd-e2e-' + [guid]::NewGuid().ToString('N').Substring(0, 8)); New-Item -ItemType Directory $work | Out-Null
@@ -45,7 +46,8 @@ function Run-Scenario($label, $rel) {
     Start-Process powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $app 'scripts\start.ps1') + '"') -WindowStyle Hidden
     if (-not (Wait-Until { Open-Port $PORT } 30)) { throw 'o app instalado nao abriu' }
     $key = (Get-Content (Join-Path $data 'access.key') -Raw).Trim(); $H = @{'X-Code-Room-Key' = $key; 'Content-Type' = 'application/json'}
-    $api = { param($p, $b) if ($null -eq $b) { Invoke-RestMethod "http://127.0.0.1:$PORT/api/$p" -Headers $H -TimeoutSec 10 } else { Invoke-RestMethod "http://127.0.0.1:$PORT/api/$p" -Method Post -Headers $H -Body ($b | ConvertTo-Json) -TimeoutSec 30 } }.GetNewClosure()
+    $apiPort = $PORT
+    $api = { param($p, $b) if ($null -eq $b) { Invoke-RestMethod "http://127.0.0.1:$apiPort/api/$p" -Headers $H -TimeoutSec 10 } else { Invoke-RestMethod "http://127.0.0.1:$apiPort/api/$p" -Method Post -Headers $H -Body ($b | ConvertTo-Json) -TimeoutSec 30 } }.GetNewClosure()
     $marker = Join-Path $inst 'projeto-marcador'; New-Item -ItemType Directory $marker | Out-Null
     $null = & $api 'projects' @{ name = 'Projeto de teste'; path = ($marker -replace '\\', '/'); area = 'Geral' }
     $v0 = (& $api 'state' $null).runtime.version; Check "antes: versao $old rodando do pacote instalado" ($v0 -eq $old) $v0

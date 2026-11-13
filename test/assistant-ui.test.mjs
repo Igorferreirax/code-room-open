@@ -12,7 +12,7 @@ test('markdown simples: escapa HTML da IA, aplica negrito, código e listas, sem
 const base = { manual: { available: true }, connected: ['claude', 'codex'], provider: 'claude', messages: [], briefed: true, stale: false, error: null, pending: null, briefing: null };
 test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, desatualizado, conversa, aguardando)', () => {
   assert.match(assistantHtml({ ...base, connected: [] }), /Nenhuma IA instalada/);
-  assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /não altera nada/);
+  assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /No Modo Piloto, ele também pode trabalhar nos arquivos do projeto/);
   assert.match(assistantHtml({ ...base, briefing: { status: 'running' } }), /está lendo o manual/);
   { const h = assistantHtml({ ...base, stale: true }); assert.match(h, /O manual mudou[\s\S]*Apresentar de novo/); assert.match(h, /id="asst-log"/, 'manual novo não bloqueia a conversa'); assert.ok(!h.includes('asst-input'), 'a entrada fica na barra do chat, não aqui'); }
   assert.match(assistantHtml(base), /asst-suggest/); assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /Pensando…/);
@@ -37,12 +37,27 @@ test('aviso do Modo Piloto: pode ser ocultado por botão acessível e reaparece 
 test('chat do Assistente: resposta do piloto permite abrir os arquivos e o diff da execução', () => {
   const h = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Feito', at: '2026-01-01T10:00:00Z', taskId: 't1' }] });
   assert.match(h, /data-act="asst-task" data-id="t1" data-tab="arquivos">Ver arquivos e diff/);
+  const empty = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Criei o arquivo', at: '', taskId: 't2', pilot: true, fileCount: 0 }] });
+  assert.match(empty, /Nenhum arquivo foi alterado nas pastas acompanhadas nesta execução/);
+  assert.match(empty, /data-id="t2" data-tab="arquivos">Ver registro da execução/);
+  const changed = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Feito', at: '', taskId: 't3', pilot: true, fileCount: 1 }] });
+  assert.doesNotMatch(changed, /Nenhum arquivo da pasta/);
+  assert.match(changed, /data-id="t3" data-tab="arquivos">Ver arquivos e diff/);
+  const err = assistantHtml({ ...base, messages: [{ role: 'assistant', error: 'A CLI não respondeu', failureKind: 'no_output', taskId: 't4' }] });
+  assert.match(err, /Testar resposta.*Conexões/);
+  assert.match(err, /data-nav="connections">Abrir Conexões/);
+  assert.match(err, /data-id="t4" data-tab="resumo">Ver diagnóstico da execução/);
+  const denied = assistantHtml({ ...base, messages: [{ role: 'assistant', error: 'Ferramenta negada', failureKind: 'tool_denied', taskId: 't5' }] });
+  assert.match(denied, /libere apenas a ferramenta necessária/);
+  assert.doesNotMatch(denied, /data-nav="connections"/);
 });
 
 test('cartões de ação: válida tem Criar e Descartar; inválida só explica; aplicada mostra o resultado', () => {
   const m = (a) => ({ ...base, messages: [{ id: 'm1', role: 'assistant', text: 'ok', at: '2026-01-01T10:00:00Z', actions: [a] }] });
   const ok = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: true, status: 'pending', summary: 'Criar a equipe “X”' }));
   assert.match(ok, /data-act="asst-apply" data-id="m1:0"[^>]*>Criar/); assert.match(ok, /asst-dismiss/);
+  const reuse = assistantHtml(m({ idx: 0, type: 'vincular_agente', valid: true, status: 'pending', summary: 'Trazer o agente existente' }));
+  assert.match(reuse, /data-act="asst-apply" data-id="m1:0"[^>]*>Trazer agente/);
   const bad = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: false, status: 'pending', summary: 'x', error: 'O agente “Y” não existe.' }));
   assert.ok(!bad.includes('asst-apply')); assert.match(bad, /não existe/);
   const done = assistantHtml(m({ idx: 0, type: 'criar_equipe', valid: true, status: 'applied', summary: 'x', result: 'Equipe criada.' }));

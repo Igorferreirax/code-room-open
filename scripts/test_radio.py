@@ -73,6 +73,7 @@ try:
         p2.click('#radio-fab'); time.sleep(2.0)
         st = p2.evaluate('window.__ctxs.map(c => [c.state, c.currentTime])'); check('clicar no radinho liga o áudio: contexto rodando e o relógio avança', len(st) == 1 and st[0][0] == 'running' and st[0][1] > 1.0, st)
         check('tocando: radinho marcado como ligado, barra de volume aparece e não abre nenhum painel', pr() == 'true' and p2.evaluate("document.getElementById('radio-ctl').classList.contains('on')") and p2.is_visible('#radio-vol') and p2.get_attribute('#radio-fab', 'aria-label') == 'Parar a rádio lo-fi')
+        check('tocando: rádio sem contorno quadrado', p2.evaluate("""() => { const s=getComputedStyle(document.getElementById('radio-ctl')); return s.borderTopWidth === '0px' && s.boxShadow === 'none' }"""))
         p2.fill('#radio-vol', '30'); time.sleep(0.4); check('mexer no volume funciona e é lembrado', p2.evaluate("JSON.parse(localStorage.getItem('cr.radio')).volume") == 0.3)
         t1 = p2.evaluate("document.getElementById('radio-track').textContent"); check('o nome da faixa fica no título do radinho e a próxima faixa está na barra', t1.startswith('faixa 1/5:') and t1 in p2.get_attribute('#radio-fab', 'title') and p2.is_visible('#radio-next'), t1)
         p2.click('#radio-next'); pending = p2.evaluate("document.getElementById('radio-track').textContent"); check('próxima faixa dá retorno imediato e informa a troca solicitada', pending.startswith('próxima faixa: Madrugada no café'), pending)

@@ -87,7 +87,8 @@ try:
         pg.click('[data-act=upd-toggle]'); time.sleep(0.5); check('Ligar de novo funciona', 'ligada' in pg.inner_text('#view') and 'Verificar agora' in pg.inner_text('#view'))
 
         state['mode'] = 'down'; pg.click('[data-act=upd-check]'); pg.wait_for_selector('.upd-err', timeout=10000)
-        check('servidor de atualização fora do ar: erro claro, sem quebrar o app', 'Não foi possível consultar' in pg.inner_text('.upd-err') and pg.locator('#rail button').count() == 12)
+        update_error, rail_buttons = pg.inner_text('.upd-err'), pg.locator('#rail button').count()
+        check('servidor de atualização fora do ar: erro claro, sem quebrar o app', 'Não foi possível consultar' in update_error and rail_buttons >= 12, (update_error, rail_buttons))
         state['mode'] = 'ok'
         check('sem erro de console no fluxo (desktop)', not errs, errs[:2]); ctx.close()
 

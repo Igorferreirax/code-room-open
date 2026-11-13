@@ -71,7 +71,7 @@ ctx.supervisorAgent = () => { const a = ctx.state.agents.find(x => x.id === stor
 // As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
 const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
 // A antiga “Lista” e o modo “Terminais” viraram o Canvas com os terminais ligados (um lugar só para ver os agentes trabalhando).
-ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return m === 'canvas' ? 'canvas' : 'scene'; };
+ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return ['canvas', 'live'].includes(m) ? m : 'scene'; };
 // Equipes e agentes só entram no projeto por vínculo explícito ou por trabalho que já executaram nele.
 ctx.projectTeamIdsFor = projectId => {
   const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
@@ -438,14 +438,16 @@ async function loadAsst() {
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
 // Guarda (até 3 por destino) o que foi pedido a uma equipe ou agente pelo chat, para o chat mostrar o pedido e o andamento.
 function rememberSent(target, text, ref) { const all = ctx.ui.sent ?? (ctx.ui.sent = store.get('cr.sent', {})); all[target] = [{ text: String(text).slice(0, 400), at: new Date().toISOString(), ...ref }, ...(all[target] || [])].slice(0, 3); store.set('cr.sent', all); renderAsst(); }
-async function askAssistant(text, { includeContext = true } = {}) {
+async function askAssistant(text, { includeContext = true, extraDir = null } = {}) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
   const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
+  if (extraDir && (!ctx.project || ctx.asst?.autonomy !== 'pilot')) { notify('Selecione um projeto e ligue o Modo Piloto para autorizar uma pasta extra.', true); return false; }
+  if (extraDir && !confirm(`Autorizar esta IA a LER E EDITAR a pasta abaixo nesta execução?\n\n${extraDir}\n\nO Code Room registra as mudanças para revisão, mas não desfaz automaticamente alterações fora do projeto.`)) return false;
   ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
-  const ok = await asstCall('ask', { text, ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
+  const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
   if (!ok) { await loadAsst(); notify('A mensagem não foi enviada. Seu texto continua na barra: tente de novo.', true); }   // antes: a mensagem aparecia e sumia, e o texto era apagado
   return ok;
 }
@@ -584,7 +586,7 @@ const actions = {
   'asst-task': (id, el) => openTask(id, el?.dataset.tab || 'arquivos'),
   'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
-  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'live', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => {
@@ -617,6 +619,7 @@ const actions = {
   'agent-hire': async (id, el) => { const provider = el?.closest('.lib-card')?.querySelector('.lib-provider')?.value; if (!provider) throw new Error('Conecte uma IA em Conexões antes de contratar.'); const r = await api('agents/library/hire', { id, provider, projectId: ctx.project || undefined }); await refresh(); await loadAgentLibrary(); notify(`“${r.agent.name}” contratado${r.projectId ? ' e trazido para este projeto' : ''}. Ele começa ${r.agent.mode === 'write' ? 'podendo editar arquivos do projeto' : 'em somente leitura'}; ajuste em Meus agentes quando quiser.`); },
   'asst-rename': async () => { const cur = ctx.asst?.name || 'Nico', n = prompt('Como o Assistente deve se chamar? (até 24 letras)', cur); if (n == null) return; ctx.asst = { ...ctx.asst, ...(await api('assistant/name', { name: n })) }; render(); renderAsst(); notify(`Pronto: o Assistente agora se chama ${ctx.asst.name}.`); },
   'asst-autonomy': id => { if (id === 'pilot' && !confirm('Ligar o modo piloto?\n\nO Assistente passa a agir como a sua IA no terminal: cria e edita arquivos na pasta do projeto em foco, roda programas liberados (node, git, ffmpeg…), usa skills, ferramentas MCP e o seu Chrome.\n\nNada é postado, enviado ou pago sem o seu “sim”, mas ele pode mexer nos seus arquivos. Use só em pastas que você aceita que sejam alteradas. Você pode voltar ao modo consulta quando quiser.')) return; return asstCall('autonomy', { mode: id }); },
+  'asst-extra-dir': (_, el) => { const path = prompt('Caminho completo da pasta adicional para esta tarefa. Deixe vazio para remover.', ctx.ui.asstExtraDir || ''); if (path === null) return; ctx.ui.asstExtraDir = path.trim() || null; if (el) { el.title = ctx.ui.asstExtraDir ? `Pasta extra: ${ctx.ui.asstExtraDir}` : 'Autorizar pasta extra nesta tarefa'; el.setAttribute('aria-pressed', String(!!ctx.ui.asstExtraDir)); } notify(ctx.ui.asstExtraDir ? 'Pasta escolhida. Você confirma o acesso antes de enviar.' : 'Pasta extra removida.'); },
   'asst-pilot-note-dismiss': () => { store.set('cr.pilot-note-dismissed', true); renderAsst(); },
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
   'retention-preview': async () => { ctx.retention = 'busy'; render(); try { ctx.retention = await api('retention?days=7'); } catch (e) { ctx.retention = null; notify(e.message, true); } render(); },
@@ -675,7 +678,7 @@ const actions = {
   'test-tool': async id => { await loadChecks(true); const i = ctx.checks?.find(c => c.id === id); notify(i?.installed ? `${V.PROVIDER[id]}: ${i.version || 'versão indisponível'} · login ${i.authenticated == null ? 'não verificado' : i.authenticated ? 'ativo' : 'inativo'}.` : `${V.PROVIDER[id]} não encontrado.`, !i?.installed); },
   'connector-login': async id => { const r = await api('connectors/login', { provider: id }); notify(`Terminal aberto para entrar no ${V.PROVIDER[id] || id}. Conclua o login no fluxo oficial e depois verifique a conexão.`); return r; },
   // Testar resposta: pedido mínimo à IA (gasta uma resposta curta). O resultado fica na tela até o próximo teste.
-  'connector-test': async (id, el) => { const model = el?.dataset?.model || ''; ctx.ui.respTest = { ...(ctx.ui.respTest || {}), [id]: { running: true } }; render(); let r; try { r = await api('connectors/test', { provider: id, model }); } catch (e) { r = { ok: false, error: e.message }; } ctx.ui.respTest[id] = r; render(); notify(r.ok ? `${V.PROVIDER[id] || id} respondeu em ${Math.round((r.ms || 0) / 1000)} s${r.model ? ` (modelo ${r.model})` : ''}.` : `${V.PROVIDER[id] || id} não respondeu: ${r.error}${r.hint ? ' ' + r.hint : ''}`, !r.ok); return r; },
+  'connector-test': async (id, el) => { const model = el?.dataset?.model || '', write = el?.dataset?.write === 'true', key = write ? `${id}:write` : id; ctx.ui.respTest = { ...(ctx.ui.respTest || {}), [key]: { running: true } }; render(); let r; try { r = await api('connectors/test', { provider: id, model, write }); } catch (e) { r = { ok: false, error: e.message }; } ctx.ui.respTest[key] = r; render(); notify(r.ok ? write ? `${V.PROVIDER[id] || id} criou e conferiu o arquivo de teste.` : `${V.PROVIDER[id] || id} respondeu em ${Math.round((r.ms || 0) / 1000)} s${r.model ? ` (modelo ${r.model})` : ''}.` : `${V.PROVIDER[id] || id} ${write ? 'não criou o arquivo' : 'não respondeu'}: ${r.error}${r.hint ? ' ' + r.hint : ''}`, !r.ok); return r; },
   'connector-check': async () => { ctx.ui.toolChecking = true; render(); ctx.checks = null; const ok = await loadChecks(true); ctx.ui.toolChecking = false; render(); notify(ok ? 'Detecção de ferramentas atualizada.' : 'Não foi possível atualizar a detecção. Verifique se o Code Room está conectado.', !ok); },
   copy: async id => { try { await navigator.clipboard.writeText(id); notify('Comando copiado. Cole no terminal.'); } catch { notify('Não foi possível copiar: selecione o texto manualmente.', true); } },
   'project-delete': async id => { const p = ctx.state.projects.find(x => x.id === id); if (!p || !confirm(`Excluir o projeto “${p.name}” do Code Room?
@@ -1021,11 +1024,15 @@ document.addEventListener('submit', async e => {
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
       const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase() && (!ctx.project || ctx.projectAgentIds().has(a.id)));
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
-      if (target === 'assistant') { if (await askAssistant(text)) $('mission').value = ''; return; }
+      if (target === 'assistant') { if (await askAssistant(text, { extraDir: ctx.ui.asstExtraDir })) { $('mission').value = ''; ctx.ui.asstExtraDir = null; const btn = document.querySelector('[data-act="asst-extra-dir"]'); if (btn) { btn.title = 'Autorizar pasta extra nesta tarefa'; btn.setAttribute('aria-pressed', 'false'); } } return; }
       let projId = ctx.project; const px = extractProject(text, ctx.state.projects); if (px.project) { projId = px.project.id; text = px.text; } else if (px.ambiguous) throw new Error('Mais de um projeto combina com o # que você escreveu. Escreva o nome inteiro.');
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
       if (!projId) throw new Error('Escolha ou cadastre um projeto.'); if (!target) throw new Error('Escolha quem executa.');
+      const extraDir = ctx.ui.asstExtraDir;
+      if (extraDir && !target.startsWith('a:')) throw new Error('A pasta extra só pode ser autorizada para o Assistente em Modo Piloto ou para um agente individual.');
+      if (extraDir && $('isolate')?.checked) throw new Error('Desligue o worktree para usar uma pasta extra nesta tarefa.');
+      if (extraDir) { const agent = ctx.state.agents.find(a => a.id === target.slice(2)); if (!agent || !['codex', 'claude', 'agy'].includes(agent.provider)) throw new Error('Esta IA não oferece pasta extra nesta versão.'); if (!confirm(`Autorizar ${agent.name} a ${agent.mode === 'write' ? 'LER E EDITAR' : 'LER'} esta pasta nesta tarefa?\n\n${extraDir}\n\nO Code Room registra as mudanças para revisão, mas não desfaz automaticamente alterações fora do projeto.`)) return; }
       if (projId !== ctx.project) {
         const members = ctx.projectAgentIdsFor(projId), teams = ctx.projectTeamIdsFor(projId);
         if (target.startsWith('a:') && !members.has(target.slice(2))) throw new Error('Este agente não está ligado ao projeto citado. Traga-o pelo menu de contexto do projeto primeiro.');
@@ -1035,7 +1042,7 @@ document.addEventListener('submit', async e => {
       $('send').disabled = true;
       if (target === 's') { await api('plans', { projectId: projId, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
       else if (target.startsWith('t:')) { const fl = await api('flows', { projectId: projId, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); rememberSent(target, text, { flowId: fl.id }); notify('Fluxo iniciado. O andamento aparece no chat.'); }
-      else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); $('mission').value = ''; rememberSent(target, text, { taskId: t.id }); await refresh(); return openTask(t.id); }
+      else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, extraDir: extraDir || undefined, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); ctx.ui.asstExtraDir = null; $('mission').value = ''; rememberSent(target, text, { taskId: t.id }); await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
     } else if (fid === 'link-form') {
       const fd = new FormData(f); if (fd.get('from') === fd.get('to')) throw new Error('Escolha dois agentes diferentes.'); await linkAgents(fd.get('from'), fd.get('to'), Number(fd.get('maxHops')) || 3, fd.get('when') || 'always'); if (fd.get('both') && !ctx.state.links.some(l => l.projectId === ctx.project && l.from === fd.get('to') && l.to === fd.get('from'))) await linkAgents(fd.get('to'), fd.get('from'), Number(fd.get('maxHops')) || 3, 'always');

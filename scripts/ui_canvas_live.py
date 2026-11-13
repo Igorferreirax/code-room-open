@@ -3,6 +3,7 @@ e o trabalho viaja pela linha de um agente ao outro. Não chama nenhuma IA: a re
 para simular as tarefas. Uso: python scripts/ui_canvas_live.py"""
 import json, os, subprocess, sys, tempfile, time, urllib.request
 from playwright.sync_api import sync_playwright
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4786
 data = tempfile.mkdtemp(prefix='cr-cv-'); proj_dir = tempfile.mkdtemp(prefix='cr-cv-proj-')
@@ -23,12 +24,15 @@ try:
     P = api('projects', {'name': 'Canal', 'path': proj_dir.replace('\\', '/'), 'area': 'Programação'})
     mk = lambda n, prov, mode: api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': prov, 'model': '', 'instructions': '', 'mode': mode, 'skillIds': [], 'capabilities': []})
     A, B, C = mk('Claude', 'claude', 'read'), mk('Codex', 'codex', 'write'), mk('Gemini', 'agy', 'read')
+    api('projects/members', {'projectId': P['id'], 'add': [A['id'], B['id'], C['id']]})
     api('links', {'projectId': P['id'], 'from': A['id'], 'to': B['id'], 'maxHops': 3})                          # Claude -> Codex (ligação)
-    api('teams', {'name': 'Equipe', 'members': [{'role': 'desenvolvedor', 'agentId': B['id']}, {'role': 'revisor', 'agentId': C['id']}]})   # Codex -> Gemini (fluxo da equipe)
+    team = api('teams', {'name': 'Equipe', 'members': [{'role': 'desenvolvedor', 'agentId': B['id']}, {'role': 'revisor', 'agentId': C['id']}]})   # Codex -> Gemini (fluxo da equipe)
+    api('projects/members', {'projectId': P['id'], 'addTeams': [team['id']]})
 
+    at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     def run(id, agent, status, link=None, dep=None):
         return {'id': id, 'kind': 'work', 'status': status, 'agent': {'id': agent['id'], 'name': agent['name']}, 'project': {'id': P['id'], 'name': 'Canal'}, 'prompt': 'tarefa de teste', 'hops': 0,
-                'linkFrom': link, 'dependsOn': dep or [], 'createdAt': '2026-11-07T10:00:00Z', 'updatedAt': '2026-11-07T10:00:05Z', 'usage': {}, 'deliverables': {'files': []}}
+                'linkFrom': link, 'dependsOn': dep or [], 'createdAt': at, 'updatedAt': at, 'usage': {}, 'deliverables': {'files': []}}
     SCEN = {
         '1 Claude trabalhando, Codex ainda não recebeu': [run('r1', A, 'running')],
         '2 Claude entregou, Codex recebeu e trabalha': [run('r1', A, 'completed'), run('r2', B, 'running', link='r1')],
@@ -48,7 +52,7 @@ try:
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.route('**/api/state', handle)
         def show(name):
-            cur['runs'] = SCEN[name]; pg.goto('about:blank'); pg.goto(URL)
+            cur['runs'] = SCEN[name]; pg.goto('about:blank'); pg.goto(URL); pg.click('[data-nav=room]')
             try: pg.wait_for_selector('.cv-node', timeout=15000)
             except Exception: print('   DEBUG erros:', errs[:3], '| texto:', pg.inner_text('body')[-260:].replace(chr(10), ' | ')); raise
             time.sleep(0.8)
@@ -74,13 +78,13 @@ try:
         check('6: sem tarefas: todos com zZ, nenhum verde, nenhuma linha andando', a['zzz'] and b['zzz'] and c['zzz'] and not live and pg.locator('.cv-node.st-running').count() == 0)
         check('legenda explica as cores', all(t in pg.inner_text('.cv-legend') for t in ('trabalhando', 'esperando a vez', 'parado', 'falhou', 'linha verde')))
         # movimento desligado: sem animação, mas o verde e a linha continuam
-        cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', anim: false}))"); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('.cv-node'); time.sleep(0.8)
+        cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', anim: false}))"); pg.goto('about:blank'); pg.goto(URL); pg.click('[data-nav=room]'); pg.wait_for_selector('.cv-node'); time.sleep(0.8)
         anim = pg.evaluate("[getComputedStyle([...document.querySelectorAll('.cv-node.st-running')][0]).animationName, getComputedStyle(document.querySelector('.cv-pulse')).display]")
         check('movimento desligado: continua verde, mas sem animação e sem bolinhas', anim[0] == 'none' and anim[1] == 'none' and pg.locator('.cv-node.st-running').count() == 1, anim)
         check('sem erro de console (desktop)', not errs, errs[:2]); pg.unroute_all(behavior='ignoreErrors'); ctx.close()
         # celular
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); ctx.add_init_script("try { if (!localStorage.getItem('cr.prefs')) localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', motion: 'on'})); localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
-        pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.goto(URL); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
+        pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.goto(URL); pg.click('[data-nav=room]'); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
         check('celular: verde e linha ativa aparecem', pg.locator('.cv-node.st-running').count() == 1 and pg.locator('.cv-edge.live').count() == 1)
         check('celular: sem rolagem lateral na página', pg.evaluate('document.documentElement.scrollWidth <= innerWidth')); pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'cv-m.png')); pg.unroute_all(behavior='ignoreErrors'); ctx.close(); browser.close()
 finally:

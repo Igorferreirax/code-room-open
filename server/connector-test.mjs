@@ -8,19 +8,22 @@ import { join } from 'node:path';
 import { command, normalize, classifyFailure, deniedTool } from './connectors.mjs';
 
 const ASK = 'Responda apenas com a palavra OK.';
+const WRITE_FILE = 'code-room-teste.txt', WRITE_CONTENT = 'CODE_ROOM_OK';
+const ASK_WRITE = `Crie o arquivo ${WRITE_FILE} nesta pasta de trabalho com o texto exato ${WRITE_CONTENT}. Confira que o arquivo existe e então responda OK.`;
 const HINT = {
   auth: 'A CLI está sem login ou a sessão expirou. Em Conexões, clique em “Abrir terminal e entrar” e teste de novo.',
   rate_limit: 'O provedor informou limite ou cota atingida. Espere a cota voltar ou use outra IA.',
   tool_denied: 'A CLI tentou usar uma ferramenta que a execução sem tela não pode aprovar.',
   timeout: 'A IA não respondeu a tempo. Ela pode estar esperando login ou confirmação no terminal.',
   model: 'O modelo informado pode não existir nesta conta. Deixe o modelo em branco para usar o padrão.',
+  write_unverified: 'A IA respondeu, mas não confirmou uma edição. Confira as permissões do agente e as ferramentas de edição desta CLI.',
 };
 
-export function testResponse(agent, { cwd, timeoutMs = 120000, launch = spawn, catalog = null } = {}) {
+export function testResponse(agent, { cwd, timeoutMs = 120000, launch = spawn, catalog = null, write = false } = {}) {
   return new Promise(resolve => {
     const t0 = Date.now(); let done = false, timer = null;
     const finish = r => { if (done) return; done = true; clearTimeout(timer); resolve({ provider: agent.provider, ms: Date.now() - t0, ...r, hint: r.ok ? null : (HINT[r.failureKind] || (agent.model && /model/i.test(r.error || '') ? HINT.model : null)) }); };
-    let cmd; try { cmd = command({ ...agent, mode: 'read' }, ASK, { cwd, timeoutMs, catalog }); } catch (e) { return finish({ ok: false, error: e.message, failureKind: e.failureKind || 'internal' }); }
+    let cmd; try { cmd = command({ ...agent, mode: write ? 'write' : 'read' }, write ? ASK_WRITE : ASK, { cwd, timeoutMs, catalog }); } catch (e) { return finish({ ok: false, error: e.message, failureKind: e.failureKind || 'internal' }); }
     if (!cmd?.file) return finish({ ok: false, error: 'CLI não encontrada neste computador.', failureKind: 'executable_missing' });
     let child; try { child = launch(cmd.file, cmd.args, { cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: process.env }); } catch (e) { return finish({ ok: false, error: e.message, failureKind: 'spawn_error' }); }
     timer = setTimeout(() => { finish({ ok: false, error: `Sem resposta em ${Math.round(timeoutMs / 1000)} s.`, failureKind: 'timeout' }); try { child.kill(); } catch {} }, timeoutMs);
@@ -32,7 +35,13 @@ export function testResponse(agent, { cwd, timeoutMs = 120000, launch = spawn, c
     child.on('error', e => finish({ ok: false, error: e.code === 'ENOENT' ? 'CLI não encontrada neste computador.' : e.message, failureKind: e.code === 'ENOENT' ? 'executable_missing' : 'spawn_error' }));
     child.on('close', code => {
       if (buffer) consume(buffer);
-      if (answer && !errorText && code === 0) return finish({ ok: true, answer: answer.slice(0, 200), model: model || configuredModel(agent) });
+      if (answer && !errorText && code === 0) {
+        if (write) {
+          let verified = false; try { verified = readFileSync(join(cwd, WRITE_FILE), 'utf8').trim() === WRITE_CONTENT; } catch {}
+          if (!verified) return finish({ ok: false, error: 'A IA terminou sem criar o arquivo de teste com o conteúdo esperado.', failureKind: 'write_unverified', model: model || configuredModel(agent) });
+        }
+        return finish({ ok: true, answer: answer.slice(0, 200), model: model || configuredModel(agent), ...(write ? { fileCreated: true } : {}) });
+      }
       const denied = deniedTool(stderr), error = (errorText || stderr.trim().replace(/\s+/g, ' ').slice(-400) || (code === 0 ? 'A IA terminou sem responder.' : `O programa terminou com código ${code}.`));
       finish({ ok: false, error, failureKind: denied ? 'tool_denied' : classifyFailure(error) || (code === 0 ? 'no_output' : 'exit_code') });
     });

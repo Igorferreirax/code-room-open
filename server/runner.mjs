@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
-import { sep } from 'node:path';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 import { command, normalize, classifyFailure, deniedTool, labelUsage } from './connectors.mjs';
 import { configuredModel } from './connector-test.mjs';
 import { scanSkills } from './skills.mjs';
@@ -16,6 +17,7 @@ import { claudeFromEvent } from './usage.mjs';
 import { browserNote } from './browseruse.mjs';
 import { suggestUnblocks } from './unblock.mjs';
 import { tokenBudget } from './economy.mjs';
+import { getSpec, isCustom } from './providers.mjs';
 
 export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1, agy: 1, hermes: 1 }, video: 1 };
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
@@ -124,6 +126,10 @@ export class Runner {
     let root;
     try { root = await realpath(task.project.path); } catch { throw fail('invalid_directory', 'A pasta do projeto não existe ou não está acessível.'); }
     if (root !== task.project.path) throw fail('invalid_directory', 'O caminho do projeto mudou. Cadastre-o novamente antes de executar.');
+    if (task.extraDir) {
+      let current; try { current = await realpath(task.extraDir); } catch { throw fail('invalid_directory', 'A pasta extra autorizada não está mais acessível.'); }
+      if (current !== task.extraDir) throw fail('invalid_directory', 'A pasta extra autorizada mudou de destino. Envie a tarefa novamente para autorizar o novo caminho.');
+    }
     const agent = task.agent;
     if (task.isolate) {
       if (!this.worktreeDir) throw fail('worktree_unavailable', 'Isolamento por worktree não está configurado neste executor.');
@@ -138,13 +144,17 @@ export class Runner {
     if (selected.length !== wantIds.length) throw fail('skill_unavailable', 'Uma skill escolhida não está mais disponível. Edite o agente ou escolha outra.');
     const obs = await obsidianBlock(this.store, task, agent);   // notas do Obsidian da pessoa (só se ela ligou o vínculo)
     const refs = await prepareReferences(this.store, task, root);   // cópia somente leitura das pastas de referência do projeto (antes do snapshot: não conta como entrega)
-    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: [obs.text, refs.text].filter(Boolean).join('\n\n') });
+    const maxChars = isCustom(agent.provider) && getSpec(agent.provider)?.promptVia === 'arg' ? 23000 : Infinity;
+    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: [obs.text, refs.text].filter(Boolean).join('\n\n'), maxChars });
     this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${obs.n ? ` Obsidian: ${obs.n} nota(s) de referência.` : ''}${refs.n ? ` Pastas de referência: ${refs.n}.` : ''}${browserNote(task.agent?.browser)}` });
-    for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de skill: ${w}` });
+    for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de contexto: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
-    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, timeoutMs: task.limits.timeoutMs });
+    if (agent.browser === 'isolado') entry.browserOutputDir = await mkdtemp(join(tmpdir(), 'code-room-browser-'));
+    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, browserOutputDir: entry.browserOutputDir || null, timeoutMs: task.limits.timeoutMs });
     if (task.resume) this.event(attempt.id, { type: 'diagnostic', text: `Continuando a conversa: sessão ${task.resume.sessionId.slice(0, 8)}… da tarefa ${task.resume.fromTask.slice(0, 8)}… (mesmo provedor).` });
     const before = await snapshot(root);
+    const externalBefore = task.extraDir ? await snapshot(task.extraDir, { strict: true }) : null;
+    if (externalBefore && !externalBefore.complete) throw fail('external_snapshot_unavailable', `Não foi possível acompanhar as mudanças na pasta extra: ${externalBefore.reason || 'leitura incompleta'}. Escolha uma pasta menor ou mais específica.`);
     attempt.spawnedAt = Date.now();
     const child = this.launch(cmd.file, cmd.args, { cwd: root, env: { ...process.env, ...this.extraEnv }, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     entry.child = child; attempt.pid = child.pid ?? null; attempt.status = 'running'; this.save(attempt);
@@ -183,7 +193,7 @@ export class Runner {
     });
     child.stdin.end(cmd.input);
     const outcome = await finished;
-    await this.settle(entry, { ...outcome, errorText, stderr, root, before });
+    await this.settle(entry, { ...outcome, errorText, stderr, root, before, externalBefore });
   }
 
   // Fecha a tentativa e a tarefa. Falhas ficam com um failureKind que explica o que corrigir.
@@ -213,13 +223,30 @@ export class Runner {
     if (o.root && o.before) {
       try { deliverables = await diffSnapshots(o.root, o.before, await snapshot(o.root)); } catch (e) { deliverables = { available: false, reason: e.message, files: [] }; }
     }
-    const violation = task.agent.mode === 'read' && deliverables.files.length ? deliverables.files.map(f => f.path) : null;
+    let externalDeliverables = null;
+    if (task.extraDir) {
+      externalDeliverables = { available: false, files: [], reason: 'A execução terminou antes de registrar a pasta extra.' };
+      if (o.externalBefore) try {
+        const current = await realpath(task.extraDir);
+        if (current !== task.extraDir) throw new Error('A pasta extra mudou de destino durante a execução. Confira-a manualmente.');
+        externalDeliverables = await diffSnapshots(task.extraDir, o.externalBefore, await snapshot(task.extraDir, { strict: true }));
+      } catch (e) { externalDeliverables = { available: false, files: [], reason: e.message }; }
+    }
+    const changed = [...deliverables.files.map(f => f.path), ...(externalDeliverables?.files || []).map(f => `Pasta extra: ${f.path}`)];
+    const violation = task.agent.mode === 'read' && changed.length ? changed : null;
     if (violation) this.event(attempt.id, { type: 'diagnostic', text: `Agente somente leitura alterou arquivos: ${violation.join(', ')}` });
+    if (entry.browserOutputDir) {
+      try {
+        const tempRoot = resolve(tmpdir()), dir = resolve(entry.browserOutputDir);
+        if (!dir.startsWith(tempRoot + sep)) throw new Error('Pasta temporária do navegador fora de TEMP.');
+        await rm(dir, { recursive: true, force: true, maxRetries: 2 });
+      } catch (e) { this.event(attempt.id, { type: 'diagnostic', text: `Não foi possível limpar os arquivos temporários do navegador: ${e.message}` }); }
+    }
     Object.assign(attempt, { status, endedAt: now(), durationMs: Date.parse(now()) - Date.parse(attempt.startedAt), exitCode: o.code ?? null, signal: o.signal ?? null, failureKind, error, killResult: entry.killed, readOnlyViolation: violation });
     this.save(attempt); this.event(attempt.id, { type: 'status', text: status, failureKind });
     const fresh = this.store.get('tasks', task.id);
     const taskStatus = status === 'completed' && fresh.status === 'cancelling' ? 'cancelled' : status;
-    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
+    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, ...(task.extraDir ? { externalDeliverables } : {}), readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
     this.store.release(task.id); this.active.delete(task.id);
     settleDependents(this.store, task.id);
     try { this.hooks.onFinal?.(this.store.get('tasks', task.id)); } catch (e) { this.event(task.id, { type: 'diagnostic', text: `Falha na orquestração: ${e.message}` }); }

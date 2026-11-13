@@ -15,7 +15,10 @@ export function findLocalPlaywright({ env = process.env, home = homedir() } = {}
   for (const g of [env.APPDATA && join(env.APPDATA, 'npm', 'node_modules', '@playwright', 'mcp', 'cli.js')].filter(Boolean)) { try { if (existsSync(g)) found.push({ cli: g, at: statSync(g).mtimeMs }); } catch {} }
   return found.sort((x, y) => y.at - x.at)[0]?.cli || null;
 }
-export function playwrightServer(finder = findLocalPlaywright) { const cli = finder(); return cli ? { command: process.execPath, args: [cli, '--isolated'], local: true } : { command: 'npx', args: PLAYWRIGHT_ARGS, local: false }; }
+export function playwrightServer(finder = findLocalPlaywright, outputDir = null) {
+  const cli = finder(), outputArgs = outputDir ? ['--output-dir', outputDir] : [];
+  return cli ? { command: process.execPath, args: [cli, '--isolated', ...outputArgs], local: true } : { command: 'npx', args: [...PLAYWRIGHT_ARGS, ...outputArgs], local: false };
+}
 export const BROWSER_LABEL = { off: 'desligado', isolado: 'navegador separado', chrome: 'o seu Chrome' };
 
 export function cleanBrowser(value, provider) {

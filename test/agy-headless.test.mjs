@@ -9,11 +9,13 @@ const STDERR = 'jetski: no output produced — a tool required the "command" per
 test('Antigravity: o pedido leva o aviso de execução sem tela e nunca usa a opção que aprova tudo', () => {
   for (const mode of ['read', 'write']) {
     const c = command({ provider: 'agy', mode, model: '' }, 'Pesquise temas de vídeo.', { cwd: 'C:/proj', catalog });
-    const print = c.args.find(a => a.startsWith('--print='));
-    assert.ok(print.startsWith('--print=' + agyHeadlessNote(mode)) && print.endsWith('Pesquise temas de vídeo.'));
+    const print = JSON.parse(c.input).message.content;
+    assert.ok(print.startsWith(agyHeadlessNote(mode)) && print.endsWith('Pesquise temas de vídeo.'));
     assert.match(print, /não crie plano para aprovação/); assert.match(print, /Não rode programas nem comandos de terminal/);
     assert.match(print, mode === 'read' ? /somente leitura: não crie nem altere arquivos/ : /Você pode criar e editar arquivos dentro da pasta do projeto/);
     assert.equal(c.args[c.args.indexOf('--mode') + 1], mode === 'write' ? 'accept-edits' : 'plan');
+    assert.equal(c.args[c.args.indexOf('--input-format') + 1], 'stream-json');
+    assert.ok(!c.args.join(' ').includes('Pesquise temas'), 'pedido não entra na linha de comando');
     assert.ok(!c.args.some(a => /dangerously/.test(a)), 'nunca aprova todas as ferramentas automaticamente');
   }
 });

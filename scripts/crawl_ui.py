@@ -3,6 +3,7 @@ sem erro de console, sem erro de página, sem resposta 5xx do servidor, sem rola
 (elementos cujo conteúdo passa da própria caixa). Usa um serviço temporário com um Codex falso (nenhuma IA real, nenhuma cota).
 Uso: python scripts/crawl_ui.py"""
 import json, os, re, shutil, subprocess, sys, tempfile, time, urllib.request, urllib.error
+from urllib.parse import quote
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
@@ -14,7 +15,7 @@ shutil.copy(os.path.join(ROOT, 'package.json'), app); os.makedirs(os.path.join(a
 for f in ('fake-agent.mjs', 'fake-codex-preload.mjs'): shutil.copy(os.path.join(ROOT, 'test', 'fixtures', f), os.path.join(app, 'test', 'fixtures', f))
 shutil.copy(shutil.which('node'), os.path.join(bindir, 'codex.exe'))
 env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_NO_BROWSER='1', CODE_ROOM_RELEASES_URL='http://127.0.0.1:1/x', USERPROFILE=os.path.join(tmp, 'home'), HOME=os.path.join(tmp, 'home'),
-           NODE_OPTIONS='--import file:///' + os.path.join(app, 'test', 'fixtures', 'fake-codex-preload.mjs').replace(chr(92), '/'))
+           NODE_OPTIONS='--import=' + quote('file:///' + os.path.join(app, 'test', 'fixtures', 'fake-codex-preload.mjs').replace(chr(92), '/'), safe='/:'))
 srv = subprocess.Popen([shutil.which('node'), os.path.join(app, 'server', 'main.mjs')], cwd=app, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 problems, clicks = [], 0
 SKIP_ACT = re.compile(r'delete|remove|install|download|logout|reset|clean|wipe|revoke|disconnect|exit|stop|quit|archive|reprove|reject|lixeira|empty|publish|post-', re.I)
@@ -23,6 +24,7 @@ try:
     for _ in range(60):
         try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
         except Exception: time.sleep(0.2)
+    if 'key' not in locals(): raise RuntimeError('O servidor de teste não iniciou; confira NODE_OPTIONS e o processo local.')
     def api(path, body=None):
         r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
         try: return json.load(urllib.request.urlopen(r, timeout=40))
@@ -45,8 +47,9 @@ try:
             pg.on('console', lambda m: errs.append(('console', where[0], m.text)) if m.type == 'error' and 'status of 4' not in m.text and 'favicon' not in m.text else None)
             pg.on('pageerror', lambda e: errs.append(('pagina', where[0], str(e))))
             pg.on('response', lambda r: errs.append(('http', where[0], f'{r.status} {r.url}')) if r.status >= 500 else None)
-            pg.on('dialog', lambda d: d.dismiss()); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); time.sleep(1.0)
+            pg.on('dialog', lambda d: d.dismiss()); pg.goto(URL, wait_until='domcontentloaded', timeout=60000); pg.wait_for_selector('#rail button', timeout=15000); time.sleep(1.0)
             for v in VIEWS:
+                print(f'Rastreando {label}/{v}...', flush=True)
                 where[0] = f'{label}/{v}'; pg.keyboard.press('Escape'); pg.click(f'[data-nav={v}]', timeout=8000); time.sleep(0.9)
                 if not pg.inner_text('#view').strip(): problems.append(f'{where[0]}: tela em branco')
                 if pg.evaluate("document.querySelector('#topbar .project-pill')?.getBoundingClientRect().width || 0") < 100: problems.append(f'{where[0]}: o seletor de projeto ficou espremido na barra do topo')
@@ -65,7 +68,7 @@ try:
                     except Exception: pass
                     pg.keyboard.press('Escape'); time.sleep(0.1)   # fecha janela, gaveta ou painel que o clique abriu
                     if pg.locator('#panel:not([hidden])').count(): pg.evaluate("document.getElementById('panel').hidden = true")
-                    if not pg.is_visible('#shell'): problems.append(f'{where[0]}: o app sumiu depois de clicar em "{txt or act}"'); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000)
+                    if not pg.is_visible('#shell'): problems.append(f'{where[0]}: o app sumiu depois de clicar em "{txt or act}"'); pg.goto('about:blank'); pg.goto(URL, wait_until='domcontentloaded', timeout=60000); pg.wait_for_selector('#rail button', timeout=15000)
                     if pg.evaluate("document.querySelector('#view')?.getAttribute('aria-label')") != pg.evaluate("document.querySelector('#view')?.getAttribute('aria-label')"): pass
                     cur = pg.evaluate("document.querySelector('#rail .on, #rail [aria-current]')?.dataset.nav || ''")
                     if cur and cur != v: pg.keyboard.press('Escape'); pg.click(f'[data-nav={v}]', timeout=8000); time.sleep(0.5)

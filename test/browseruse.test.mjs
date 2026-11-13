@@ -58,7 +58,10 @@ test('navegador: comando do Claude Code leva os argumentos certos e nunca o nave
   const base = command({ provider: 'claude', mode: 'read' }, 'oi');
   assert.ok(!base.args.includes('--chrome') && !base.args.includes('--mcp-config') && !base.args.some(a => /playwright/.test(a)), 'padrão: nenhum navegador');
   const iso = command({ provider: 'claude', mode: 'read', browser: 'isolado' }, 'oi'); assert.ok(iso.args.includes('--strict-mcp-config') && iso.args.includes('mcp__playwright'));
+  assert.equal(iso.args[iso.args.indexOf('--permission-mode') + 1], 'acceptEdits', 'o navegador precisa funcionar sem aprovações durante a tarefa');
+  assert.equal(iso.args[iso.args.indexOf('--disallowedTools') + 1], 'Edit,Write,NotebookEdit,Bash,PowerShell', 'um agente de leitura não ganha edição de arquivos ou terminal');
   const chr = command({ provider: 'claude', mode: 'read', browser: 'chrome' }, 'oi'); assert.ok(chr.args.includes('--chrome'));
+  assert.equal(chr.args[chr.args.indexOf('--permission-mode') + 1], 'acceptEdits');
 });
 test('navegador: comando do Codex leva o Playwright só quando liberado', { skip: !has('codex') && 'Codex não instalado aqui' }, () => {
   const base = command({ provider: 'codex', mode: 'read' }, 'oi'); assert.ok(!base.args.some(a => /mcp_servers/.test(a)));

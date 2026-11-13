@@ -25,3 +25,26 @@ test('entregas: filtro "Para revisar" esconde as já revisadas; sem pendência o
   assert.match(viewDeliveries(ctx([])), /Nenhuma entrega neste projeto ainda/);
   const run = viewDeliveries(ctx([T('t3', { status: 'running', deliverables: [] })])); assert.match(run, /dl-live/);
 });
+
+test('entrega aprovada exibe botão verde Aprovado sem permitir nova decisão', () => {
+  const approved = viewDeliveries(ctx([T('t1', { review: { status: 'approved', note: 'ok' } })]));
+  assert.match(approved, /class="btn approved" type="button" disabled>[\s\S]*?Aprovado<\/button>/);
+  assert.doesNotMatch(approved, /data-act="approve"|data-act="request-changes"|id="review-note"/);
+  const rejected = viewDeliveries(ctx([T('t2', { review: { status: 'rejected' } })]));
+  assert.doesNotMatch(rejected, /data-act="approve"|data-act="request-changes"/);
+});
+
+test('mudança só na pasta extra aparece na lista para conferência', () => {
+  const html = viewDeliveries(ctx([T('externa', { deliverables: [], externalCount: 2, prompt: 'Editar <roteiro>' })]));
+  assert.match(html, /Todas \(1\)/);
+  assert.match(html, /Para revisar \(1\)/);
+  assert.match(html, /2 arquivo\(s\) alterado\(s\) na pasta extra/);
+  assert.match(html, /data-act="changes" data-id="externa">Conferir alterações/);
+  assert.match(html, /data-act="approve"/);
+  assert.match(html, /data-act="request-changes"/);
+  assert.doesNotMatch(html, /data-act="git-commit"|data-act="open-folder"/);
+  assert.doesNotMatch(html, /<roteiro>/);
+  const approved = viewDeliveries(ctx([T('externa', { deliverables: [], externalCount: 1, review: { status: 'approved' } })]));
+  assert.match(approved, /class="btn approved" type="button" disabled/);
+  assert.doesNotMatch(approved, /data-act="approve"|data-act="request-changes"/);
+});

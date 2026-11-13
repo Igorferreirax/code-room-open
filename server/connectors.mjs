@@ -6,7 +6,7 @@ import { effortsFor } from './effort.mjs';
 const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
 import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
 import { loadHermesFile, sshArgs, findSsh } from './hermes.mjs';
-import { claudeBrowserArgs, codexBrowserArgs } from './browseruse.mjs';
+import { claudeBrowserArgs, codexBrowserArgs, findLocalPlaywright, playwrightServer } from './browseruse.mjs';
 
 export function executable(name, candidates = []) {
   return [...candidates, ...(process.env.PATH || '').split(delimiter).map(d => join(d, process.platform === 'win32' ? name + '.exe' : name))].find(p => p && existsSync(p)) || null;
@@ -86,32 +86,33 @@ export function checkKiroLogin({ find = findProgram, spawnProcess = spawn, timeo
 }
 
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
-export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
+export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, browserOutputDir = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
   const provider = (catalog || connectors()).find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
   if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
   const mode = agent.mode === 'write' ? 'workspace-write' : 'read-only';
   let args;
   if (agent.provider === 'codex') {
+    if (extraDir && resumeId) throw new Error('Não é possível autorizar pasta extra ao continuar uma sessão do Codex. Inicie uma tarefa nova.');
     args = resumeId ? ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode="${mode}"`] : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', mode];
+    if (extraDir) args.push('--add-dir', extraDir);
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('-c', `model_reasoning_effort="${e}"`); }
-    args.push(...codexBrowserArgs(agent.browser));
+    args.push(...codexBrowserArgs(agent.browser, agent.browser === 'isolado' ? playwrightServer(findLocalPlaywright, browserOutputDir) : undefined));
     if (resumeId) args.push(resumeId);
     args.push('-');
   } else if (agent.provider === 'agy') {
-    // O Antigravity recebe o prompt como argumento (não lê da entrada padrão): limite de linha de comando do Windows.
-    if (prompt.length > 28000) throw Object.assign(new Error('Prompt grande demais para o Antigravity (limite ~28 mil caracteres). Reduza as skills ou o contexto.'), { failureKind: 'prompt_too_long' });
     // O Antigravity sem tela (a) em modo plano devolve só um plano pedindo aprovação e (b) nega qualquer ferramenta que peça permissão e termina sem resposta.
     // Não há quem aprove durante a execução, então o aviso vai no começo do pedido. Conferido com a CLI real em 10/11/2026.
-    prompt = agyHeadlessNote(agent.mode) + prompt;
-    args = ['--output-format', 'json', '--mode', agent.mode === 'write' ? 'accept-edits' : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
+    prompt = agyHeadlessNote(agent.mode, extraDir) + prompt;
+    // NDJSON pela entrada padrão: prompts grandes não entram na linha de comando do Windows.
+    args = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--mode', agent.mode === 'write' ? 'accept-edits' : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
     if (cwd) args.push('--add-dir', cwd);
+    if (extraDir) args.push('--add-dir', extraDir);
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
     if (resumeId) args.push('--conversation', resumeId);
-    args.push(`--print=${prompt}`);
-    return { file: provider.path, args, input: '' };
+    return { file: provider.path, args, input: JSON.stringify({ event: 'user', message: { content: prompt } }) + '\n' };
   } else if (agent.provider === 'hermes') {
     // Prompt pela entrada padrão (--query-file -): nada passa pelo shell remoto, então aspas, $(...) e quebras de linha chegam intactas.
     const r = provider.remote; if (!r) throw Object.assign(new Error('Hermes não configurado: o arquivo bin\hermes.bat não foi encontrado.'), { failureKind: 'executable_missing' });
@@ -119,16 +120,18 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
     return { file: r.ssh, args: sshArgs(r, q), input: prompt };
   } else {
     // No modo de planejamento (agente somente leitura) o Claude nega toda ferramenta MCP, mesmo liberada. Com MCP liberado, o agente de leitura roda em acceptEdits e as ferramentas de editar arquivo ficam proibidas.
-    const mcpOn = (agent.mcpTools || []).some(s => /^[\w-]{1,40}$/.test(s));
+    const browserOn = agent.browser === 'isolado' || agent.browser === 'chrome';
+    const mcpOn = browserOn || (agent.mcpTools || []).some(s => /^[\w-]{1,40}$/.test(s));
     args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' || mcpOn ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
-    if (mcpOn && agent.mode !== 'write') args.push('--disallowedTools', 'Edit,Write,NotebookEdit');
+    if (extraDir) args.push('--add-dir', extraDir);
+    if (mcpOn && agent.mode !== 'write') args.push('--disallowedTools', browserOn ? 'Edit,Write,NotebookEdit,Bash,PowerShell' : 'Edit,Write,NotebookEdit');
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
     for (const prog of agent.commands || []) if (/^[\w.-]{1,40}$/.test(prog)) for (const tool of ['Bash', 'PowerShell']) args.push('--allowedTools', `${tool}(${prog}:*)`);
     // Ferramentas MCP liberadas por servidor (ex.: flow-studio). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP.
     for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
     if (agent.skillTool) args.push('--allowedTools', 'Skill');   // o Assistente em modo piloto usa as skills instaladas (a ferramenta Skill só carrega instruções)
     if (agent.web) args.push('--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch');   // pesquisa na internet (só leitura)
-    args.push(...claudeBrowserArgs(agent.browser));
+    args.push(...claudeBrowserArgs(agent.browser, agent.browser === 'isolado' ? playwrightServer(findLocalPlaywright, browserOutputDir) : undefined));
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
     if (resumeId) args.push('--resume', resumeId);
@@ -137,7 +140,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, timeoutMs 
 }
 
 // Distingue falha de autenticação e de limite do restante, para o usuário saber o que corrigir.
-export const agyHeadlessNote = mode => `[Execução automática pelo Code Room: não há pessoa para aprovar nada durante esta execução] Responda ao pedido diretamente nesta mesma resposta; não crie plano para aprovação nem peça confirmação antes de começar. Não rode programas nem comandos de terminal: nesta execução eles são negados e a tarefa termina sem resposta. Use leitura de arquivos e a sua pesquisa na web.${mode === 'write' ? ' Você pode criar e editar arquivos dentro da pasta do projeto.' : ' Você está em somente leitura: não crie nem altere arquivos; entregue o resultado no texto da resposta.'}
+export const agyHeadlessNote = (mode, extraDir = null) => `[Execução automática pelo Code Room: não há pessoa para aprovar nada durante esta execução] Responda ao pedido diretamente nesta mesma resposta; não crie plano para aprovação nem peça confirmação antes de começar. Não rode programas nem comandos de terminal: nesta execução eles são negados e a tarefa termina sem resposta. Use leitura de arquivos e a sua pesquisa na web.${mode === 'write' ? ` Você pode criar e editar arquivos dentro da pasta do projeto${extraDir ? ' e da pasta extra autorizada nas regras da tarefa' : ''}.` : ' Você está em somente leitura: não crie nem altere arquivos; entregue o resultado no texto da resposta.'}
 
 `;
 // A CLI saiu sem resposta porque uma ferramenta pediu permissão e o modo sem tela negou (mensagem “no output produced … auto-denied” do Antigravity).
@@ -152,7 +155,8 @@ export function classifyFailure(text = '') {
 
 export function normalize(provider, e) {
   if (provider === 'agy') {
-    // JSON único no fim: { conversation_id, status, response, usage }
+    // O modo stream-json emite init, step_update e result; só o result fecha esta tarefa.
+    if (e.event === 'result') e = e.result || {};
     if (!('conversation_id' in e) && !('status' in e)) return null;
     const out = []; if (e.conversation_id) out.push({ type: 'session', text: e.conversation_id });
     if (e.status && e.status !== 'SUCCESS') out.push({ type: 'error', text: String(e.response || e.error || `Antigravity terminou com estado ${e.status}.`).trim() });

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { cleanModel, cleanEffort } from './effort.mjs';
 import { isAbsolute, normalize } from 'node:path';
+import { approvedExtraDir } from './external-access.mjs';
 
 // Estados da tarefa lógica. A tentativa de execução (kind "runs") tem os seus próprios estados.
 export const TRANSITIONS = {
@@ -77,6 +78,8 @@ export function createTask(store, input) {
   if ((agent.mcpTools || []).length && project.area === 'Financeiro') throw new Error('Projeto financeiro: agentes com ferramentas MCP externas não são permitidos.');
   if (agent.provider === 'agy' && project.area === 'Financeiro') throw new Error('Projeto financeiro: o Antigravity pesquisa na web por conta própria e isso não pode ser desligado. Use um agente do Codex ou do Claude Code neste projeto.');
   if (['hermes'].includes(agent.provider) && project.area === 'Financeiro') throw new Error('Projeto financeiro: dados financeiros não são enviados a um provedor remoto (Hermes).');
+  if (input.extraDir && (input.isolate || !['codex', 'claude', 'agy'].includes(agent.provider))) throw new Error('Pasta extra só pode ser autorizada para Codex, Claude Code ou Antigravity, sem worktree.');
+  const extraDir = input.extraDir ? approvedExtraDir(input.extraDir, project) : null;
   // Valide os ajustes da missão antes de avançar o contador ou gravar qualquer registro.
   const missionModel = input.model ? cleanModel(input.model) : agent.model;
   const missionEffort = input.effort ? cleanEffort(agent.provider, input.effort) : agent.effort;
@@ -117,7 +120,7 @@ export function createTask(store, input) {
     criteria: (input.criteria || []).map(c => str(c, 500, 'Critério')).slice(0, 12),
     inputs: cleanInputs(input.inputs), dependsOn, limits: cleanLimits(input.limits, store.get('settings', 'limits')),
     parentTaskId: input.parentTaskId || null, depth, flowId: input.flowId || null, step: input.step || null,
-    handoffFrom: input.handoffFrom || null, isolate: input.isolate === true, resume,
+    handoffFrom: input.handoffFrom || null, isolate: input.isolate === true, resume, extraDir,
     hops: Number.isInteger(input.hops) ? input.hops : 0, linkFrom: input.linkFrom || null, rootObjective: typeof input.rootObjective === 'string' ? input.rootObjective.slice(0, 2000) : null,
     extraSkillIds: Array.isArray(input.skillIds) ? [...new Set(input.skillIds.filter(s => typeof s === 'string' && /^[a-f0-9]{24}$/.test(s)))].slice(0, 8) : [],
     attempts: [], attemptCount: 0, result: null, reason: null, createdAt: now(), updatedAt: now()

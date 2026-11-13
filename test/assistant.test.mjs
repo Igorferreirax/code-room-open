@@ -41,6 +41,17 @@ test('criar_agente: só IA instalada, permissão segura por padrão, capacidades
   assert.match(normalizeAction({ ...base, nome: '', funcao: '' }, world()).error, /nome e função/);
 });
 
+test('vincular_agente: reaproveita agente existente sem duplicar e recusa vínculo repetido', () => {
+  const w = world({ projects: [{ id: 'p1', name: 'Canal', agentIds: [] }, { id: 'p2', name: 'Novo', agentIds: [] }] });
+  const a = normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Novo' }, w);
+  assert.equal(a.valid, true); assert.deepEqual(a.payload, { agentId: 'a1', projectId: 'p2' }); assert.match(a.summary, /mantendo-o nos outros projetos/);
+  assert.match(normalizeAction({ acao: 'vincular_agente', agente: 'Revisor', projeto: 'Novo' }, w).error, /mais de um agente/);
+  assert.equal(normalizeAction({ acao: 'vincular_agente', agente: 'Revisor', provedor: 'claude', projeto: 'Novo' }, w).payload.agentId, 'a2');
+  assert.match(normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Fantasma' }, w).error, /não existe/);
+  w.projects[1].agentIds = ['a1']; assert.match(normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Novo' }, w).error, /já trabalha/);
+  w.projects[1].hiddenAgentIds = ['a1']; assert.equal(normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Novo' }, w).valid, true);
+});
+
 test('definir_skills: só skills reconhecidas e utilizáveis, no máximo 8, para um agente que existe', () => {
   const ok = normalizeAction({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: ['Copywriting'] }, world()); assert.equal(ok.valid, true); assert.deepEqual(ok.payload, { agentId: 'a1', skillIds: ['s1'] });
   assert.match(normalizeAction({ acao: 'definir_skills', agente: 'Desenvolvedor', skills: ['quebrada', 'sem-cabecalho', 'inexistente'] }, world()).error, /indisponíveis ou inexistentes: quebrada, sem-cabecalho, inexistente/);
@@ -83,7 +94,11 @@ test('prompt: tem as regras, o manual, o que a IA entendeu, o estado e a pergunt
   const p = buildPrompt({ manual: 'MANUAL-X', knowledge: 'ENTENDI-Y', summary: 'ESTADO-Z', history: [{ role: 'user', text: 'oi' }, { role: 'assistant', text: 'olá' }], question: 'PERGUNTA-W' });
   for (const t of ['SOMENTE LEITURA', 'MANUAL-X', 'ENTENDI-Y', 'ESTADO-Z', 'Pessoa: oi', 'Assistente: olá']) assert.ok(p.includes(t), t); assert.ok(p.trim().endsWith('PERGUNTA-W'));
   for (const t of ['tela e no projeto atuais', 'skills somente quando constarem como disponíveis', 'Não prometa ferramenta', 'respostas curtas e acionáveis']) assert.ok(p.includes(t), t);
-  assert.match(buildPrompt({ manual: 'm', knowledge: '', summary: 's', question: 'q', pilot: true }), /Use somente as ferramentas que esta execução realmente expõe/);
+  const pilotPrompt = buildPrompt({ manual: 'm', knowledge: '', summary: 's', question: 'q', pilot: true });
+  assert.match(pilotPrompt, /Use somente as ferramentas que esta execução realmente expõe/);
+  assert.match(pilotPrompt, /pasta do projeto em foco/);
+  assert.match(pilotPrompt, /pasta adicional só é acessível se a pessoa a tiver autorizado/);
+  assert.match(pilotPrompt, /Não invente um sandbox universal do Code Room/);
   const big = buildPrompt({ manual: 'M'.repeat(14000), knowledge: 'K'.repeat(3000), summary: 'S'.repeat(3000), history: Array.from({ length: 30 }, (_, i) => ({ role: 'user', text: ('h' + i).repeat(600) })), question: 'Q'.repeat(2000) });
   assert.ok(big.length <= 28000, `${big.length}`); assert.ok(!big.includes('h0h0'), 'o histórico mais antigo saiu primeiro'); assert.match(big, /Q{50}$/, 'a pergunta nunca é cortada');
   assert.match(buildPrompt({ manual: 'm', knowledge: '', summary: 's', question: 'q' }), /ainda não houve apresentação/);
@@ -116,6 +131,35 @@ async function rig() {
   return { store, asst, say, done, root, data, setManual, dev, rev };
 }
 const GOOD_BRIEF = 'RESUMO: o Code Room é uma sala local onde várias IAs trabalham juntas e nada sai sem a sua aprovação. '.repeat(3) + '\nREGRAS: eu rodo em somente leitura, não altero a ferramenta e só proponho ações que a pessoa aprova com um clique.\nEXEMPLOS: como criar uma equipe?\nBRIEFING: PRONTO';
+
+test('piloto: cria arquivo na pasta do projeto em foco e confirma a alteração no chat', async () => {
+  const { asst, say, done, store, setManual } = await rig();
+  say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const project = await addProject(store, 'piloto-arquivo');
+  setManual('', '[[fake write=notas_importantes.txt:NOTAS_IMPORTANTES answer=Arquivo_criado]]');
+  await asst.setAutonomy('pilot');
+  await asst.ask('Crie notas_importantes.txt na minha área de trabalho', { projectId: project.id });
+  const reply = (await done()).messages.at(-1);
+  assert.equal(readFileSync(join(project.path, 'notas_importantes.txt'), 'utf8'), 'NOTAS_IMPORTANTES');
+  assert.equal(reply.pilot, true);
+  assert.equal(reply.fileCount, 1);
+});
+
+test('piloto: pasta externa exige autorização pontual e não passa para a próxima tarefa', async () => {
+  const { asst, say, done, store } = await rig();
+  say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const project = await addProject(store, 'projeto-com-extra'), extraPath = join(process.cwd(), 'test');
+  await asst.setAutonomy('pilot');
+  await assert.rejects(() => asst.ask('oi', { projectId: project.id, extraDir: 'C:/nao-existe' }), /pasta extra não existe/i);
+  await asst.ask('Leia a pasta adicional', { projectId: project.id, extraDir: extraPath });
+  let s = await done(), task = store.get('tasks', s.messages.at(-1).taskId);
+  assert.equal(task.extraDir, extraPath);
+  assert.match(s.messages.at(-2).context.extraDir, /test$/);
+  assert.equal(s.messages.at(-1).externalApproved, true);
+  await asst.ask('Agora trabalhe só no projeto', { projectId: project.id });
+  s = await done(); task = store.get('tasks', s.messages.at(-1).taskId);
+  assert.equal(task.extraDir, null);
+});
 
 test('fluxo: sem apresentação não conversa; o briefing é gravado na máquina; manual novo marca como desatualizado', async () => {
   const { asst, say, done, data, setManual } = await rig();
@@ -164,7 +208,7 @@ test('manual real do projeto: existe, cabe no limite e documenta exatamente os p
   const { ROLES } = await import('../server/orchestrator.mjs'), { KNOWN_CAPABILITIES } = await import('../server/supervisor.mjs'), m = loadManual(process.cwd());
   assert.equal(m.missing, false); assert.ok(m.text.length > 3000 && m.text.length <= 20000, `${m.text.length}`); assert.match(m.hash, /^[0-9a-f]{16}$/);
   for (const r of ROLES) assert.ok(m.text.includes('`' + r + '`'), `papel ${r}`); for (const c of KNOWN_CAPABILITIES) assert.ok(m.text.includes('`' + c + '`'), `capacidade ${c}`);
-  for (const a of ['criar_equipe', 'criar_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill', 'criar_pasta_entrada', 'importar_projeto']) assert.ok(m.text.includes(a), a); assert.match(m.text, /NÃO pode/); assert.match(m.text, /somente leitura/i);
+  for (const a of ['criar_equipe', 'criar_agente', 'vincular_agente', 'definir_skills', 'abrir_tela', 'criar_projeto', 'iniciar_tarefa', 'ligar_agentes', 'criar_skill', 'criar_pasta_entrada', 'importar_projeto']) assert.ok(m.text.includes(a), a); assert.match(m.text, /Modo consulta/); assert.match(m.text, /Modo piloto/); assert.match(m.text, /somente leitura/i);
   assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
 });
 
@@ -192,6 +236,48 @@ test('Assistente: equipe aprovada com projeto é vinculada sem transformar membr
   await asst.ask('Monte uma equipe para o projeto canal'); const msg = (await done()).messages.at(-1); assert.equal(msg.actions[0].valid, true);
   const out = await asst.apply(msg.id, 0), project = store.get('projects', 'p-canal'), team = store.list('teams')[0];
   assert.match(out.result, /vinculada ao projeto/); assert.equal(out.projectId, project.id); assert.deepEqual(project.teamIds, [team.id]); assert.deepEqual(project.agentIds || [], []);
+});
+
+test('Assistente: traz agente para outro projeto só após aprovação, sem tirá-lo do original nem mudar a IA', async () => {
+  const { asst, say, done, store, dev } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const old = store.get('projects', 'p-canal'), next = await addProject(store, 'novo-projeto');
+  store.put('projects', { ...old, agentIds: [dev.id] });
+  say(block({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: next.name }));
+  await asst.ask('Use o Desenvolvedor no novo projeto'); const msg = (await done()).messages.at(-1);
+  assert.equal(msg.actions[0].valid, true); assert.deepEqual(store.get('projects', next.id).agentIds || [], []);
+  const agentBefore = store.get('agents', dev.id);
+  const out = await asst.apply(msg.id, 0);
+  assert.match(out.result, /vinculado ao projeto/); assert.equal(out.projectId, next.id);
+  assert.deepEqual(store.get('projects', next.id).agentIds, [dev.id]); assert.deepEqual(store.get('projects', old.id).agentIds, [dev.id]);
+  assert.deepEqual(store.get('agents', dev.id), agentBefore); assert.equal(store.list('agents').filter(a => !a.internal).length, 2);
+  await assert.rejects(() => asst.apply(msg.id, 0), /já foi tratada/);
+});
+
+test('Assistente: proposta duplicada vira vínculo ao projeto novo, com aprovação em ordem', async () => {
+  const { asst, say, done, store, dev } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const original = store.get('projects', 'p-canal'); store.put('projects', { ...original, agentIds: [dev.id] });
+  asst.saveProject = async p => store.put('projects', { id: 'p-novo', name: p.name, path: 'X', area: p.area });
+  say([block({ acao: 'criar_projeto', nome: 'Radar IA', ambiente: 'Pesquisa' }), block({ acao: 'criar_agente', nome: 'Desenvolvedor', funcao: 'Programação', provedor: 'codex' })].join('\n'));
+  await asst.ask('Crie o projeto e use o Desenvolvedor existente'); const msg = (await done()).messages.at(-1);
+  assert.deepEqual(msg.actions.map(a => a.type), ['criar_projeto', 'vincular_agente']);
+  assert.ok(msg.actions.every(a => a.valid));
+  await assert.rejects(() => asst.apply(msg.id, 1), /não existe/);
+  await asst.apply(msg.id, 0); await asst.apply(msg.id, 1);
+  assert.deepEqual(store.get('projects', 'p-novo').agentIds, [dev.id]);
+  assert.deepEqual(store.get('projects', 'p-canal').agentIds, [dev.id]);
+  assert.equal(store.list('agents').filter(a => !a.internal).length, 2);
+});
+
+test('Assistente: projeto e equipe podem ser propostos juntos e aprovados em ordem', async () => {
+  const { asst, say, done, store } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  asst.saveProject = async p => store.put('projects', { id: 'p-equipe-nova', name: p.name, path: 'X', area: p.area });
+  say([block({ acao: 'criar_projeto', nome: 'Estúdio Novo', ambiente: 'Vídeo' }), block({ acao: 'criar_equipe', nome: 'Equipe Nova', projeto: 'Estúdio Novo', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }, { papel: 'revisor', agente: 'Revisor' }] })].join('\n'));
+  await asst.ask('Crie um projeto e uma equipe'); const msg = (await done()).messages.at(-1);
+  assert.deepEqual(msg.actions.map(a => a.type), ['criar_projeto', 'criar_equipe']);
+  assert.ok(msg.actions.every(a => a.valid));
+  await assert.rejects(() => asst.apply(msg.id, 1), /não existe/);
+  await asst.apply(msg.id, 0); await asst.apply(msg.id, 1);
+  assert.deepEqual(store.get('projects', 'p-equipe-nova').teamIds, [store.list('teams')[0].id]);
 });
 
 test('fluxo: documentário do zero: 1 resposta com projeto, agentes, equipe e tarefa; aplicar em ordem executa tudo; fora de ordem é recusado', async () => {
@@ -285,7 +371,7 @@ test('fluxo: /status responde na hora, sem apresentação e sem tarefa; avisos a
   const s2 = await asst.status(); assert.ok(Array.isArray(s2.alerts)); const id = 'start'; s = await asst.dismissAlert(id); assert.ok(!s.alerts.some(a => a.id === id)); await asst.dismissAlert(id); assert.equal((await asst.status()).alerts.filter(a => a.id === id).length, 0);
 });
 
-test('Antigravity: o pedido do Assistente nunca passa do limite da linha de comando, mesmo com manual, estado e histórico enormes', async () => {
+test('Antigravity: o Assistente resume manual, estado e histórico enormes sem cortar a pergunta', async () => {
   const { AGY_BUDGET } = await import('../server/assistant.mjs'); const { buildPrompt: runnerPrompt, emptyContext } = await import('../server/context.mjs');
   const q = 'P'.repeat(2000), p = buildPrompt({ manual: 'M'.repeat(20000), knowledge: 'K'.repeat(6000), summary: 'S'.repeat(12000), history: Array.from({ length: 8 }, () => ({ role: 'user', text: 'h'.repeat(1200) })), question: q, max: AGY_BUDGET });
   assert.ok(p.length <= AGY_BUDGET, `${p.length}`); assert.ok(p.endsWith(q), 'a pergunta continua inteira no fim');

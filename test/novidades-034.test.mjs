@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { EventEmitter, once } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,6 +42,20 @@ test('Testar resposta: reconhece resposta, ferramenta negada, falta de login e d
   const empty = await testResponse(agent, opt({})); assert.equal(empty.failureKind, 'no_output'); assert.match(empty.error, /sem responder/);
   const slow = await testResponse(agent, { cwd: tmpdir(), catalog, timeoutMs: 40, launch: fakeLaunch({ hang: true }) }); assert.equal(slow.failureKind, 'timeout'); assert.match(slow.hint, /login ou confirmação/);
   const gone = await testResponse({ provider: 'agy' }, { cwd: tmpdir(), catalog: [{ id: 'agy', path: null }], launch: fakeLaunch({}) }); assert.equal(gone.ok, false);
+});
+
+test('Testar criação: resposta sem arquivo falha; só confirma depois de conferir o conteúdo no disco', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'cr-write-test-'));
+  try {
+    const agent = { provider: 'agy', model: '' }, out = JSON.stringify({ conversation_id: 'c1', status: 'SUCCESS', response: 'OK' }) + '\n';
+    const missing = await testResponse(agent, { cwd, catalog, write: true, launch: fakeLaunch({ out }) });
+    assert.equal(missing.ok, false); assert.equal(missing.failureKind, 'write_unverified'); assert.match(missing.hint, /permissões/);
+    const args = [];
+    const created = await testResponse(agent, { cwd, catalog, write: true, launch: (file, argv, opts) => { args.push(...argv); writeFileSync(join(opts.cwd, 'code-room-teste.txt'), 'CODE_ROOM_OK\n'); return fakeLaunch({ out })(); } });
+    assert.equal(created.ok, true); assert.equal(created.fileCreated, true); assert.ok(args.includes('accept-edits'), 'usa a mesma permissão de escrita das tarefas');
+    writeFileSync(join(cwd, 'code-room-teste.txt'), 'conteúdo errado');
+    const wrong = await testResponse(agent, { cwd, catalog, write: true, launch: fakeLaunch({ out }) }); assert.equal(wrong.ok, false);
+  } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
 test('modelo do Codex vem do config.toml quando a CLI não informa', async () => {

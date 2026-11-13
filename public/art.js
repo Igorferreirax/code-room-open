@@ -51,10 +51,11 @@ export const themeImg = id => `<img class="art-img" src="/assets/theme-${id}.png
 
 // Rosto frontal para avatares (agentes, usuário).
 const FACE = ['..HHHHHH..', '.HHHHHHHH.', 'HHSSSSSSHH', 'PHSESSESHP', 'PHSSSSSSHP', '.HSSMMSSH.', '..SSSSSS..', '.TTTTTTTT.'];
-// Retratos dos personagens (recortes da referência). Ordem: desenvolvedor, revisor, editor, supervisor.
-const PORTRAITS = ['avatar-dev', 'avatar-revisor', 'avatar-editor', 'avatar-supervisor'];
+// Oito aparências da sala. A função do agente continua livre e independente do retrato.
+export const CHARACTERS = ['nilo', 'bento', 'lia', 'icaro', 'davi', 'malu', 'ravi', 'cora'];
 export function avatar(index = 0, size = 32) {
-  return `<img class="avatar" src="/assets/${PORTRAITS[index % PORTRAITS.length]}.png" width="${size}" height="${size}" alt="" aria-hidden="true">`;
+  const name = CHARACTERS[((index % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length];
+  return `<img class="avatar" src="/assets/char-${name}-face.png" width="${size}" height="${size}" alt="" aria-hidden="true">`;
 }
 
 // Avatar do agente: usa a miniatura do boneco 3D quando existir; senão, o retrato padrão do papel.

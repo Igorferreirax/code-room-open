@@ -325,14 +325,16 @@ async function body(req) { const limit = 100000; let size = 0, chunks = [], tooL
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 
 const brief = t => ({ hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
-  environment: t.environment, prompt: t.objective.slice(0, 200), usage: t.usage ?? null, actualModel: t.modelReported ?? null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
+  environment: t.environment, prompt: t.objective.slice(0, 200), usage: t.usage ?? null, actualModel: t.modelReported ?? null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), externalCount: t.result?.externalDeliverables?.files?.length || 0, flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
 function detail(t) {
   const attempts = t.attempts.map(id => store.get('runs', id)).filter(Boolean);
   const last = attempts.at(-1);
   const events = [...store.events(t.id), ...attempts.flatMap(a => store.events(a.id))].sort((a, b) => a.seq - b.seq).slice(-300);
   const token = mintToken(key, t.id);
   const files = (t.result?.deliverables?.files || []).map(f => ({ ...f, url: f.change === 'deleted' ? null : `/d/${t.id}/${token}/${f.path.split('/').map(encodeURIComponent).join('/')}` }));
-  return { ...t, prompt: t.objective, answer: last?.answer || '', actualModel: t.modelReported ?? null, attempts, events, deliverables: { ...(t.result?.deliverables || { available: false, files: [] }), files }, events_note: 'Eventos ordenados por seq; eventId deduplica repetições.' };
+  const handoffs = store.list('messages').filter(m => m.fromTask === t.id || m.toTask === t.id).slice(-16);
+  const handoffRow = m => ({ fromTask: m.fromTask, toTask: m.toTask, fromAgent: m.fromAgent, toAgent: m.toAgent, summary: String(m.summary || '').slice(0, 1200), files: (m.files || []).slice(0, 20).map(f => f.path), deliveredAt: m.deliveredAt, nextStatus: store.get('tasks', m.toTask)?.status || 'desconhecido' });
+  return { ...t, prompt: t.objective, answer: last?.answer || '', actualModel: t.modelReported ?? null, attempts, events, deliverables: { ...(t.result?.deliverables || { available: false, files: [] }), files }, handoffContext: { incoming: handoffs.filter(m => m.toTask === t.id).map(handoffRow), outgoing: handoffs.filter(m => m.fromTask === t.id).map(handoffRow) }, events_note: 'Eventos ordenados por seq; eventId deduplica repetições.' };
 }
 const taskOfRun = run => store.get('tasks', run) ? run : store.get('runs', run)?.taskId ?? null;
 
@@ -609,9 +611,10 @@ const handle = async (req, res) => {
         if (p === '/api/connectors/test') {
           masterOnly(auth); const provider = text(b.provider, 80), model = b.model ? cleanModel(b.model) : ''; if (!connectors().some(c => c.id === provider)) throw new Error('IA não encontrada.');
           if (REMOTE_PROVIDERS.includes(provider)) throw new Error('Para o Hermes, use “Testar a conexão” no cartão dele.');
-          const dir = await mkdtemp(join(tmpdir(), 'code-room-test-'));
-          try { if (provider.startsWith('x-')) { const r = await testSpec(getSpec(provider), dir); return send(res, 200, { provider, ok: r.ok, answer: r.output || '', error: r.error || null, ms: r.ms, model: null, hint: null }); } return send(res, 200, await testResponse({ provider, model }, { cwd: dir })); }
-          finally { rm(dir, { recursive: true, force: true }).catch(() => {}); }
+          if (b.write === true && !['codex', 'claude', 'agy'].includes(provider)) throw new Error('O teste de criação de arquivo está disponível para Codex, Claude Code e Antigravity.');
+          const dir = await mkdtemp(join(b.write === true ? data : tmpdir(), 'code-room-test-'));
+          try { if (provider.startsWith('x-')) { const r = await testSpec(getSpec(provider), dir); return send(res, 200, { provider, ok: r.ok, answer: r.output || '', error: r.error || null, ms: r.ms, model: null, hint: null }); } return send(res, 200, await testResponse({ provider, model }, { cwd: dir, write: b.write === true })); }
+          finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
         }
         if (p === '/api/providers/test') {
           masterOnly(auth); const spec = b.id ? getSpec(text(b.id, 80)) : validateSpec(b, customSpecs().filter(x => x.id !== b.id)); if (!spec) throw new Error('IA não encontrada.');
@@ -620,7 +623,7 @@ const handle = async (req, res) => {
         if (p.startsWith('/api/assistant/')) {
           masterOnly(auth); const a = p.slice('/api/assistant/'.length);
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
-          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '' }));
+          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null }));
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null }));
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
@@ -725,6 +728,7 @@ const handle = async (req, res) => {
         }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/approve$/))) {
           const t = store.get('tasks', m[1]); if (!t || t.status !== 'completed') throw new Error('Só tarefas concluídas podem ser aprovadas.');
+          if (t.review) throw new Error('Esta entrega já foi revisada.');
           t.review = { status: 'approved', note: optional(b.note, 500), at: new Date().toISOString() }; store.put('tasks', t); store.event(t.id, { type: 'review', text: 'approved', at: t.review.at });
           let obsidian = null, obsidianError = null; const oc = obsCfg();
           if (oc.enabled && oc.allowWrite) { try { obsidian = (await obsSaveTask(t)).rel; } catch (e) { obsidianError = e.message; } }   // só com a permissão "alimentar o Obsidian"; um erro aqui nunca desfaz a aprovação
@@ -822,8 +826,8 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
       }
       return send(res, 404, { error: 'Rota não encontrada' });
     }
-    if (req.method === 'GET' && url.pathname === '/manifest.webmanifest') { res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', 'manifest.webmanifest'))); }
-    if (req.method === 'GET' && /^\/assets\/[a-z0-9-]+\.(png|jpg|webp)$/.test(url.pathname)) { const ext = url.pathname.split('.').pop(); res.writeHead(200, { 'Content-Type': ({ jpg: 'image/jpeg', webp: 'image/webp' }[ext] || 'image/png'), 'Cache-Control': 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', url.pathname.slice(1)))); }
+    if (req.method === 'GET' && url.pathname === '/manifest.webmanifest') { res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(await readFile(join(root, 'public', 'manifest.webmanifest'))); }
+    if (req.method === 'GET' && /^\/assets\/[a-z0-9-]+\.(png|jpg|webp)$/.test(url.pathname)) { const ext = url.pathname.split('.').pop(); const brand = /^\/assets\/(?:favicon|icon-256|icon-512|logo-wide)\.png$/.test(url.pathname); res.writeHead(200, { 'Content-Type': ({ jpg: 'image/jpeg', webp: 'image/webp' }[ext] || 'image/png'), 'Cache-Control': brand ? 'no-store' : 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', url.pathname.slice(1)))); }
     // Só nomes simples de arquivo (sem barras nem pontos duplos) dentro de public/.
     const name = url.pathname === '/' ? 'index.html' : /^\/[a-z0-9-]+\.(js|css)$/.test(url.pathname) ? url.pathname.slice(1) : null;
     const files = { [url.pathname]: name };
@@ -852,7 +856,7 @@ async function networkView() {
 server.listen(port, '127.0.0.1', async () => {
   updates.start();
   // Primeira abertura de uma versão nova: pede ao Windows para renovar o cache de ícones (o atalho mostra a logo nova sem reiniciar o PC).
-  try { const lv = store.get('settings', 'lastVersion')?.v; if (lv !== VERSION) { store.put('settings', { id: 'lastVersion', v: VERSION }); if (lv && process.platform === 'win32') execFile('ie4uinit.exe', ['-show'], { windowsHide: true, timeout: 15000 }, () => {}); } } catch {}
+  try { const lv = store.get('settings', 'lastVersion')?.v; if (lv !== VERSION) { store.put('settings', { id: 'lastVersion', v: VERSION }); if (process.platform === 'win32') execFile('ie4uinit.exe', ['-show'], { windowsHide: true, timeout: 15000 }, () => {}); } } catch {}
   console.log(`Code Room → http://127.0.0.1:${port}/#${key}`);
   try { await runner.start(); routines.start(); folderJobs.start(); moduleList().catch(() => {}); } catch (e) { console.error('Falha ao iniciar o executor:', e.message); }
   try { await syncListeners(); for (const b of bound) console.log(`Acesso remoto (${b.kind}): http://${b.ip}:${port}/`); } catch (e) { console.error('Rede:', e.message); }

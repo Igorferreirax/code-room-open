@@ -21,6 +21,7 @@ test('HTTP: histórico de ações registra só o que deu certo, com quem/onde/qu
     assert.equal((await fetch(`${base}/api/audit`)).status, 401); assert.deepEqual((await (await get('/api/audit')).json()).entries, []);
     assert.equal((await post('/api/tasks/t2/approve', {})).status, 400, 'aprovar tarefa que não terminou falha');
     assert.equal((await post('/api/tasks/t1/approve', { note: 'ok' })).status, 200);
+    assert.equal((await post('/api/tasks/t1/approve', { note: 'outra' })).status, 400, 'aprovação repetida é recusada');
     await mkdir(join(orig, 'x')); assert.equal((await post('/api/projects/pj1/references', { dirs: [{ path: orig }] })).status, 200);
     await post('/api/assistant/autonomy', { mode: 'ask' });   // sem IA instalada pode falhar: se falhar, não entra no histórico
     const e = (await (await get('/api/audit')).json()).entries;

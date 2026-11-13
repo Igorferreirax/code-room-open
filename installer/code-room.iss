@@ -1,5 +1,5 @@
 ; Instalador do Code Room (Inno Setup 6). Gerado por installer\build.ps1 com:
-;   ISCC /DAppVersion=0.3.4 /DStageDir=<pasta preparada> /DOutDir=<destino> installer\code-room.iss
+;   ISCC /DAppVersion=<versao> /DStageDir=<pasta preparada> /DOutDir=<destino> installer\code-room.iss
 ; Instala só para o usuário atual (sem administrador) em %LOCALAPPDATA%\Programs\CodeRoom.
 ; Os dados do usuário ficam em %LOCALAPPDATA%\CodeRoom\data e NÃO são apagados ao desinstalar nem ao atualizar.
 #ifndef AppVersion
@@ -11,9 +11,12 @@
 #ifndef OutDir
   #define OutDir "dist"
 #endif
+#ifndef AppIdValue
+  #define AppIdValue "{{6F2D0F5E-3B1A-4C7E-9A52-C0DE600E0001}"
+#endif
 
 [Setup]
-AppId={{6F2D0F5E-3B1A-4C7E-9A52-C0DE600E0001}
+AppId={#AppIdValue}
 AppName=Code Room
 AppVersion={#AppVersion}
 AppPublisher=Bytelab
@@ -38,6 +41,10 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
 UsePreviousAppDir=yes
+#ifdef IsolatedTest
+CreateUninstallRegKey=no
+Uninstallable=no
+#endif
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -66,6 +73,7 @@ Name: "desktopicon"; Description: "Criar um ícone do Code Room na área de trab
 Source: "{#SourcePath}\wizard\progresso.bmp"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
+#ifndef IsolatedTest
 [Icons]
 Name: "{autodesktop}\Code Room"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\start.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\code-room.ico"; Comment: "Abrir o Code Room"; Tasks: desktopicon
 Name: "{group}\Code Room"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\start.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\code-room.ico"; Comment: "Abrir o Code Room"
@@ -79,6 +87,7 @@ Type: files; Name: "{userstartup}\Code Room.lnk"
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\scripts\stop.ps1"""; Flags: runhidden; RunOnceId: "StopCodeRoom"
+#endif
 
 [Code]
 // Antes de atualizar ou desinstalar, fecha o serviço que estiver rodando desta pasta (não mexe em outros processos).

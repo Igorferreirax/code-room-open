@@ -92,7 +92,7 @@ try:
         pg.route('**/api/assistant**', handle); pg.goto(URL); pg.wait_for_selector('#chat-bubble:not([hidden])', timeout=15000)
         check('primeira vez: só o balão aparece (sem janela, sem barra de baixo) e a página fica limpa', pg.is_visible('#chat-bubble') and not pg.is_visible('#chat') and not pg.is_visible('#mission'))
         pg.click('#chat-bubble'); pg.wait_for_selector('#chat:not([hidden])'); nap(0.4)
-        t = pg.inner_text('#chat'); check('1º uso: a janela explica a leitura do manual, a gravação local e que não altera nada', 'ler o manual' in t and 'neste computador' in t and 'não altera nada' in t and pg.is_visible('#chat-bubble') is False, t[:200])
+        t = pg.inner_text('#chat'); check('1º uso: a janela explica a leitura do manual, a gravação local e o Modo Piloto', 'ler o manual' in t and 'neste computador' in t and 'Modo Piloto' in t and pg.is_visible('#chat-bubble') is False, t[:200])
         check('o cabeçalho mostra a foto, o nome e que só propõe', pg.is_visible('.cw-head .cw-face svg.mascot') and 'Assistente' in pg.inner_text('#chat-head'))
         n0 = len([c for c in calls if c[0] == 'ask']); pg.fill('#mission', 'oi'); pg.keyboard.press('Enter'); nap(0.8)
         check('antes da apresentação, escrever na barra não envia: o texto fica e o chat avisa', len([c for c in calls if c[0] == 'ask']) == n0 and pg.input_value('#mission') == 'oi' and pg.is_visible('#notice'), pg.inner_text('#notice'))

@@ -89,6 +89,18 @@ test('precedência no prompt e contexto do projeto referenciado, não copiado', 
   assert.ok(prompt.includes('docs/grande.md') && prompt.includes('não foram copiados'));
 });
 
+test('CLI por argumento preserva o pedido e reduz contexto complementar antes de ultrapassar o teto', async () => {
+  const { store } = await setup(); const P = await addProject(store, 'prompt-longo'), ag = addAgent(store, 'a');
+  const objective = 'Pedido da pessoa: ' + 'X'.repeat(22000);
+  const tk = createTask(store, { projectId: P.id, agentId: ag.id, requestId: 'prompt-longo', objective }).task;
+  const ctx = { ...emptyContext(P.id), goals: 'G'.repeat(2000), decisions: Array(10).fill('D'.repeat(500)) };
+  const result = await buildPrompt({ task: tk, agent: ag, projectContext: ctx, skills: [], handoffs: [], extra: 'E'.repeat(5000), maxChars: 27000 });
+  assert.ok(result.prompt.length <= 27000);
+  assert.ok(result.prompt.includes(objective), 'pedido original permanece inteiro');
+  assert.ok(result.warnings.length, 'o corte do contexto fica registrado');
+  await assert.rejects(buildPrompt({ task: { ...tk, objective: 'X'.repeat(29500) }, agent: ag, projectContext: ctx, skills: [], handoffs: [], maxChars: 27000 }), /arquivo do projeto/);
+});
+
 test('skills: encontrada × reconhecida × duplicata × dependências; só a habilitada chega ao executor', async () => {
   const { store, runner } = await setup(); const P = await addProject(store, 'sk');
   const mk = (dir, body) => { mkdirSync(join(P.path, dir), { recursive: true }); writeFileSync(join(P.path, dir, 'SKILL.md'), body); };

@@ -3,13 +3,17 @@
 #   Code-Room-<versao>-Setup.exe              (instalador; só se o Inno Setup 6 estiver instalado)
 #   SHA256SUMS.txt                            (código de verificação de cada arquivo)
 # O Node vem da máquina de build (runtime\node.exe, licença MIT, cópia da licença incluída).
-# Uso:  powershell -ExecutionPolicy Bypass -File installer\build.ps1 [-NodePath C:\caminho\node.exe] [-OutDir dist]
-param([string]$NodePath = '', [string]$OutDir = 'dist')
+# Uso:  powershell -ExecutionPolicy Bypass -File installer\build.ps1 [-NodePath C:\caminho\node.exe] [-ISCCPath C:\caminho\ISCC.exe] [-OutDir dist]
+param([string]$NodePath = '', [string]$ISCCPath = '', [string]$OutDir = 'dist')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Set-Location $repo
 $version = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
 if (-not $NodePath) { $NodePath = (Get-Command node.exe -ErrorAction Stop).Source }
+if ($ISCCPath) {
+  if (-not (Test-Path -LiteralPath $ISCCPath -PathType Leaf)) { throw "Compilador Inno Setup não encontrado: $ISCCPath" }
+  $ISCCPath = (Resolve-Path -LiteralPath $ISCCPath).Path
+}
 $out = Join-Path $repo $OutDir; $stage = Join-Path $out 'CodeRoom'
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 # Substitui somente a área de staging e os artefatos desta versão. Não apaga
@@ -18,6 +22,7 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 $zip = Join-Path $out "Code-Room-$version-portatil-win-x64.zip"
 $versionSetup = Join-Path $out "Code-Room-$version-Setup.exe"
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+if (Test-Path -LiteralPath $versionSetup) { Remove-Item -LiteralPath $versionSetup -Force }
 
 # 1) Só o que o app precisa para rodar (sem testes, docs de desenvolvimento nem scripts de teste).
 foreach ($d in 'server', 'public', 'resources') { Copy-Item -LiteralPath $d -Destination (Join-Path $stage $d) -Recurse }
@@ -39,14 +44,17 @@ Write-Host ("zip: {0} ({1:N1} MB, Node {2})" -f $zip, ((Get-Item $zip).Length / 
 
 # 4) Instalador (Inno Setup 6), se existir
 $iscc = $null
-$candidates = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
-foreach ($candidate in $candidates) {
-  try { if (Test-Path -LiteralPath $candidate) { $iscc = $candidate; break } }
-  catch { continue } # caminhos protegidos podem negar acesso; ainda verificamos as outras instalações conhecidas
+if ($ISCCPath) {
+  $iscc = $ISCCPath
+} else {
+  $candidates = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
+  foreach ($candidate in $candidates) {
+    try { if (Test-Path -LiteralPath $candidate -PathType Leaf) { $iscc = $candidate; break } }
+    catch { continue } # caminhos protegidos podem negar acesso; ainda verificamos as outras instalações conhecidas
+  }
 }
 $setup = $null
 if ($iscc) {
-  if (Test-Path -LiteralPath $versionSetup) { Remove-Item -LiteralPath $versionSetup -Force }
   & $iscc "/DAppVersion=$version" "/DStageDir=$stage" "/DOutDir=$out" (Join-Path $PSScriptRoot 'code-room.iss')
   if ($LASTEXITCODE -ne 0) { throw 'O Inno Setup falhou.' }
   $setup = Join-Path $out "Code-Room-$version-Setup.exe"
@@ -54,4 +62,4 @@ if ($iscc) {
 } else { Write-Host 'Inno Setup 6 não encontrado: gerei só o zip portátil.' }
 
 # 5) SHA-256 de cada arquivo entregue (no GitHub, roda de novo depois da assinatura: installer\sums.ps1)
-& (Join-Path $PSScriptRoot 'sums.ps1') -OutDir $out
+& (Join-Path $PSScriptRoot 'sums.ps1') -OutDir $out -Version $version
