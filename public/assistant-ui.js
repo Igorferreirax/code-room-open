@@ -51,7 +51,7 @@ const alertsHtml = a => (a.alerts || []).length ? `<div class="as-alerts" role="
 export function assistantHtml(a) {
   if (!a) return '<p class="muted">Carregando…</p>';
   const conn = a.connected || [];
-  if (!conn.length) return '<p>Nenhuma IA instalada ainda. Instale e conecte uma (Codex, Claude Code ou Gemini) em <button type="button" class="linkbtn" data-nav="connections">Conexões</button> e volte aqui.</p>';
+  if (!conn.length) return `${(a.messages || []).length ? `<div class="as-log" id="asst-log" role="log" aria-live="polite">${a.messages.map(message).join('')}</div>` : ''}<p>Nenhuma IA instalada ainda. Instale e conecte uma (Codex, Claude Code ou Gemini) em <button type="button" class="linkbtn" data-nav="connections">Conexões</button> e volte aqui.</p>`;
   if (!a.manual?.available) return '<p class="upd-err" role="alert">O manual do Assistente (docs/ASSISTENTE.md) não foi encontrado nesta instalação.</p>';
   const provSel = `<label class="f small">Qual IA responde<select id="asst-provider" data-asst-provider>${conn.map(p => `<option value="${esc(p)}" ${p === a.provider ? 'selected' : ''}>${esc(PROV[p] || p)}</option>`).join('')}</select></label>`;
   const err = a.error ? `<p class="upd-err" role="alert">${esc(a.error)}</p>` : '';

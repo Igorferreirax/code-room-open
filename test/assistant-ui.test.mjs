@@ -12,6 +12,8 @@ test('markdown simples: escapa HTML da IA, aplica negrito, código e listas, sem
 const base = { manual: { available: true }, connected: ['claude', 'codex'], provider: 'claude', messages: [], briefed: true, stale: false, error: null, pending: null, briefing: null };
 test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, desatualizado, conversa, aguardando)', () => {
   assert.match(assistantHtml({ ...base, connected: [] }), /Nenhuma IA instalada/);
+  const semIa = assistantHtml({ ...base, connected: [], briefed: false, messages: [{ role: 'assistant', text: '**Abrir o Code Room no celular** <script>x</script>', at: '' }] });
+  assert.match(semIa, /Abrir o Code Room no celular/); assert.match(semIa, /Nenhuma IA instalada/); assert.doesNotMatch(semIa, /<script>/);
   assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /No Modo Piloto, ele também pode trabalhar nos arquivos do projeto/);
   assert.match(assistantHtml({ ...base, briefing: { status: 'running' } }), /está lendo o manual/);
   { const h = assistantHtml({ ...base, stale: true }); assert.match(h, /O manual mudou[\s\S]*Apresentar de novo/); assert.match(h, /id="asst-log"/, 'manual novo não bloqueia a conversa'); assert.ok(!h.includes('asst-input'), 'a entrada fica na barra do chat, não aqui'); }
