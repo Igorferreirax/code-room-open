@@ -32,7 +32,7 @@ jobs:
         run: node scripts/audit-security.mjs
       - name: Instalar Playwright para os testes visuais
         run: |
-          python -m pip install playwright
+          python -m pip install playwright numpy
           python -m playwright install chromium
       - name: Testes da interface e onboarding
         shell: pwsh
