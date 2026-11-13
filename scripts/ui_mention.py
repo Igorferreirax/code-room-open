@@ -173,7 +173,7 @@ try:
         page.fill('#mission', ''); page.focus('#mission'); page.keyboard.type('@Pes'); page.wait_for_timeout(400)
         check('chat: digitar @ lista os agentes', page.locator('#slash-pop [data-pick]').count() >= 1 and 'Pesquisador' in page.inner_text('#slash-pop'))
         page.keyboard.press('Escape'); page.fill('#mission', '')
-        txt = page.inner_text('#chat'); srvm = api('assistant')['messages']; check('/celular responde com o passo a passo', 'Abrir o Code Room no celular' in txt, 'msgs no servidor=' + str(len(srvm)) + ' alvo=' + str(page.evaluate("document.getElementById('target') && document.getElementById('target').value")) + ' barra=' + repr(page.input_value('#mission')) + ' reqs=' + str(reqs[-5:]))
+        txt = page.inner_text('#chat'); srvm = api('assistant')['messages']; check('/celular responde com o passo a passo', 'Abrir o Code Room no celular' in txt, 'msgs no servidor=' + str(len(srvm)) + ' ultima=' + repr(srvm[-1].get('text', '')[:180] if srvm else '') + ' chat=' + repr(txt[-180:]) + ' alvo=' + str(page.evaluate("document.getElementById('target') && document.getElementById('target').value")) + ' barra=' + repr(page.input_value('#mission')) + ' reqs=' + str(reqs[-5:]))
         errors = [e for e in errors if 'status of 400' not in e]   # o 400 do Hermes inválido é o servidor recusando de propósito
         check('sem erro de console', not errors, errors[:3])
         browser.close()

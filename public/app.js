@@ -448,6 +448,7 @@ async function askAssistant(text, { includeContext = true, extraDir = null } = {
   if (extraDir && !confirm(`Autorizar esta IA a LER E EDITAR a pasta abaixo nesta execução?\n\n${extraDir}\n\nO Code Room registra as mudanças para revisão, mas não desfaz automaticamente alterações fora do projeto.`)) return false;
   ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
   const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
+  if (ok && local) await loadAsst();   // comandos imediatos mostram a resposta sem esperar o próximo ciclo de atualização
   if (!ok) { await loadAsst(); notify('A mensagem não foi enviada. Seu texto continua na barra: tente de novo.', true); }   // antes: a mensagem aparecia e sumia, e o texto era apagado
   return ok;
 }
