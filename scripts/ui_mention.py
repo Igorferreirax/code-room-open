@@ -1,7 +1,8 @@
 """Menu ao clicar em um agente (Sala e Canvas): "@ Mencionar no chat" põe @Nome na barra do chat; arrastar não abre o menu.
 Também confere os botões novos do Acesso remoto e o comando /celular. Servidor temporário isolado; não chama nenhuma IA.
 Uso: python scripts/ui_mention.py"""
-import json, os, subprocess, tempfile, time, urllib.request
+import json, os, subprocess, sys, tempfile, time, urllib.request
+sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
