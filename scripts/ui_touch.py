@@ -39,9 +39,9 @@ try:
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); time.sleep(0.3)
         for i in range(N):
             for l in api('state')['links']: api(f"links/{l['id']}/delete", {})
-            time.sleep(0.8)
+            time.sleep(1.5)
             def preparar():
-                page.click('[data-cv-zoom=fit]'); time.sleep(0.4)   # cada rodada começa com todos os cartões enquadrados (o Canvas tem câmera: zoom e arrastar o fundo)
+                page.click('[data-cv-zoom=fit]'); time.sleep(0.8)   # aguarda a câmera e a atualização dos cartões antes de medir o toque
                 # escolhe dois cartões vizinhos (o Canvas rola para os lados) e centraliza os dois na tela
                 pair = page.evaluate("""() => { const cv = document.querySelector('#cv'); const ns = [...document.querySelectorAll('.cv-node')].map(e => { const r = e.getBoundingClientRect(), p = e.querySelector('.cv-port.out').getBoundingClientRect(); return { name: e.textContent.trim().split(' ')[0], px: p.x + cv.scrollLeft, cx: r.x + r.width / 2 + cv.scrollLeft, y: r.y }; });
                   let best = null; for (const a of ns) for (const b of ns) if (a !== b && b.cx > a.px && (!best || b.cx - a.px < best[2])) best = [a, b, b.cx - a.px]; return best && { from: best[0].name, to: best[1].name, mid: (best[0].px + best[1].cx) / 2 }; }""")
@@ -56,7 +56,7 @@ try:
                 if not visible: return None
                 return o, d
             prep = None
-            for _t in range(3):   # a tela pode se atualizar no meio da medição: tenta de novo
+            for _t in range(8):   # a tela pode se atualizar no meio da medição: tenta de novo
                 try: prep = preparar()
                 except Exception: prep = None   # tempo esgotado esperando o cartão ficar parado (a tela estava se atualizando)
                 if prep: break
