@@ -50,6 +50,10 @@ try:
                 o = page.locator('.cv-node', has_text=pair['from']).locator('.cv-port.out').bounding_box(); d = page.locator('.cv-node', has_text=pair['to']).bounding_box()
                 cabe = lambda o, d: o and d and 4 < o['x'] < 386 and 0 < d['x'] < 380 and 0 < o['y'] < 800
                 if not cabe(o, d): return None
+                x0, y0 = o['x'] + o['width'] / 2, o['y'] + o['height'] / 2
+                x1, y1 = min(d['x'] + d['width'] / 2, (d['x'] + 372) / 2), d['y'] + d['height'] / 2
+                visible = page.evaluate("p => { const a = document.elementFromPoint(p.x0, p.y0), b = document.elementFromPoint(p.x1, p.y1); return !!a?.closest('.cv-port.out') && !!b?.closest('.cv-node'); }", {'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1})
+                if not visible: return None
                 return o, d
             prep = None
             for _t in range(3):   # a tela pode se atualizar no meio da medição: tenta de novo
