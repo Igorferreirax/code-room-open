@@ -2,13 +2,18 @@
 as respostas da IA (nenhuma IA é chamada, nada gasta cota) para percorrer: balão minimizado, abrir, apresentar, conversar pela barra do chat,
 cartões de ação, aprovar tudo, várias conversas, missão direta a um agente, aviso de resposta nova, celular e erros de console.
 Uso: python scripts/ui_assistant.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request, urllib.error
+import json, os, subprocess, sys, tempfile, time, urllib.request, urllib.error, shutil
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4793
 data = tempfile.mkdtemp(prefix='cr-asst-'); proj = tempfile.mkdtemp(prefix='cr-asst-p-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+# O teste cria uma missão, mas não precisa de conta Claude. Um executável de
+# fixture no PATH permite verificar a criação da tarefa em um Windows limpo.
+bindir = os.path.join(data, 'bin'); os.makedirs(bindir)
+shutil.copy(shutil.which('node'), os.path.join(bindir, 'claude.exe'))
+env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
+srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
