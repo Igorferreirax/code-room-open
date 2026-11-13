@@ -165,7 +165,7 @@ try:
         # ---- /celular no chat ----
         page.click('[data-nav=room]'); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)
-        reqs = []; page.on('request', lambda r: reqs.append((r.method, r.url.split('/api/')[-1])) if '/api/assistant' in r.url else None); page.on('response', lambda r: reqs.append(('RESP', r.url.split('/api/')[-1], r.status)) if '/api/assistant/ask' in r.url else None); page.on('requestfailed', lambda r: reqs.append(('FAIL', r.url.split('/api/')[-1], str(r.failure))))
+        reqs = []; page.on('request', lambda r: reqs.append((r.method, r.url.split('/api/')[-1])) if '/api/assistant' in r.url else None); page.on('response', lambda r: reqs.append(('RESP', r.url.split('/api/')[-1], r.status, r.text()[:200] if r.status >= 400 else '')) if '/api/assistant/ask' in r.url else None); page.on('requestfailed', lambda r: reqs.append(('FAIL', r.url.split('/api/')[-1], str(r.failure))))
         page.wait_for_timeout(1200); page.fill('#mission', '/celular'); page.wait_for_timeout(300); page.click('#chat [type=submit]') if page.locator('#chat [type=submit]').count() else page.keyboard.press('Enter'); 
         for _ in range(40):
             if 'Abrir o Code Room no celular' in page.inner_text('#chat'): break
