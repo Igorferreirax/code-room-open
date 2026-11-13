@@ -8,7 +8,11 @@ from playwright.sync_api import sync_playwright
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 4790
 data = tempfile.mkdtemp(prefix='cr-ui-data-'); proj = tempfile.mkdtemp(prefix='cr-ui-proj-')
-env = dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
+# O CI não tem Codex instalado. O executável falso só habilita a criação da
+# tarefa de fixture; a pasta apagada faz a execução falhar antes de chamar IA.
+bindir = os.path.join(data, 'bin'); os.makedirs(bindir)
+shutil.copy(shutil.which('node'), os.path.join(bindir, 'codex.exe'))
+env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
 srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 
