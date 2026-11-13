@@ -66,7 +66,7 @@ try:
                 check(f'{label}: tela {s} renderiza', page.locator('#view h1').count() > 0 or s == 'room')
                 check(f'{label}: tela {s} sem imagem quebrada', broken == 0, broken)
                 if s == 'connections':
-                    try: page.wait_for_selector('#hermes-card', timeout=8000)   # o cartão do Hermes chega depois da primeira pintura
+                    try: page.wait_for_function("() => document.querySelectorAll('.conn-pane:not([hidden])').length === 1 && document.querySelector('#social-card')?.getClientRects().length === 0 && !!document.querySelector('#hermes-card')?.getClientRects().length", timeout=12000)
                     except Exception: pass
                     check(f'{label}: Conexões abre na aba IAs, com os outros blocos guardados em abas', page.locator('.conn-pane:not([hidden])').count() == 1 and page.locator('#social-card').is_hidden() and page.locator('#hermes-card').is_visible())
                     page.click('[data-act=conn-tab][data-id=redes]')
@@ -114,6 +114,8 @@ try:
                 check('sala: agentes ociosos respiram quando aparecem', page.evaluate("(() => [...document.querySelectorAll('.ps-sleep')].every(i => getComputedStyle(i).animationName === 'ps-breathe'))()"))
                 page.click('[data-act=view-mode][data-id=live]'); time.sleep(0.4)
                 check('cenário vivo: três agentes do projeto aparecem sem vazar o agente externo', page.evaluate("id => { const slots=[...document.querySelectorAll('.living-station[data-agent],.living-station[data-id]')]; return slots.length === 3 && slots.every(s => s.dataset.id !== id); }", outsider['id']))
+                try: page.wait_for_function("() => [...document.querySelectorAll('.living-label img')].length === 3 && [...document.querySelectorAll('.living-label img')].every(i => i.complete && i.naturalWidth > 0) && !!document.querySelector('.living-cat')", timeout=8000)
+                except Exception: pass
                 check('cenário vivo: os retratos carregam e as poses seguem o estado', page.evaluate("() => [...document.querySelectorAll('.living-label img')].length === 3 && [...document.querySelectorAll('.living-label img')].every(i => i.complete && i.naturalWidth > 0) && !!document.querySelector('.living-cat')"))
                 page.click('[data-act=view-mode][data-id=scene]'); time.sleep(0.3)
                 page.screenshot(path=os.path.join(data, 'v6-sala-cochilando.png'))
@@ -198,7 +200,10 @@ try:
                 check('player: token inválido é recusado (403)', bad == 403, bad)
                 qa = api(f"batches/{bt['id']}/episodes/{ep0}/qa?kind=previa")
                 st_qa = {i['id']: i['status'] for i in qa.get('items', [])}
-                check('checagem técnica: mede o vídeo e acusa falta de áudio e formato', qa.get('checked') and st_qa.get('audio') == 'falha' and st_qa.get('res') in ('aviso', 'falha'), qa)
+                if shutil.which('ffprobe'):
+                    check('checagem técnica: mede o vídeo e acusa falta de áudio e formato', qa.get('checked') and st_qa.get('audio') == 'falha' and st_qa.get('res') in ('aviso', 'falha'), qa)
+                else:
+                    check('checagem técnica: informa quando ffprobe não está instalado', not qa.get('checked') and 'ffprobe' in qa.get('reason', ''), qa)
                 api(f"batches/{bt['id']}/cancel", {})
                 page.click('[data-nav=projects]'); page.click('[data-act=new-project]'); time.sleep(0.3)
                 check('projetos: painel Novo projeto abre', page.locator('#project-form').count() == 1)
