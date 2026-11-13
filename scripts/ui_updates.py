@@ -10,6 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VER = __import__('json').load(open(__import__('os').path.join(ROOT, 'package.json'), encoding='utf-8'))['version']
 PORT, RPORT = 4792, 4794
 ZIPNAME = 'Code-Room-0.9.9-portatil-win-x64.zip'; ZIPDATA = os.urandom(300_000); SHA = hashlib.sha256(ZIPDATA).hexdigest()
+BAD_ZIPDATA = ZIPDATA[:-1] + bytes([ZIPDATA[-1] ^ 1])
 state = {'mode': 'ok'}   # ok | bad (zip adulterado) | down (servidor fora do ar)
 NOTES = 'Novidade <b>um</b>\n<script>window.__pwned=1</script>\n<img src=x onerror="window.__pwned=2">'
 
@@ -25,7 +26,7 @@ class H(BaseHTTPRequestHandler):
                    'assets': [{'name': ZIPNAME, 'browser_download_url': f'{base}/dl/{ZIPNAME}', 'size': len(ZIPDATA)}, {'name': 'SHA256SUMS.txt', 'browser_download_url': f'{base}/dl/SHA256SUMS.txt', 'size': 100}]}
             return self.send(200, json.dumps(rel).encode(), 'application/json')
         if self.path == '/dl/SHA256SUMS.txt': return self.send(200, f'{SHA}  {ZIPNAME}\n'.encode(), 'text/plain')
-        if self.path == f'/dl/{ZIPNAME}': return self.send(200, (ZIPDATA[:-1] + b'X') if state['mode'] == 'bad' else ZIPDATA)
+        if self.path == f'/dl/{ZIPNAME}': return self.send(200, BAD_ZIPDATA if state['mode'] == 'bad' else ZIPDATA)
         self.send(404, b'nao')
 fake = ThreadingHTTPServer(('127.0.0.1', RPORT), H); threading.Thread(target=fake.serve_forever, daemon=True).start()
 
@@ -55,7 +56,7 @@ try:
         pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e))); pg.on('dialog', lambda d: (dialogs.append(d.message), d.dismiss()))
         pg.goto(URL); pg.wait_for_selector('#rail button', timeout=10000); time.sleep(1.0)
         check('sem versão nova conhecida: nenhuma faixa de aviso', pg.locator('.update-bar').count() == 0)
-        tab(pg, 'atualizacoes')
+        tab(pg, 'atualizacoes'); pg.get_by_text('Versão instalada', exact=True).wait_for()
         txt = pg.inner_text('#view'); check('Configurações › Atualizações mostra a versão e "nunca" verificado', VER in txt and 'nunca' in txt, txt[:200])
         check('o aviso de privacidade está na tela', 'nenhum dado seu, projeto ou chave é enviado' in txt)
         pg.click('[data-act=upd-check]'); pg.wait_for_selector('.update-bar', timeout=10000); time.sleep(0.4)
@@ -67,7 +68,7 @@ try:
         check('nada da nota foi executado (sem XSS)', pg.evaluate('window.__pwned') is None and not dialogs)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'upd-dialog.png'))
 
-        state['mode'] = 'bad'; pg.click('[data-act=upd-download]'); pg.wait_for_selector('#update-dialog .upd-err', timeout=15000); time.sleep(0.3)
+        state['mode'] = 'bad'; pg.click('[data-act=upd-download]'); pg.wait_for_selector('#update-dialog .upd-err', timeout=30000); time.sleep(0.3)
         check('arquivo ADULTERADO é recusado com aviso claro', 'NÃO confere' in pg.inner_text('#update-dialog .upd-err'))
         check('e o arquivo ruim não fica no disco', not os.path.exists(os.path.join(data, 'updates', ZIPNAME)) and not os.path.exists(os.path.join(data, 'updates', ZIPNAME + '.part')))
         state['mode'] = 'ok'; pg.click('[data-act=upd-download]'); pg.wait_for_selector('#update-dialog .upd-ok', timeout=15000); time.sleep(0.3)
@@ -83,8 +84,8 @@ try:
         pg.reload(); time.sleep(1.5); check('e continua escondida depois de recarregar', pg.locator('.update-bar').count() == 0)
         tab(pg, 'atualizacoes'); check('Configurações ainda mostra que há a versão 0.9.9', 'Versão 0.9.9 disponível' in pg.inner_text('#view'))
 
-        pg.click('[data-act=upd-toggle]'); time.sleep(0.5); t2 = pg.inner_text('#view'); check('Desligar a verificação: aparece "desligada" e "Verificar uma vez"', 'desligada' in t2 and 'Verificar uma vez' in t2)
-        pg.click('[data-act=upd-toggle]'); time.sleep(0.5); check('Ligar de novo funciona', 'ligada' in pg.inner_text('#view') and 'Verificar agora' in pg.inner_text('#view'))
+        pg.click('[data-act=upd-toggle]'); pg.locator('[data-act=upd-check]').get_by_text('Verificar uma vez').wait_for(); t2 = pg.inner_text('#view'); check('Desligar a verificação: aparece "desligada" e "Verificar uma vez"', 'desligada' in t2 and 'Verificar uma vez' in t2)
+        pg.click('[data-act=upd-toggle]'); pg.locator('[data-act=upd-check]').get_by_text('Verificar agora').wait_for(); check('Ligar de novo funciona', 'ligada' in pg.inner_text('#view') and 'Verificar agora' in pg.inner_text('#view'))
 
         state['mode'] = 'down'; pg.click('[data-act=upd-check]'); pg.wait_for_selector('.upd-err', timeout=10000)
         update_error, rail_buttons = pg.inner_text('.upd-err'), pg.locator('#rail button').count()
@@ -96,7 +97,7 @@ try:
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); pg = ctx.new_page(); errs = []
         pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
         api('updates/dismiss', {'version': ''}); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=10000); time.sleep(1.0)
-        pg.click('[data-nav=settings]'); time.sleep(0.4); pg.click('[data-act=settings-tab][data-id=atualizacoes]'); time.sleep(0.4); pg.click('[data-act=upd-check]'); pg.wait_for_selector('.update-bar', timeout=10000); time.sleep(0.4)
+        pg.click('[data-nav=settings]'); time.sleep(0.4); pg.click('[data-act=settings-tab][data-id=atualizacoes]'); pg.get_by_text('Versão instalada', exact=True).wait_for(); pg.click('[data-act=upd-check]'); pg.wait_for_selector('.update-bar', timeout=15000); time.sleep(0.4)
         bar = pg.locator('.update-bar').bounding_box(); check('celular: faixa cabe na tela', bar['x'] >= 0 and bar['x'] + bar['width'] <= 391, bar)
         pg.click('.update-bar [data-act=upd-open]'); pg.wait_for_selector('#update-dialog[open]'); time.sleep(0.4); db = pg.locator('#update-dialog').bounding_box()
         check('celular: janela cabe na tela', db['x'] >= 0 and db['x'] + db['width'] <= 391, db); check('celular: sem rolagem lateral', pg.evaluate('document.documentElement.scrollWidth <= innerWidth'))
