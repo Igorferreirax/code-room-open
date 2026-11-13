@@ -45,6 +45,8 @@ try:
         '6 todos parados': [],
     }
     cur = {'runs': []}
+    def connected(route):
+        route.fulfill(status=200, headers={'Content-Type': 'application/json'}, body=json.dumps([{'id': name, 'installed': True, 'authenticated': True} for name in ('claude', 'codex', 'agy')]))
     def handle(route):
         r = route.fetch(); j = r.json(); j['runs'] = cur['runs']; route.fulfill(status=r.status, headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'}, body=json.dumps(j))
 
@@ -53,7 +55,7 @@ try:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script("try { if (!localStorage.getItem('cr.prefs')) localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', motion: 'on'})); localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
-        pg.route('**/api/state', handle)
+        pg.route('**/api/state', handle); pg.route('**/api/connectors/check', connected)
         def show(name):
             cur['runs'] = SCEN[name]; pg.goto('about:blank'); pg.goto(URL); pg.click('[data-nav=room]')
             try: pg.wait_for_selector('.cv-node', timeout=15000)
@@ -87,7 +89,7 @@ try:
         check('sem erro de console (desktop)', not errs, errs[:2]); pg.unroute_all(behavior='ignoreErrors'); ctx.close()
         # celular
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); ctx.add_init_script("try { if (!localStorage.getItem('cr.prefs')) localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', motion: 'on'})); localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
-        pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.goto(URL); pg.click('[data-nav=room]'); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
+        pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.route('**/api/connectors/check', connected); pg.goto(URL); pg.click('[data-nav=room]'); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
         check('celular: verde e linha ativa aparecem', pg.locator('.cv-node.st-running').count() == 1 and pg.locator('.cv-edge.live').count() == 1)
         check('celular: sem rolagem lateral na página', pg.evaluate('document.documentElement.scrollWidth <= innerWidth')); pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'cv-m.png')); pg.unroute_all(behavior='ignoreErrors'); ctx.close(); browser.close()
 finally:
