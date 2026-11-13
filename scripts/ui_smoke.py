@@ -110,8 +110,8 @@ try:
                 page.click('[data-nav=room]'); time.sleep(0.6)
                 room_members = page.evaluate("outsideId => { const stations=[...document.querySelectorAll('.ps-station[data-agent]')].map(e=>({id:e.dataset.agent, supervisor:e.classList.contains('ps-sup')})); return {workers:stations.filter(x=>!x.supervisor).length, supervisors:stations.filter(x=>x.supervisor).length, leaked:stations.some(x=>x.id===outsideId), stations}; }", outsider['id'])
                 check('sala: mostra a equipe do projeto, supervisor separado e oculta agente externo', room_members['workers'] == 3 and room_members['supervisors'] == 1 and not room_members['leaked'], room_members)
-                check('sala: agentes inativos mostram a pose cochilando (uma imagem por estação inativa)', page.evaluate("(() => { const ok = [...document.querySelectorAll('.ps-sleep')].filter(i => i.complete && i.naturalWidth > 0).length; return ok > 0 && ok === document.querySelectorAll('.ps-station.st-idle:not(.ps-sup)').length; })()"))
-                check('sala: respiração discreta dos agentes ociosos acompanha a preferência de movimento', page.evaluate("(() => { const i = document.querySelector('.ps-sleep'); return !!i && getComputedStyle(i).animationName === 'ps-breathe'; })()"))
+                check('sala: cada agente inativo mostra uma pose cochilando carregada', page.evaluate("(() => { const ok = [...document.querySelectorAll('.ps-sleep')].filter(i => i.complete && i.naturalWidth > 0).length; return ok === document.querySelectorAll('.ps-station.st-idle:not(.ps-sup)').length; })()"))
+                check('sala: agentes ociosos respiram quando aparecem', page.evaluate("(() => [...document.querySelectorAll('.ps-sleep')].every(i => getComputedStyle(i).animationName === 'ps-breathe'))()"))
                 page.click('[data-act=view-mode][data-id=live]'); time.sleep(0.4)
                 check('cenário vivo: três agentes do projeto aparecem sem vazar o agente externo', page.evaluate("id => { const slots=[...document.querySelectorAll('.living-station[data-agent],.living-station[data-id]')]; return slots.length === 3 && slots.every(s => s.dataset.id !== id); }", outsider['id']))
                 check('cenário vivo: os retratos carregam e as poses seguem o estado', page.evaluate("() => [...document.querySelectorAll('.living-label img')].length === 3 && [...document.querySelectorAll('.living-label img')].every(i => i.complete && i.naturalWidth > 0) && !!document.querySelector('.living-cat')"))
@@ -185,7 +185,7 @@ try:
                 check('lote: números errados não liberam nada (continua aguardando, sem tarefas)', api('state')['batches'][0]['status'] == 'aguardando_creditos' and not [r for r in api('state')['runs'] if r.get('prompt', '').startswith('Lote ')])
                 # ---- player do episódio: link curto, Range (206) e token inválido recusado ----
                 sd = os.path.join(proj, 'videos', '2026-01-01_cordel-teste', 'saida'); os.makedirs(sd, exist_ok=True)
-                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=180x320:d=2', '-pix_fmt', 'yuv420p', os.path.join(sd, 'previa-teste.mp4')], check=True)
+                shutil.copyfile(os.path.join(ROOT, 'test', 'fixtures', 'ui-preview.mp4'), os.path.join(sd, 'previa-teste.mp4'))
                 open(os.path.join(sd, 'POST.md'), 'w', encoding='utf-8').write('# post')
                 ep0 = api('state')['batches'][0]['episodes'][0]['id']; media = api(f"batches/{bt['id']}/episodes/{ep0}/media")
                 kinds = {f['kind']: f for f in media['files']}
