@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 // Atualização: o SERVIÇO (não o navegador) consulta o último Release público no GitHub, de forma opcional.
@@ -127,9 +128,12 @@ export class Updates {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         if (r.url && !this.#hostOk(r.url)) throw new Error('Endereço inesperado');
         const h = createHash('sha256'), out = createWriteStream(part);
-        const src = Readable.fromWeb ? Readable.fromWeb(r.body) : r.body;
-        src.on('data', c => { got += c.length; h.update(c); this.dl.received = got; if (got > MAX_ZIP) src.destroy(new Error('Arquivo grande demais.')); });
-        await pipeline(src, out);
+        const meter = new Transform({ transform: (c, _, done) => {
+          got += c.length;
+          if (got > MAX_ZIP) return done(new Error('Arquivo grande demais.'));
+          h.update(c); this.dl.received = got; done(null, c);
+        } });
+        await pipeline(Readable.fromWeb(r.body), meter, out);
         have = h.digest('hex');
       } finally { clearTimeout(timer); }
       if (have !== want) { rmSync(part, { force: true }); throw new Error('O arquivo baixado NÃO confere com o SHA-256 publicado. Foi descartado por segurança.'); }
