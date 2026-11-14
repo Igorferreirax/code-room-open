@@ -75,7 +75,7 @@ try:
             try: status = api('updates')
             except Exception as e: status = str(e)
             server_log.flush()
-            print('DIAGNOSTICO UPDATE:', json.dumps({'server': status, 'processExit': srv.poll(), 'serverLog': open(server_log_path, encoding='utf-8').read()[-3000:], 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=False), flush=True)
+            print('DIAGNOSTICO UPDATE:', json.dumps({'server': status, 'processExit': srv.poll(), 'serverLog': open(server_log_path, encoding='utf-8').read()[-3000:], 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=True), flush=True)
             raise
         time.sleep(0.3)
         check('arquivo ADULTERADO é recusado com aviso claro', 'NÃO confere' in pg.inner_text('#update-dialog .upd-err'))
