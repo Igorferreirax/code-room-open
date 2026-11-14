@@ -37,7 +37,7 @@ jobs:
       - name: Testes da interface e onboarding
         shell: pwsh
         run: |
-          $scripts = 'ui_smoke.py','crawl_ui.py','ui_assistant.py','ui_onboarding.py','ui_mention.py','ui_providers.py','test_radio.py','ui_touch.py','ui_canvas_live.py','ui_live.py','ui_updates.py'
+          $scripts = 'ui_updates.py','ui_smoke.py','crawl_ui.py','ui_assistant.py','ui_onboarding.py','ui_mention.py','ui_providers.py','test_radio.py','ui_touch.py','ui_canvas_live.py','ui_live.py'
           foreach ($script in $scripts) {
             python "scripts/$script"
             if ($LASTEXITCODE -ne 0) { throw "Roteiro falhou: $script" }

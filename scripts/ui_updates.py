@@ -31,7 +31,8 @@ class H(BaseHTTPRequestHandler):
 fake = ThreadingHTTPServer(('127.0.0.1', RPORT), H); threading.Thread(target=fake.serve_forever, daemon=True).start()
 
 data = tempfile.mkdtemp(prefix='cr-upd-ui-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_RELEASES_URL=f'http://127.0.0.1:{RPORT}/api/latest'), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+server_log_path = os.path.join(data, 'server.log'); server_log = open(server_log_path, 'w', encoding='utf-8')
+srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_RELEASES_URL=f'http://127.0.0.1:{RPORT}/api/latest'), stdout=server_log, stderr=subprocess.STDOUT)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -71,7 +72,10 @@ try:
         state['mode'] = 'bad'; pg.click('[data-act=upd-download]')
         try: pg.wait_for_selector('#update-dialog .upd-err', timeout=30000)
         except Exception:
-            print('DIAGNOSTICO UPDATE:', json.dumps({'server': api('updates'), 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=False), flush=True)
+            try: status = api('updates')
+            except Exception as e: status = str(e)
+            server_log.flush()
+            print('DIAGNOSTICO UPDATE:', json.dumps({'server': status, 'processExit': srv.poll(), 'serverLog': open(server_log_path, encoding='utf-8').read()[-3000:], 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=False), flush=True)
             raise
         time.sleep(0.3)
         check('arquivo ADULTERADO é recusado com aviso claro', 'NÃO confere' in pg.inner_text('#update-dialog .upd-err'))
@@ -108,7 +112,7 @@ try:
         check('celular: janela cabe na tela', db['x'] >= 0 and db['x'] + db['width'] <= 391, db); check('celular: sem rolagem lateral', pg.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'upd-dialog-m.png')); check('sem erro de console (celular)', not errs, errs[:2]); ctx.close(); browser.close()
 finally:
-    srv.kill(); fake.shutdown()
+    srv.kill(); server_log.close(); fake.shutdown()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)
