@@ -68,7 +68,12 @@ try:
         check('nada da nota foi executado (sem XSS)', pg.evaluate('window.__pwned') is None and not dialogs)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'upd-dialog.png'))
 
-        state['mode'] = 'bad'; pg.click('[data-act=upd-download]'); pg.wait_for_selector('#update-dialog .upd-err', timeout=30000); time.sleep(0.3)
+        state['mode'] = 'bad'; pg.click('[data-act=upd-download]')
+        try: pg.wait_for_selector('#update-dialog .upd-err', timeout=30000)
+        except Exception:
+            print('DIAGNOSTICO UPDATE:', json.dumps({'server': api('updates'), 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=False), flush=True)
+            raise
+        time.sleep(0.3)
         check('arquivo ADULTERADO é recusado com aviso claro', 'NÃO confere' in pg.inner_text('#update-dialog .upd-err'))
         check('e o arquivo ruim não fica no disco', not os.path.exists(os.path.join(data, 'updates', ZIPNAME)) and not os.path.exists(os.path.join(data, 'updates', ZIPNAME + '.part')))
         state['mode'] = 'ok'; pg.click('[data-act=upd-download]'); pg.wait_for_selector('#update-dialog .upd-ok', timeout=15000); time.sleep(0.3)
