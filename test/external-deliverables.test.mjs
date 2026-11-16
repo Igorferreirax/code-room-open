@@ -37,7 +37,7 @@ test('pasta extra grande demais falha antes de iniciar a CLI', async () => {
     const project = await addProject(store, 'projeto-limit'), agent = addAgent(store, 'editor-limit', { mode: 'write' });
     const task = createTask(store, { projectId: project.id, agentId: agent.id, requestId: 'limit-extra', objective: 'Tarefa que não pode iniciar', extraDir }).task;
     await runner.pump();
-    await waitFor(() => store.get('tasks', task.id).status === 'failed', 60000, 'pasta grande');
+    await waitFor(() => store.get('tasks', task.id).status === 'failed', 180000, 'pasta grande');   // criar e ler 5.001 arquivos é lento com antivírus e CPU ocupada
     const result = store.get('tasks', task.id);
     assert.equal(result.failureKind, 'external_snapshot_unavailable');
     assert.match(result.reason, /5\.000 arquivos/);

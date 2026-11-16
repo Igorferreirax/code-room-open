@@ -21,6 +21,23 @@ export function whoIs(ctx) {
 }
 
 // Cabeçalho limpo: menu (☰) à esquerda com as conversas e os ajustes, rosto e nome no meio, minimizar à direita.
+// Seletor de IA, modelo e esforço do Nico, à vista no topo do chat (antes a IA ficava escondida no menu e o modelo não dava para trocar).
+const EFFORT_NAME = { low: 'baixo', medium: 'médio', high: 'alto', xhigh: 'máximo', max: 'máximo', minimal: 'mínimo' };
+export function aiButton(ctx) {
+  const a = ctx.asst || {}, scope = a.threads?.find(x => x.active)?.projectName;
+  return `<button type="button" class="cw-ai-btn" data-act="asst-ai" aria-expanded="${!!ctx.ui?.aiOpen}" aria-controls="cw-ai" title="Trocar a IA, o modelo e o esforço do ${esc(a.name || 'Assistente')}">${esc(PROV[a.provider] || a.provider || 'IA')} · ${esc(a.model || 'modelo padrão')}${a.effort ? ` · ${esc(EFFORT_NAME[a.effort] || a.effort)}` : ''} ▾</button> · ${a.autonomy === 'pilot' ? 'piloto' : 'conversa'}${scope ? ` · ${esc(scope)}` : ''}`;
+}
+export function aiPanel(ctx) {
+  if (!ctx.ui?.aiOpen) return '';
+  const a = ctx.asst || {}, prov = ctx.ui.aiProv || a.provider, info = ctx.ui.aiModels?.[prov], same = prov === a.provider;
+  const models = info?.models || [], efforts = info?.efforts || [], curModel = same ? a.model || '' : '', curEffort = same ? a.effort || '' : '';
+  return `<div class="cw-ai" id="cw-ai" role="group" aria-label="IA, modelo e esforço do Assistente">
+    <label class="f small">IA<select id="asst-ai-prov">${(a.connected || []).map(p => `<option value="${esc(p)}" ${p === prov ? 'selected' : ''}>${esc(PROV[p] || p)}</option>`).join('')}</select></label>
+    <label class="f small">Modelo<input id="asst-ai-model" list="asst-ai-models" value="${esc(curModel)}" placeholder="padrão da conta" autocomplete="off" spellcheck="false"><datalist id="asst-ai-models">${models.map(m => `<option value="${esc(m.id)}">${esc(m.label || m.id)}</option>`).join('')}</datalist></label>
+    ${efforts.length ? `<label class="f small">Esforço<select id="asst-ai-effort"><option value="">padrão</option>${efforts.map(e => `<option value="${esc(e.id)}" ${e.id === curEffort ? 'selected' : ''}>${esc(e.label || e.id)}</option>`).join('')}</select></label>` : ''}
+    <p class="small muted">${info ? (models.length ? 'Escolha da lista ou escreva o nome; vazio usa o padrão da sua conta.' : 'Não achei a lista de modelos desta IA; escreva o nome ou deixe vazio.') : 'Carregando os modelos…'} Vale a partir da próxima mensagem; esforço maior gasta mais cota.</p>
+    <div class="btn-row"><button type="button" class="btn sm" data-act="asst-ai-save">Usar</button><button type="button" class="btn ghost sm" data-act="asst-ai">Cancelar</button></div></div>`;
+}
 export function chatHeaderHtml(ctx) {
   const w = whoIs(ctx), a = ctx.asst, threads = w.kind === 'assistant' ? (a?.threads || []) : [], menuOpen = !!ctx.ui.cwMenu && w.kind === 'assistant';
   const list = threads.length ? `<ul class="cw-dr-list" role="list">${threads.map(t => `<li class="${t.active ? 'on' : ''}">${ctx.ui.renameId === t.id ? `<input class="cw-rename" data-rename="${esc(t.id)}" value="${esc(t.title)}" maxlength="40" aria-label="Nome da conversa">` : `<button type="button" class="cw-dr-item" data-act="asst-thread" data-id="${esc(t.id)}" aria-current="${t.active ? 'true' : 'false'}" title="${esc(t.title)}">${icon('chat', 16)}<span>${esc(t.title)}</span>${t.waiting ? '<i class="cw-wait" aria-label="esperando resposta"></i>' : ''}</button>`}${ctx.ui.renameId !== t.id ? `<button type="button" class="cw-x" data-act="asst-thread-rename" data-id="${esc(t.id)}" aria-label="Renomear a conversa ${esc(t.title)}" title="Renomear">✎</button>` : ''}${threads.length > 1 ? `<button type="button" class="cw-x" data-act="asst-thread-del" data-id="${esc(t.id)}" aria-label="Apagar a conversa ${esc(t.title)}" title="Apagar">×</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted small">Nenhuma conversa ainda.</p>';
@@ -33,7 +50,7 @@ export function chatHeaderHtml(ctx) {
   const drawer = menuOpen ? `<div class="cw-drawer" id="cw-drawer" role="dialog" aria-label="Conversas e ajustes"><div class="cw-dr-h"><b>Conversas</b><button type="button" class="btn sm" data-act="asst-new-thread">${icon('plus', 16)} Nova</button></div>${list}
     ${asstOn ? `<div class="cw-dr-h"><b>Ajustes</b></div><div class="cw-dr-set">${modeBtn}${voiceBtn}${notify}${provSel ? `<span class="cw-dr-prov"><small class="muted">IA que responde</small>${provSel}</span>` : ''}${reset}</div>` : `<div class="cw-dr-set">${notify}</div>`}</div><button type="button" class="cw-scrim" data-act="cw-menu" aria-label="Fechar o menu" tabindex="-1"></button>` : '';
   const menuBtn = w.kind === 'assistant' ? `<button type="button" class="iconbtn cw-menu-btn" data-act="cw-menu" aria-expanded="${menuOpen}" aria-controls="cw-drawer" aria-label="Conversas e ajustes" title="Conversas e ajustes">${icon('menu', 20)}${threads.some(t => t.waiting && !t.active) ? '<i class="cw-wait" aria-hidden="true"></i>' : ''}</button>` : '';
-  return `<div class="cw-top">${menuBtn}<span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}${w.kind === 'assistant' ? ` <button type="button" class="cw-rename-btn" data-act="asst-rename" aria-label="Mudar o nome do Assistente" title="Mudar o nome do Assistente">✎</button>` : ''}</b><small>${w.kind === 'assistant' && asstOn ? `<span class="cw-online${a.pending ? ' busy' : ''}" aria-hidden="true"></span>` : ''}${esc(w.sub)}</small></div><button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${drawer}`;
+  return `<div class="cw-top">${menuBtn}<span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}${w.kind === 'assistant' ? ` <button type="button" class="cw-rename-btn" data-act="asst-rename" aria-label="Mudar o nome do Assistente" title="Mudar o nome do Assistente">✎</button>` : ''}</b><small>${w.kind === 'assistant' && asstOn ? `<span class="cw-online${a.pending ? ' busy' : ''}" aria-hidden="true"></span>` : ''}${w.kind === 'assistant' && asstOn && !a.pending ? aiButton(ctx) : esc(w.sub)}</small></div><button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${w.kind === 'assistant' && asstOn ? aiPanel(ctx) : ''}${drawer}`;
 }
 
 // Simulação da missão de equipe (não cria nada, não chama IA): mostra o que bloqueia, o que merece atenção e o que cada agente poderá fazer.

@@ -67,6 +67,8 @@ import { reviewerProblems } from './reviewnotes.mjs';
 import { addEntry, balances, suggestCategory, CATEGORIES } from './finance.mjs';
 import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
+import { warmKnownFolders } from './known-folders.mjs';
+void warmKnownFolders();   // caminho real da Área de Trabalho/Documentos/Downloads, em segundo plano
 import { createSkillFile } from './myskills.mjs';
 import { FolderJobs } from './folderjobs.mjs';
 import { describeFolder, folderLine } from './folderinfo.mjs';
@@ -623,7 +625,7 @@ const handle = async (req, res) => {
         if (p.startsWith('/api/assistant/')) {
           masterOnly(auth); const a = p.slice('/api/assistant/'.length);
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
-          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null, image: typeof b.image === 'string' ? b.image : null }));
+          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null, readOnly: b.readOnly === true, image: typeof b.image === 'string' ? b.image : null }));
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null }));
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
@@ -631,7 +633,7 @@ const handle = async (req, res) => {
           if (a === 'alerts/dismiss') return send(res, 200, await assistant.dismissAlert(text(b.id, 100)));
           if (a === 'thread/rename') return send(res, 200, await assistant.renameThread(text(b.id, 40), text(b.title, 60)));
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
-          if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider));
+          if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider, { ...(typeof b.model === 'string' ? { model: b.model.trim() ? agentModel(b.provider, b.model) : '' } : {}), ...(typeof b.effort === 'string' ? { effort: b.effort } : {}) }));
           if (a === 'autonomy') return send(res, 200, await assistant.setAutonomy(b.mode));
           if (a === 'name') return send(res, 200, await assistant.setName(b.name));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));

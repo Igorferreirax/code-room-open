@@ -75,7 +75,7 @@ const cctx = (over = {}) => ({ ui: {}, prefs: {}, asstOk: true, project: 'p1', a
 
 test('janela do chat: interruptor Conversa/Piloto no cabeçalho do Assistente (aria, rótulo e destino do clique)', () => {
   assert.ok(!chatHeaderHtml(cctx()).includes('asst-autonomy'), 'com o menu fechado o cabeçalho fica limpo'); assert.match(chatHeaderHtml(cctx()), /data-act="cw-menu" aria-expanded="false"/);
-  const off = chatHeaderHtml(cctx({ ui: { cwMenu: true } })); assert.match(off, /class="cw-mode" role="switch" aria-checked="false" data-act="asst-autonomy" data-id="pilot"/); assert.match(off, /<span>Conversa<\/span>/); assert.match(off, /Claude Code · conversa/);
+  const off = chatHeaderHtml(cctx({ ui: { cwMenu: true } })); assert.match(off, /class="cw-mode" role="switch" aria-checked="false" data-act="asst-autonomy" data-id="pilot"/); assert.match(off, /<span>Conversa<\/span>/); assert.match(off, /data-act="asst-ai"[^>]*>Claude Code · modelo padrão ▾<\/button> · conversa/);
   const c = cctx({ ui: { cwMenu: true } }); c.asst.autonomy = 'pilot'; const on = chatHeaderHtml(c); assert.match(on, /class="cw-mode on" role="switch" aria-checked="true" data-act="asst-autonomy" data-id="ask"/); assert.match(on, /<span>Piloto<\/span>/); assert.match(on, /· piloto/);
   c.asst.pending = { kind: 'ask' }; assert.match(chatHeaderHtml(c), /data-id="ask"[^>]*disabled/, 'trocar de modo espera a resposta em andamento');
   assert.ok(!chatHeaderHtml(cctx({ ui: { target: 'a:a1', cwMenu: true } })).includes('asst-autonomy'), 'só no Assistente');
@@ -83,7 +83,7 @@ test('janela do chat: interruptor Conversa/Piloto no cabeçalho do Assistente (a
 
 test('janela do chat: cabeçalho muda com quem se fala (Assistente, agente, equipe) e mostra as conversas só no Assistente', () => {
   const menu = cctx({ ui: { cwMenu: true } });
-  assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · conversa/); assert.match(chatHeaderHtml(menu), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
+  assert.equal(whoIs(cctx()).kind, 'assistant'); assert.match(chatHeaderHtml(cctx()), /Assistente[\s\S]*Claude Code · modelo padrão ▾<\/button> · conversa/); assert.match(chatHeaderHtml(menu), /data-act="asst-new-thread"/); assert.match(chatHeaderHtml(cctx()), /data-act="chat-min"/);
   assert.ok(!chatHeaderHtml(cctx()).includes('asst-new-thread'), 'as conversas ficam dentro do menu ☰');
   const scoped = cctx(); scoped.asst.threads[0].projectName = 'Canal de vídeo'; assert.match(whoIs(scoped).sub, /Canal de vídeo/, 'o projeto da conversa ativa fica visível');
   const two = cctx({ ui: { cwMenu: true } }); two.asst.threads = [{ id: 't1', title: 'Equipe de vídeo', active: false, waiting: true }, { id: 't2', title: '<b>Código</b>', active: true }];

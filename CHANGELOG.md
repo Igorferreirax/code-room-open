@@ -9,6 +9,25 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.7] - 2026-11-16
+
+### Adicionado
+- **Organizar pastas de verdade:** ferramenta própria do Code Room para criar pastas e mover ou renomear arquivos (PDF, imagem, planilha…), presa às pastas autorizadas na tarefa, que nunca apaga nem sobrescreve. Antes o Claude não conseguia mover nada (mover exigia terminal, que é bloqueado) e “organize a minha Área de Trabalho” falhava. Conferido com Claude e Codex reais numa “Área de Trabalho” no OneDrive com acento.
+- **Seletor de IA, modelo e esforço no topo do chat:** o botão ao lado do nome do Nico mostra, por exemplo, “Claude · opus”; um clique troca a IA, o modelo (lista da própria IA) e o esforço. Cada IA guarda a sua escolha.
+- **Pasta lembrada na conversa:** depois de autorizar uma pasta, o Nico não pergunta de novo na mesma conversa; uma etiqueta mostra a pasta e o tipo de acesso, com o botão “Tirar”.
+
+### Corrigido
+- **Pedido que “não fazia nada”:** quando o envio ao Nico é recusado, o motivo real aparece numa bolha do chat (antes um aviso genérico cobria o motivo e o texto só voltava para a barra).
+- **Área de Trabalho no OneDrive ou com acento:** o Code Room pergunta ao Windows o caminho certo (em UTF-8) e, se não servir, procura em OneDriveÁrea de Trabalho, OneDriveDesktop e Desktop.
+
+### Alterado
+- No Antigravity, o cartão da pasta avisa que mover arquivos ainda não funciona e sugere Claude ou Codex.
+- O diagnóstico das tarefas não mostra mais como erro o aviso do Codex sobre skills pessoais com cabeçalho inválido (vira uma observação curta).
+- **Pasta fora do projeto, direto no chat:** o Nico pergunta num cartão com o caminho editável e três botões: **Só ver** (lê e não altera nada, sem ligar o Modo Piloto), **Ver e editar** (liga o Piloto) e **Cancelar**. Sem janelas do navegador.
+
+### Removido
+- **Cenário vivo** (personagens nas mesas e o gato andando, da 0.3.5): não combinava com a estética do app. A Sala fica com Cenário e Canvas; quem usava o cenário vivo volta ao Cenário.
+
 ## [0.3.6] - 2026-11-16
 
 ### Corrigido

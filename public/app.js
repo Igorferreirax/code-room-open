@@ -72,7 +72,7 @@ ctx.supervisorAgent = () => { const a = ctx.state.agents.find(x => x.id === stor
 // As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
 const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
 // A antiga “Lista” e o modo “Terminais” viraram o Canvas com os terminais ligados (um lugar só para ver os agentes trabalhando).
-ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return ['canvas', 'live'].includes(m) ? m : 'scene'; };
+ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return m === 'canvas' ? 'canvas' : 'scene'; };   // 'live' (cenário vivo) saiu na 0.3.7: volta ao Cenário
 // Equipes e agentes só entram no projeto por vínculo explícito ou por trabalho que já executaram nele.
 ctx.projectTeamIdsFor = projectId => {
   const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
@@ -392,7 +392,7 @@ function renderAsst() {
   if (!open) { ctx.ui._liveFor = null; return; }
   const tgNow = String(V.targetOf(ctx) || '');
   if (ctx.ui._liveFor !== tgNow) { ctx.ui._liveFor = tgNow; ctx.live = null; refreshLive().then(renderAsst); }   // trocou de agente: busca a tarefa dele
-  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml({ ...ctx.asst, pilotNoticeDismissed: store.get('cr.pilot-note-dismissed', false) }) : targetBodyHtml(ctx);
+  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml({ ...ctx.asst, pilotNoticeDismissed: store.get('cr.pilot-note-dismissed', false), folderAsk: ctx.ui.folderAsk || null, sendError: ctx.ui.asstSendError || null, folderGrant: ctx.ui.folderGrant?.thread === ctx.asst?.thread ? ctx.ui.folderGrant : null }) : targetBodyHtml(ctx);
   if (ctx.ui._ch !== head) { $('chat-head').innerHTML = head; ctx.ui._ch = head; }
   if (ctx.ui._cb !== body) {
     const log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0, keep = $('asst').scrollTop;
@@ -447,7 +447,7 @@ async function attachChatImage(file) {
   const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('Não consegui ler o print.')); reader.readAsDataURL(file); });
   ctx.ui.asstImage = { name: file.name || 'print', data }; showChatImage(); notify('Print pronto. Escreva o que quer analisar e envie.');
 }
-async function askAssistant(text, { includeContext = true, extraDir = null, image = ctx.ui.asstImage?.data || null } = {}) {
+async function askAssistant(text, { includeContext = true, extraDir = null, image = ctx.ui.asstImage?.data || null, folderDecided = false, readOnly = false } = {}) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
@@ -457,19 +457,22 @@ async function askAssistant(text, { includeContext = true, extraDir = null, imag
   const focusedPath = ctx.state.projects.find(p => p.id === ctx.project)?.path || '';
   const targetPath = String(mentioned || '').toLowerCase().replaceAll('/', '\\'), currentPath = focusedPath.toLowerCase().replaceAll('/', '\\').replace(/\\+$/, '');
   const externalMention = mentioned && !(currentPath && (targetPath === currentPath || targetPath.startsWith(currentPath + '\\')));
-  // Uma confirmação só (antes eram três janelas seguidas): caminho editável + o que a autorização libera.
-  const pilotNote = ctx.asst?.autonomy !== 'pilot' ? '\n• O Modo Piloto será ligado (você pode voltar ao modo consulta no menu ☰).' : '';
-  const accessNote = `\n• Vale só para este pedido.\n• O Code Room registra o que mudar, mas não desfaz sozinho alterações fora do projeto.${pilotNote}`;
-  if (!extraDir && !local && externalMention) {
-    extraDir = prompt(`Autorizar a IA a LER E EDITAR esta pasta?${accessNote}\n\nConfira o caminho (pode corrigir) e clique em OK para autorizar:`, mentioned);
-    if (extraDir === null) return false;
-    extraDir = extraDir.trim(); if (!extraDir) { notify('Informe o caminho completo da pasta.', true); return false; }
-  } else if (extraDir && !confirm(`Autorizar a IA a LER E EDITAR a pasta abaixo?\n\n${extraDir}\n${accessNote}`)) return false;
-  if (extraDir && ctx.asst?.autonomy !== 'pilot' && !await asstCall('autonomy', { mode: 'pilot' })) return false;
+  // Pasta já autorizada nesta conversa: não pergunta de novo (a etiqueta acima da conversa deixa tirar a autorização).
+  const grant = ctx.ui.folderGrant, norm = p => String(p || '').toLowerCase().replaceAll('/', '\\').replace(/\\+$/, '');
+  if (!folderDecided && !local && grant && grant.thread === ctx.asst?.thread && (externalMention || extraDir) && (norm(extraDir || mentioned) === norm(grant.path) || norm(extraDir || mentioned).startsWith(norm(grant.path) + '\\'))) { extraDir = grant.path; readOnly = grant.access === 'read'; folderDecided = true; }
+  // Pasta fora do projeto: em vez de janelas do navegador, um cartão no próprio chat com "Só ver" / "Ver e editar".
+  if (!folderDecided && !local && (extraDir || externalMention)) {
+    ctx.ui.folderAsk = { text, path: extraDir || mentioned, image }; ctx.ui.asstSendError = null; ctx.ui.cwMenu = false; renderAsst();   // o menu ☰ aberto cobria os botões do cartão
+    setTimeout(() => document.getElementById('folder-ask-path')?.focus(), 0);
+    return false;
+  }
+  if (extraDir && !readOnly && ctx.asst?.autonomy !== 'pilot' && !await asstCall('autonomy', { mode: 'pilot' })) return false;
+  ctx.ui.asstSendError = null;
   ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
-  const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir } : {}), ...(image ? { image } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
+  const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir, ...(readOnly ? { readOnly: true } : {}) } : {}), ...(image ? { image } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
   if (ok && local) await loadAsst();   // comandos imediatos mostram a resposta sem esperar o próximo ciclo de atualização
-  if (!ok) { await loadAsst(); notify('A mensagem não foi enviada. Seu texto continua na barra: tente de novo.', true); }   // antes: a mensagem aparecia e sumia, e o texto era apagado
+  // O motivo real da recusa fica numa bolha do chat (antes um aviso genérico cobria o motivo e parecia que nada acontecia).
+  if (!ok) { await loadAsst(); ctx.ui.asstSendError = asstCall.lastError || 'Erro desconhecido.'; renderAsst(); }
   return ok;
 }
 async function applyAsst(id) {
@@ -477,7 +480,13 @@ async function applyAsst(id) {
   if (r.projectId) { await refresh(); setProject(r.projectId, true); } else await refresh();
   if (r.view) await go(r.view); renderAsst(); return r;
 }
-async function asstCall(path, body) { let ok = true; try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { ok = false; notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); return ok; }
+// Lista de modelos e níveis de esforço de uma IA (a mesma usada nos agentes), guardada para o seletor do chat.
+async function loadAiModels(provider) {
+  if (!provider || ctx.ui.aiModels?.[provider]) return;
+  let info = { models: [], efforts: [] }; try { info = await api('models?provider=' + encodeURIComponent(provider)); } catch {}
+  ctx.ui.aiModels = { ...(ctx.ui.aiModels || {}), [provider]: info }; if (ctx.ui.aiOpen) { const keep = { model: $('asst-ai-model')?.value }; renderAsst(); if (keep.model != null && $('asst-ai-model')) $('asst-ai-model').value = keep.model; }
+}
+async function asstCall(path, body) { let ok = true; asstCall.lastError = null; try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { ok = false; asstCall.lastError = e.message; if (path !== 'ask') notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); return ok; }
 async function loadUpdates() { try { ctx.updates = await api('updates'); render(); } catch {} }
 function watchDownload() {
   const t = setInterval(async () => { await loadUpdates(); if (ctx.updates?.download?.state !== 'downloading') clearInterval(t); }, 1000);
@@ -607,7 +616,7 @@ const actions = {
   'asst-task': (id, el) => openTask(id, el?.dataset.tab || 'arquivos'),
   'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
-  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'live', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => {
@@ -642,6 +651,20 @@ const actions = {
   'asst-autonomy': id => { if (id === 'pilot' && !confirm('Ligar o modo piloto?\n\nO Assistente passa a agir como a sua IA no terminal: cria e edita arquivos na pasta do projeto em foco, roda programas liberados (node, git, ffmpeg…), usa skills, ferramentas MCP e o seu Chrome.\n\nNada é postado, enviado ou pago sem o seu “sim”, mas ele pode mexer nos seus arquivos. Use só em pastas que você aceita que sejam alteradas. Você pode voltar ao modo consulta quando quiser.')) return; return asstCall('autonomy', { mode: id }); },
   'asst-extra-dir': (_, el) => { const path = prompt('Caminho completo da pasta adicional para esta tarefa. Deixe vazio para remover.', ctx.ui.asstExtraDir || ''); if (path === null) return; ctx.ui.asstExtraDir = path.trim() || null; if (el) { el.title = ctx.ui.asstExtraDir ? `Pasta extra: ${ctx.ui.asstExtraDir}` : 'Autorizar pasta extra nesta tarefa'; el.setAttribute('aria-pressed', String(!!ctx.ui.asstExtraDir)); } notify(ctx.ui.asstExtraDir ? 'Pasta escolhida. Você confirma o acesso antes de enviar.' : 'Pasta extra removida.'); },
   'asst-image': () => $('asst-image-file')?.click(),
+  'folder-ask': async id => {
+    const fa = ctx.ui.folderAsk; if (!fa) return;
+    if (id === 'cancel') { ctx.ui.folderAsk = null; renderAsst(); return; }
+    const path = ($('folder-ask-path')?.value || fa.path || '').trim(); if (!path) { notify('Informe o caminho completo da pasta.', true); return; }
+    ctx.ui.folderAsk = null; renderAsst();
+    if (await askAssistant(fa.text, { extraDir: path, image: fa.image, folderDecided: true, readOnly: id === 'read' })) { $('mission').value = ''; ctx.ui.asstImage = null; showChatImage(); ctx.ui.asstExtraDir = null; ctx.ui.folderGrant = { path, access: id, thread: ctx.asst?.thread }; renderAsst(); }
+  },
+  'asst-senderr-x': () => { ctx.ui.asstSendError = null; renderAsst(); },
+  'folder-grant-x': () => { ctx.ui.folderGrant = null; renderAsst(); notify('Autorização da pasta retirada. Se precisar de novo, o Nico pergunta.'); },
+  'asst-ai': () => { ctx.ui.aiOpen = !ctx.ui.aiOpen; ctx.ui.aiProv = ctx.asst?.provider; ctx.ui.cwMenu = false; renderAsst(); if (ctx.ui.aiOpen) loadAiModels(ctx.ui.aiProv); },
+  'asst-ai-save': async () => {
+    const provider = $('asst-ai-prov')?.value || ctx.asst?.provider, model = ($('asst-ai-model')?.value || '').trim(), effort = $('asst-ai-effort')?.value || '';
+    if (await asstCall('provider', { provider, model, effort })) { ctx.ui.aiOpen = false; renderAsst(); notify(`Pronto: ${ctx.asst?.name || 'o Assistente'} responde com ${provider}${ctx.asst?.model ? ' · ' + ctx.asst.model : ' (modelo padrão)'} a partir da próxima mensagem.`); }
+  },
   'asst-pilot-note-dismiss': () => { store.set('cr.pilot-note-dismissed', true); renderAsst(); },
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
   'retention-preview': async () => { ctx.retention = 'busy'; render(); try { ctx.retention = await api('retention?days=7'); } catch (e) { ctx.retention = null; notify(e.message, true); } render(); },
@@ -1215,7 +1238,7 @@ const saveRename = async (input, save) => { const id = ctx.ui.renameId; if (!id)
 document.addEventListener('keydown', e => { if (!e.target.matches?.('.cw-rename')) return; if (e.key === 'Enter') { e.preventDefault(); saveRename(e.target, true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); saveRename(e.target, false); } }, true);
 document.addEventListener('focusout', e => { if (e.target.matches?.('.cw-rename')) saveRename(e.target, true); });
 document.addEventListener('dblclick', e => { const b = e.target.closest?.('.cw-dr-list li.on [data-act=asst-thread]'); if (b) actions['asst-thread-rename'](b.dataset.id); });
-document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); });
+document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); if (e.target.id === 'asst-ai-prov') { ctx.ui.aiProv = e.target.value; renderAsst(); loadAiModels(e.target.value); } });
 $('update-dialog').addEventListener('cancel', e => { if (ctx.updates?.download?.state === 'installing') e.preventDefault(); });
 $('update-dialog').addEventListener('close', () => { ctx.ui.updOpen = false; });
 let started = false;

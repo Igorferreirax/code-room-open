@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import { command, normalize, classifyFailure, deniedTool, labelUsage } from './connectors.mjs';
+import { command, normalize, classifyFailure, deniedTool, labelUsage, quietStderr } from './connectors.mjs';
 import { configuredModel } from './connector-test.mjs';
 import { scanSkills } from './skills.mjs';
 import { transition, settleDependents } from './tasks.mjs';
@@ -209,7 +209,7 @@ export class Runner {
     if (!['running', 'cancelling'].includes(this.store.get('tasks', task.id)?.status)) { this.active.delete(task.id); return; }
     if (entry.killPromise) await entry.killPromise;
     let status = 'completed', failureKind = null, error = null;
-    const stderr = o.stderr || '';
+    const stderr = quietStderr(o.stderr || '');
     if (o.error) { status = entry.cancelled ? 'cancelled' : 'failed'; failureKind = o.error.failureKind || 'internal'; error = o.error.message; }
     else if (entry.cancelled && !entry.timedOut) status = 'cancelled';
     else if (entry.timedOut) { status = 'failed'; failureKind = 'timeout'; error = `Tempo máximo de ${Math.round(task.limits.timeoutMs / 1000)} s atingido.`; }

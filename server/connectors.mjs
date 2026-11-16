@@ -3,6 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { join, delimiter, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { effortsFor } from './effort.mjs';
+import { filesServer, NAME as FILES_MCP } from './files-mcp.mjs';
 const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
 import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
 import { loadHermesFile, sshArgs, findSsh } from './hermes.mjs';
@@ -132,6 +133,8 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     for (const prog of agent.commands || []) if (/^[\w.-]{1,40}$/.test(prog)) for (const tool of ['Bash', 'PowerShell']) args.push('--allowedTools', `${tool}(${prog}:*)`);
     // Ferramentas MCP liberadas por servidor (ex.: flow-studio). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP.
     for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
+    // Criar pasta e mover/renomear sem terminal (o Claude não tem "mover"): ferramenta própria, presa às pastas desta tarefa, sem apagar nem sobrescrever.
+    if (agent.mode === 'write' && (cwd || extraDir)) args.push('--mcp-config', JSON.stringify({ mcpServers: { [FILES_MCP]: filesServer([cwd, extraDir]) } }), '--allowedTools', `mcp__${FILES_MCP}`);
     if (agent.skillTool) args.push('--allowedTools', 'Skill');   // o Assistente em modo piloto usa as skills instaladas (a ferramenta Skill só carrega instruções)
     if (agent.web) args.push('--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch');   // pesquisa na internet (só leitura)
     args.push(...claudeBrowserArgs(agent.browser, agent.browser === 'isolado' ? playwrightServer(findLocalPlaywright, browserOutputDir) : undefined));
@@ -152,6 +155,18 @@ export const MODEL_ERROR = /invalid model|not recognized as a known model|unknow
 // Só frases de erro de login. Antes qualquer "login", "sign in" ou "credential" na saída
 // (ex.: a IA falando de uma página de login) virava "faça login" e levava a pessoa ao lugar errado.
 export const AUTH_ERROR = /not (?:logged|signed) in|please (?:log ?in|sign ?in|re-?authenticate|run [\w\s-]{0,30}login)|(?:log ?in|sign ?in|authentication|auth) (?:is )?(?:required|failed|expired|error)|unauthori[sz]ed|\b401\b|invalid (?:api[ _-]?key|token|credentials?)|api[ _-]?key (?:is )?(?:missing|invalid|not (?:set|found))|(?:missing|expired|no) credentials?|credentials? (?:expired|not found|missing|are invalid|is invalid)|(?:token|session) (?:has )?expired/i;
+// Ruído da CLI que não é erro desta tarefa: "Reading prompt from stdin..." e skills pessoais do Codex com cabeçalho
+// inválido (apareciam como ERROR em toda execução e confundiam o diagnóstico). Vira uma observação curta.
+export function quietStderr(text = '') {
+  const skills = new Set(), keep = [];
+  for (const line of String(text).split(/\r?\n/)) {
+    if (/^\s*Reading (prompt|additional input) from stdin/i.test(line)) continue;
+    const m = /failed to load skill .*?[\\/]skills[\\/]([^\\/]+)[\\/]SKILL\.md/i.exec(line); if (m) { skills.add(m[1]); continue; }
+    keep.push(line);
+  }
+  const out = keep.join('\n').trim();
+  return (skills.size ? `Observação (não é erro desta tarefa): ${skills.size} skill(s) suas não carregaram no Codex por cabeçalho inválido: ${[...skills].slice(0, 6).join(', ')}.` + (out ? '\n' : '') : '') + out;
+}
 export function classifyFailure(text = '') {
   if (MODEL_ERROR.test(text)) return 'model';
   if (AUTH_ERROR.test(text)) return 'auth';

@@ -422,11 +422,13 @@ export class Assistant {
     if (!this.store.get('projects', ASSISTANT_PROJECT)) this.store.put('projects', { id: ASSISTANT_PROJECT, name: 'Assistente (interno)', path: this.dir, area: 'Geral', internal: true, createdAt: new Date(this.now()).toISOString() });
     const id = `assistant-${provider}`, base = { id, name: 'Assistente', role: 'Ajuda dentro do Code Room', room: 'Assistente', provider, model: '', instructions: '', internal: true };
     // Leitura (padrão) ou piloto: o agente interno é regravado a cada pergunta para refletir a escolha atual da pessoa.
+    // Modelo e esforço escolhidos pela pessoa no seletor do chat (vazio = padrão da conta dessa IA).
+    const choice = { model: this.s.models?.[provider] || '', effort: this.s.efforts?.[provider] || '' };
     const want = pilot
-      ? { mode: 'write', skillIds: [], commands: PILOT_COMMANDS, mcpTools: provider === 'claude' ? this.mcpFn() : [], browser: provider === 'claude' ? 'chrome' : provider === 'codex' ? 'isolado' : 'off', skillTool: provider === 'claude', web: provider === 'claude', capabilities: [] }
-      : { mode: 'read', skillIds: [], commands: [], mcpTools: [], browser: 'off', skillTool: false, web: false, capabilities: [] };
-    const old = this.store.get('agents', id);
-    if (!old || JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web'].map(k => !!old[k] && typeof old[k] === 'boolean' ? true : old[k])) !== JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web'].map(k => !!want[k] && typeof want[k] === 'boolean' ? true : want[k]))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
+      ? { mode: 'write', skillIds: [], commands: PILOT_COMMANDS, mcpTools: provider === 'claude' ? this.mcpFn() : [], browser: provider === 'claude' ? 'chrome' : provider === 'codex' ? 'isolado' : 'off', skillTool: provider === 'claude', web: provider === 'claude', capabilities: [], ...choice }
+      : { mode: 'read', skillIds: [], commands: [], mcpTools: [], browser: 'off', skillTool: false, web: false, capabilities: [], ...choice };
+    const old = this.store.get('agents', id), KEYS = ['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web', 'model', 'effort'];
+    if (!old || JSON.stringify(KEYS.map(k => !!old[k] && typeof old[k] === 'boolean' ? true : old[k] ?? '')) !== JSON.stringify(KEYS.map(k => !!want[k] && typeof want[k] === 'boolean' ? true : want[k] ?? ''))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
     return id;
   }
   #task(provider, objective, tag, { pilot = false, projectId = null, extraDir = null, imagePath = null } = {}) {
@@ -442,7 +444,7 @@ export class Assistant {
     const taskOf = id => id ? this.store.get('tasks', id) : null, pt = taskOf(s.pending?.taskId), bt = taskOf(s.briefing?.taskId);
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
-      name: cleanName(s.name), autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', ...(f => ({ desktopPath: f.desktop, downloadsPath: f.downloads, documentsPath: f.documents }))(knownFolders()), briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
+      name: cleanName(s.name), autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', model: s.models?.[s.provider] || '', effort: s.efforts?.[s.provider] || '', ...(f => ({ desktopPath: f.desktop, downloadsPath: f.downloads, documentsPath: f.documents }))(knownFolders()), briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
       pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at, activity: this.#activity(pt) } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
@@ -498,7 +500,7 @@ Ajustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at:
     const p = await this.#pickProvider(provider), task = this.#task(p, briefingPrompt(p === 'agy' ? manual.text.slice(0, AGY_BUDGET - 4000) : manual.text), 'brief');
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
-  async ask(text, { projectId = null, screen = '', extraDir = null, image = null } = {}) {
+  async ask(text, { projectId = null, screen = '', extraDir = null, image = null, readOnly = false } = {}) {
     await this.#sync(); let s = this.s; const q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     const focusProject = projectId ? this.store.get('projects', projectId) : null;
@@ -507,8 +509,7 @@ Ajustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at:
       if (reply) { const at = new Date(this.now()).toISOString(), context = { ...(focusProject && !focusProject.internal ? { projectId: focusProject.id } : {}), project: focusProject?.name || '', screen: !!screenLine(screen).trim(), obsidianNotes: 0 }; this.#save({ messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at, context }, { id: randomUUID(), role: 'assistant', text: reply, at, local: true, actions: [] }], error: null }); return this.status(); } }
     if (s.autonomy === 'pilot' && focusProject?.area === 'Financeiro') throw new Error('Modo piloto não roda com um projeto financeiro em foco (navegador e ferramentas externas ficam bloqueados ali). Troque o foco ou volte ao modo consulta.');
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
-    const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider), pilot = s.autonomy === 'pilot';
-    if (extraDir && !pilot) throw new Error('Para autorizar uma pasta extra, ligue o Modo Piloto.');
+    const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider), pilot = s.autonomy === 'pilot' && !(extraDir && readOnly);   // "Só ver" uma pasta: esta resposta roda sem Piloto, só leitura
     // Notas do Obsidian da pessoa (só se ela ligou o vínculo; nunca com projeto Financeiro em foco).
     let obsText = '', obsidianNotes = 0; try { const po = focusProject; if (po?.area !== 'Financeiro') { const r = await blockFor(this.store, { objective: q, project: po ? { id: po.id, name: po.name, area: po.area } : { id: 'assistant-chat', name: '', area: 'Geral' } }, { role: '' }); if (r.text) { obsText = '\n' + r.text; obsidianNotes = r.n; } } } catch {}
     const screenContext = screenLine(screen).trim(), context = { ...(focusProject && !focusProject.internal ? { projectId: focusProject.id } : {}), project: focusProject?.name || '', screen: !!screenContext, obsidianNotes };
@@ -520,7 +521,7 @@ Ajustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at:
       task = this.#task(p, prompt, 'ask', { pilot, projectId, extraDir, imagePath });
     } catch (e) { removeChatImage(this.dataDir, imagePath); throw e; }
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
-    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, projectId: focusProject?.internal ? null : focusProject?.id || null, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir } : {}) } }], error: null });
+    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, projectId: focusProject?.internal ? null : focusProject?.id || null, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir, extraAccess: pilot ? 'edit' : 'read' } : {}) } }], error: null });
     return this.status();
   }
   reset() { this.#save({ messages: [], error: null }); return this.status(); }
@@ -567,7 +568,14 @@ Ajustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at:
     if (!['ask', 'pilot'].includes(mode)) throw new Error('Modo inválido.'); if (this.s.pending) throw new Error('Aguarde a resposta anterior terminar para trocar de modo.');
     this.#save({ autonomy: mode }); return this.status();
   }
-  async setProvider(p) { if (!PROVIDER_ORDER.includes(p)) throw new Error('IA inválida.'); const w = await this.worldFn(); if (!w.connected.has(p)) throw new Error('Essa IA não está instalada.'); this.#save({ provider: p }); return this.status(); }
+  // IA, modelo e esforço do Nico (seletor no topo do chat). Modelo e esforço ficam guardados por IA; vazio = padrão da conta.
+  async setProvider(p, { model, effort } = {}) {
+    if (!PROVIDER_ORDER.includes(p)) throw new Error('IA inválida.'); const w = await this.worldFn(); if (!w.connected.has(p)) throw new Error('Essa IA não está instalada.');
+    const patch = { provider: p };
+    if (model !== undefined) patch.models = { ...(this.s.models || {}), [p]: cleanModel(model ?? '') };
+    if (effort !== undefined) patch.efforts = { ...(this.s.efforts || {}), [p]: cleanEffort(p, effort ?? '') };
+    this.#save(patch); return this.status();
+  }
 
   // Aplica UMA ação aprovada: valida de novo (o estado pode ter mudado) e só então executa, pelos mesmos caminhos do resto do app.
   async apply(msgId, idx) {

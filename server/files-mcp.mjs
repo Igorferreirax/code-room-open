@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+// Ferramenta de arquivos do Code Room para as IAs (servidor MCP por entrada/saída padrão, sem dependências).
+// Existe porque o Claude Code e o Antigravity não têm "mover arquivo": mover exige terminal, e o Code Room não libera
+// terminal. Sem isso, "organize a minha Área de Trabalho" falhava (conferido com o Claude real em 16/11/2026).
+//
+// Segurança:
+// - Só age dentro das pastas autorizadas NESTA tarefa (a do projeto e a pasta extra), recebidas na linha de comando.
+// - Nunca apaga nada e nunca sobrescreve: se o destino existe, recusa.
+// - Recusa atalhos/links simbólicos e caminhos que escapam com "..".
+import { readdirSync, mkdirSync, renameSync, lstatSync, realpathSync, existsSync, statSync } from 'node:fs';
+import { resolve, dirname, sep, relative, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline';
+
+export const NAME = 'arquivos';
+const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+export const TOOLS = [
+  { name: 'listar_pasta', description: 'Lista arquivos e subpastas de uma pasta autorizada (nome, tipo e tamanho).', inputSchema: { type: 'object', properties: { caminho: { type: 'string', description: 'Caminho completo da pasta.' } }, required: ['caminho'] }, annotations: { readOnlyHint: true } },
+  { name: 'criar_pasta', description: 'Cria uma pasta (e as pastas do meio) dentro de uma pasta autorizada. Não faz nada se ela já existe.', inputSchema: { type: 'object', properties: { caminho: { type: 'string', description: 'Caminho completo da pasta nova.' } }, required: ['caminho'] }, annotations: { destructiveHint: false } },
+  { name: 'mover', description: 'Move ou renomeia um arquivo ou pasta dentro das pastas autorizadas. Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, recusa. Nunca apaga nada.', inputSchema: { type: 'object', properties: { de: { type: 'string', description: 'Caminho completo de origem.' }, para: { type: 'string', description: 'Caminho completo de destino (incluindo o nome final).' } }, required: ['de', 'para'] }, annotations: { destructiveHint: false } },
+];
+
+const norm = p => resolve(p).toLowerCase();
+export function makeGuard(roots) {
+  const real = roots.filter(r => typeof r === 'string' && isAbsolute(r) && existsSync(r)).map(r => realpathSync(r));
+  if (!real.length) throw new Error('Nenhuma pasta autorizada.');
+  const inside = p => { const n = norm(p); return real.some(r => n === norm(r) || n.startsWith(norm(r) + sep)); };
+  return (p, { mustExist = false } = {}) => {
+    if (typeof p !== 'string' || !p.trim() || !isAbsolute(p.trim())) throw new Error('Use o caminho completo (ex.: C:\\Users\\voce\\Desktop\\Pasta).');
+    const full = resolve(p.trim());
+    if (!inside(full)) throw new Error(`Fora das pastas autorizadas nesta tarefa: ${full}`);
+    // Confere o pedaço que já existe no disco pelo caminho real (um link não pode levar para fora).
+    let probe = full; while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+    if (!inside(realpathSync(probe))) throw new Error('Esse caminho passa por um atalho que leva para fora das pastas autorizadas.');
+    if (existsSync(full) && lstatSync(full).isSymbolicLink()) throw new Error('Links simbólicos não são movidos.');
+    if (mustExist && !existsSync(full)) throw new Error(`Não existe: ${full}`);
+    return full;
+  };
+}
+
+export function callTool(guard, name, args = {}) {
+  if (name === 'listar_pasta') {
+    const dir = guard(args.caminho, { mustExist: true });
+    if (!statSync(dir).isDirectory()) throw new Error('Isso não é uma pasta.');
+    const items = readdirSync(dir, { withFileTypes: true }).slice(0, 500).map(e => { let size = null; try { if (e.isFile()) size = statSync(join(dir, e.name)).size; } catch {} return `${e.isDirectory() ? '[pasta] ' : ''}${e.name}${size != null ? ` (${size} bytes)` : ''}`; });
+    return items.length ? items.join('\n') : '(pasta vazia)';
+  }
+  if (name === 'criar_pasta') { const dir = guard(args.caminho); mkdirSync(dir, { recursive: true }); return `Pasta pronta: ${dir}`; }
+  if (name === 'mover') {
+    const from = guard(args.de, { mustExist: true }), to = guard(args.para);
+    if (norm(from) === norm(to)) throw new Error('Origem e destino são o mesmo caminho.');
+    if (norm(to).startsWith(norm(from) + sep)) throw new Error('Não dá para mover uma pasta para dentro dela mesma.');
+    if (existsSync(to)) throw new Error(`Já existe algo em ${to}. Escolha outro nome; nada foi sobrescrito.`);
+    mkdirSync(dirname(to), { recursive: true });
+    renameSync(from, to);
+    return `Movido: ${from} → ${to}`;
+  }
+  throw new Error(`Ferramenta desconhecida: ${name}`);
+}
+
+export function handle(guard, msg) {
+  const { id, method, params } = msg || {};
+  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: PROTOCOLS.includes(params?.protocolVersion) ? params.protocolVersion : PROTOCOLS[0], capabilities: { tools: {} }, serverInfo: { name: NAME, version: '1.0.0' } } };
+  if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: TOOLS } };
+  if (method === 'tools/call') {
+    try { return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: callTool(guard, params?.name, params?.arguments || {}) }] } }; }
+    catch (e) { return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Não fiz: ${e.message}` }], isError: true } }; }
+  }
+  if (method === 'ping') return { jsonrpc: '2.0', id, result: {} };
+  if (id === undefined || id === null) return null;   // notificações não têm resposta
+  return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Método não suportado' } };
+}
+
+// Configuração para as CLIs: pastas autorizadas vão como argumentos (nada de variável de ambiente compartilhada).
+export function filesServer(roots) {
+  return { command: process.execPath, args: [fileURLToPath(import.meta.url), ...roots.filter(Boolean)] };
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  const guard = makeGuard(process.argv.slice(2));
+  const rl = createInterface({ input: process.stdin });
+  rl.on('line', line => { let msg; try { msg = JSON.parse(line); } catch { return; } const out = handle(guard, msg); if (out) process.stdout.write(JSON.stringify(out) + '\n'); });
+}

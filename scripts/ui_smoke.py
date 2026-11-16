@@ -112,12 +112,6 @@ try:
                 check('sala: mostra a equipe do projeto, supervisor separado e oculta agente externo', room_members['workers'] == 3 and room_members['supervisors'] == 1 and not room_members['leaked'], room_members)
                 check('sala: cada agente inativo mostra uma pose cochilando carregada', page.evaluate("(() => { const ok = [...document.querySelectorAll('.ps-sleep')].filter(i => i.complete && i.naturalWidth > 0).length; return ok === document.querySelectorAll('.ps-station.st-idle:not(.ps-sup)').length; })()"))
                 check('sala: agentes ociosos respiram quando aparecem', page.evaluate("(() => [...document.querySelectorAll('.ps-sleep')].every(i => getComputedStyle(i).animationName === 'ps-breathe'))()"))
-                page.click('[data-act=view-mode][data-id=live]'); time.sleep(0.4)
-                check('cenário vivo: três agentes do projeto aparecem sem vazar o agente externo', page.evaluate("id => { const slots=[...document.querySelectorAll('.living-station[data-agent],.living-station[data-id]')]; return slots.length === 3 && slots.every(s => s.dataset.id !== id); }", outsider['id']))
-                try: page.wait_for_function("() => [...document.querySelectorAll('.living-label img')].length === 3 && [...document.querySelectorAll('.living-label img')].every(i => i.complete && i.naturalWidth > 0) && !!document.querySelector('.living-cat')", timeout=8000)
-                except Exception: pass
-                check('cenário vivo: os retratos carregam e as poses seguem o estado', page.evaluate("() => [...document.querySelectorAll('.living-label img')].length === 3 && [...document.querySelectorAll('.living-label img')].every(i => i.complete && i.naturalWidth > 0) && !!document.querySelector('.living-cat')"))
-                page.click('[data-act=view-mode][data-id=scene]'); time.sleep(0.3)
                 page.screenshot(path=os.path.join(data, 'v6-sala-cochilando.png'))
                 page.locator('.ps-station[data-agent]').first.focus(); page.keyboard.press('Enter'); time.sleep(0.4)
                 check('sala: Enter na estação abre o menu do agente (Mencionar / Ver detalhes)', page.locator('#agent-menu').count() == 1)

@@ -64,11 +64,13 @@ try:
         if path == '': return out(S)
         if path == 'brief': S['briefing'] = {'status': 'running'}; return out(S, 202)
         if path == 'ask':
+            if 'FORCAR ERRO' in body.get('text', ''): return out({'error': 'A pasta extra não existe ou não está acessível.'}, 400)
             S['messages'].append({'id': 'u%d' % len(S['messages']), 'role': 'user', 'text': body['text'], 'at': '2026-11-07T10:00:00Z'}); S['pending'] = {'kind': 'ask', 'status': 'running'}
             if S['threads'][0]['title'].startswith('Conversa'): S['threads'][[t['active'] for t in S['threads']].index(True)]['title'] = body['text'][:28]
             return out(S, 202)
         if path == 'reset': S['messages'] = []; return out(S)
         if path == 'autonomy': S['autonomy'] = body['mode']; return out(S)
+        if path == 'provider': S['provider'] = body['provider']; S['model'] = body.get('model', S.get('model', '')); S['effort'] = body.get('effort', ''); return out(S)
         if path == 'thread/new':
             OTHER[S['thread']] = S['messages']; n = len(S['threads']) + 1; tid = f't{n}'
             for t in S['threads']: t['active'] = False
@@ -148,11 +150,36 @@ try:
         tk = api('state')['runs']; check('a missão direta vira uma tarefa de verdade para o agente (mesma barra, mesmo servidor)', any(r['agent']['name'] == 'Diretor' and 'Pesquise temas' in r['prompt'] for r in tk), [r['prompt'] for r in tk])
         pg.select_option('#target', 'assistant'); nap(0.4); check('voltar ao Assistente restaura o menu de conversas', pg.locator('.cw-menu-btn').count() == 1 and 'Assistente' in pg.inner_text('#chat-head'))
         menu_open(); pg.click('[data-act=asst-reset]'); until(lambda: pg.locator('.as-msg').count() == 0); nap(0.3); check('Limpar conversa esvazia só a conversa atual e mantém a apresentação', pg.locator('.as-msg').count() == 0 and pg.is_visible('.as-empty'), (pg.locator('.as-msg').count(), pg.is_visible('.as-empty'), calls[-3:]))
-        # pasta citada no chat: uma janela só (caminho + autorização + Modo Piloto); palavra solta não pede nada
+        # seletor de IA, modelo e esforço no topo do chat
+        S['pending'] = None; S['model'] = ''; nap(0.5); menu_close()
+        check('o topo do chat mostra a IA e o modelo do Nico num botão', pg.is_visible('.cw-ai-btn') and 'modelo padrão' in pg.inner_text('.cw-ai-btn'), pg.inner_text('#chat-head'))
+        pg.click('.cw-ai-btn'); until(lambda: pg.is_visible('#cw-ai')); until(lambda: pg.locator('#asst-ai-models option').count() > 0, 15)
+        check('o painel lista as IAs conectadas e os modelos da IA escolhida', pg.locator('#asst-ai-prov option').count() == 2 and pg.locator('#asst-ai-models option').count() > 0, pg.inner_text('#cw-ai'))
+        pg.fill('#asst-ai-model', 'opus'); n0 = len(calls); pg.click('[data-act=asst-ai-save]'); until(lambda: [c for c in calls[n0:] if c[0] == 'provider']); nap(0.4)
+        sel = [c for c in calls[n0:] if c[0] == 'provider'][-1][1]
+        check('"Usar" grava IA e modelo, fecha o painel e o botão mostra a escolha', sel.get('provider') == 'claude' and sel.get('model') == 'opus' and not pg.is_visible('#cw-ai') and 'opus' in pg.inner_text('.cw-ai-btn'), (sel, pg.inner_text('#chat-head')))
+        # pasta citada no chat: cartão no próprio chat ("Só ver" / "Ver e editar"), sem janelas do navegador; palavra solta não pede nada
         dlg = []; pg.on('dialog', lambda d: dlg.append(d.type)); S['pending'] = None; S['autonomy'] = 'ask'; S['desktopPath'] = 'C:/Users/Teste/Desktop'; n0 = len(calls)
-        pg.fill('#mission', 'Organize os arquivos da minha Área de Trabalho'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
+        menu_close(); nap(0.3)
+        pg.fill('#mission', 'Você consegue ver a minha Área de Trabalho?'); pg.keyboard.press('Enter'); until(lambda: pg.is_visible('#folder-ask-path')); nap(0.3)
+        check('pasta citada: o Nico pergunta no chat, com o caminho editável e sem janela do navegador', pg.is_visible('.as-folder-ask') and pg.input_value('#folder-ask-path') == 'C:/Users/Teste/Desktop' and dlg == [] and not [c for c in calls[n0:] if c[0] == 'ask'], (dlg, calls[n0:]))
+        pg.click('[data-act=folder-ask][data-id=read]'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
         ask = [c for c in calls[n0:] if c[0] == 'ask'][-1][1]
-        check('pasta citada: uma janela só, que já autoriza a pasta e liga o Modo Piloto', dlg == ['prompt'] and ask.get('extraDir') == 'C:/Users/Teste/Desktop' and ('autonomy', {'mode': 'pilot'}) in calls[n0:], (dlg, ask, calls[n0:]))
+        check('"Só ver": envia com a pasta em só leitura, sem ligar o Modo Piloto, e o cartão some', ask.get('extraDir') == 'C:/Users/Teste/Desktop' and ask.get('readOnly') is True and not [c for c in calls[n0:] if c[0] == 'autonomy'] and not pg.is_visible('.as-folder-ask') and pg.input_value('#mission') == '', (ask, calls[n0:]))
+        S['pending'] = None; n0 = len(calls); nap(0.5)
+        check('a pasta autorizada aparece numa etiqueta da conversa', pg.is_visible('.as-grant') and 'só ver' in pg.inner_text('.as-grant'), pg.inner_text('#asst')[:300])
+        pg.fill('#mission', 'E quantos arquivos tem na minha Área de Trabalho?'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
+        ask = [c for c in calls[n0:] if c[0] == 'ask'][-1][1]
+        check('na mesma conversa, a mesma pasta não pergunta de novo e vai com a mesma autorização', not pg.is_visible('.as-folder-ask') and ask.get('extraDir') == 'C:/Users/Teste/Desktop' and ask.get('readOnly') is True, ask)
+        pg.click('[data-act=folder-grant-x]'); nap(0.3); check('"Tirar" remove a etiqueta da pasta', not pg.is_visible('.as-grant'))
+        S['pending'] = None; n0 = len(calls); nap(0.5)
+        pg.fill('#mission', 'Organize a minha Área de Trabalho'); pg.keyboard.press('Enter'); until(lambda: pg.is_visible('#folder-ask-path')); pg.click('[data-act=folder-ask][data-id=edit]'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
+        ask = [c for c in calls[n0:] if c[0] == 'ask'][-1][1]
+        check('"Ver e editar": liga o Modo Piloto e envia com a pasta para editar', ('autonomy', {'mode': 'pilot'}) in calls[n0:] and ask.get('extraDir') == 'C:/Users/Teste/Desktop' and 'readOnly' not in ask, (ask, calls[n0:]))
+        S['pending'] = None; n0 = len(calls); nap(0.5)
+        pg.fill('#mission', 'FORCAR ERRO no envio'); pg.keyboard.press('Enter'); until(lambda: pg.is_visible('.as-send-error')); nap(0.3)
+        check('se o envio é recusado, o motivo real aparece numa bolha do chat e o texto fica na barra', 'A pasta extra não existe' in pg.inner_text('.as-send-error') and pg.input_value('#mission') == 'FORCAR ERRO no envio', pg.inner_text('#asst')[-300:])
+        pg.click('[data-act=asst-senderr-x]'); nap(0.3); pg.fill('#mission', '')
         dlg.clear(); S['pending'] = None; n0 = len(calls); nap(0.5)
         pg.fill('#mission', 'Crie um documento de requisitos'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
         ask = [c for c in calls[n0:] if c[0] == 'ask'][-1][1]; S['pending'] = None
