@@ -68,6 +68,7 @@ try:
             if S['threads'][0]['title'].startswith('Conversa'): S['threads'][[t['active'] for t in S['threads']].index(True)]['title'] = body['text'][:28]
             return out(S, 202)
         if path == 'reset': S['messages'] = []; return out(S)
+        if path == 'autonomy': S['autonomy'] = body['mode']; return out(S)
         if path == 'thread/new':
             OTHER[S['thread']] = S['messages']; n = len(S['threads']) + 1; tid = f't{n}'
             for t in S['threads']: t['active'] = False
@@ -114,7 +115,11 @@ try:
         menu_open(); check('o menu ☰ mostra as conversas e o botão de nova', pg.is_visible('.cw-dr-list li.on') and pg.is_visible('[data-act=asst-new-thread]') and pg.is_visible('[data-act=asst-autonomy]')); pg.keyboard.press('Escape'); nap(0.3); check('Esc fecha o menu', pg.locator('#cw-drawer').count() == 0)
         pg.click('.as-empty .chip >> nth=2'); check('sugestão preenche a barra do chat sem enviar', 'equipe' in pg.input_value('#mission') and not [c for c in calls if c[0] == 'ask'])
         pg.fill('#mission', 'Crie uma equipe de desenvolvimento'); pg.keyboard.press('Shift+Enter'); pg.keyboard.type('segunda linha'); check('Shift+Enter quebra a linha sem enviar', '\n' in pg.input_value('#mission') and not [c for c in calls if c[0] == 'ask'])
+        png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRwAAAABJRU5ErkJggg=='
+        pg.evaluate('''(b64) => { const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)); const data = new DataTransfer(); data.items.add(new File([bytes], 'erro.png', { type: 'image/png' })); document.querySelector('#mission').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })); }''', png)
+        check('colar print mostra o anexo antes do envio', until(lambda: pg.is_visible('#asst-image-preview')) and 'erro.png' in pg.inner_text('#asst-image-preview'))
         pg.fill('#mission', 'Crie uma equipe de desenvolvimento'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls if c[0] == 'ask']); nap(0.4)
+        check('print colado segue junto ao pedido da IA e limpa a prévia após enviar', calls[-1][1].get('image', '').startswith('data:image/png;base64,') and not pg.is_visible('#asst-image-preview'))
         check('Enter envia: a pergunta aparece na hora, "Pensando…" e a barra esvazia', calls[-1][0] == 'ask' and calls[-1][1]['text'] == 'Crie uma equipe de desenvolvimento' and calls[-1][1].get('projectId') == P['id'] and 'Pensando' in pg.inner_text('#chat') and pg.input_value('#mission') == '' and 'Crie uma equipe' in pg.inner_text('.as-msg.me'), (calls[-3:], pg.input_value('#mission'), pg.inner_text('#asst')[-160:]))
         menu_open(); check('o título da conversa vira o assunto da primeira pergunta', 'Crie uma equipe' in pg.inner_text('.cw-dr-list li.on'), pg.inner_text('.cw-dr-list')); menu_close()
         # minimiza durante a resposta; chega a resposta: balão mostra aviso
@@ -132,7 +137,7 @@ try:
         menu_open(); pg.click('[data-act=asst-new-thread]'); nap(0.5); vazia = pg.is_visible('.as-empty') and pg.locator('#cw-drawer').count() == 0; menu_open(); check('Nova conversa: fecha o menu, abre uma conversa vazia e a anterior continua guardada', pg.locator('.cw-dr-list li').count() == 2 and vazia and calls[-1][0] == 'thread/new'); menu_close()
         pg.fill('#mission', 'Revise o código do projeto'); pg.keyboard.press('Enter'); nap(0.6); S['pending'] = None; S['messages'].append({'id': 'a2', 'role': 'assistant', 'text': 'Resposta da conversa 2', 'at': '2026-11-07T10:01:00Z', 'actions': []}); nap(2.0)
         menu_open(); pg.click('.cw-dr-list li >> nth=0 >> .cw-dr-item'); nap(0.6); check('voltar à primeira conversa mostra o histórico dela, não o da segunda', 'Sugiro' in pg.inner_text('#asst') and 'Resposta da conversa 2' not in pg.inner_text('#asst'))
-        pg.on('dialog', lambda d: d.accept()); menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-del]'); until(lambda: calls[-1][0] == 'thread/delete'); nap(0.5); menu_open(); check('apagar uma conversa (com confirmação) tira ela do menu', pg.locator('.cw-dr-list li').count() == 1 and calls[-1][0] == 'thread/delete', (pg.locator('.cw-dr-list li').count(), calls[-3:]))
+        pg.on('dialog', lambda d: d.accept(d.default_value)); menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-del]'); until(lambda: calls[-1][0] == 'thread/delete'); nap(0.5); menu_open(); check('apagar uma conversa (com confirmação) tira ela do menu', pg.locator('.cw-dr-list li').count() == 1 and calls[-1][0] == 'thread/delete', (pg.locator('.cw-dr-list li').count(), calls[-3:]))
         menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-rename]'); pg.wait_for_selector('.cw-rename'); pg.fill('.cw-rename', 'Equipe de vídeo (teste)'); pg.keyboard.press('Enter'); until(lambda: calls[-1][0] == 'thread/rename'); nap(0.5)
         check('renomear: o lápis abre o campo, Enter grava e a aba mostra o novo nome', calls[-1] == ('thread/rename', {'id': S['thread'], 'title': 'Equipe de vídeo (teste)'}) and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-dr-list li.on') and pg.locator('.cw-rename').count() == 0, calls[-1])
         menu_open(); pg.click('.cw-dr-list li.on [data-act=asst-thread-rename]'); pg.wait_for_selector('.cw-rename'); pg.keyboard.press('Escape'); nap(0.3); check('Esc cancela a troca de nome sem gravar', pg.locator('.cw-rename').count() == 0 and 'Equipe de vídeo (teste)' in pg.inner_text('.cw-dr-list li.on')); menu_close()
@@ -143,6 +148,15 @@ try:
         tk = api('state')['runs']; check('a missão direta vira uma tarefa de verdade para o agente (mesma barra, mesmo servidor)', any(r['agent']['name'] == 'Diretor' and 'Pesquise temas' in r['prompt'] for r in tk), [r['prompt'] for r in tk])
         pg.select_option('#target', 'assistant'); nap(0.4); check('voltar ao Assistente restaura o menu de conversas', pg.locator('.cw-menu-btn').count() == 1 and 'Assistente' in pg.inner_text('#chat-head'))
         menu_open(); pg.click('[data-act=asst-reset]'); until(lambda: pg.locator('.as-msg').count() == 0); nap(0.3); check('Limpar conversa esvazia só a conversa atual e mantém a apresentação', pg.locator('.as-msg').count() == 0 and pg.is_visible('.as-empty'), (pg.locator('.as-msg').count(), pg.is_visible('.as-empty'), calls[-3:]))
+        # pasta citada no chat: uma janela só (caminho + autorização + Modo Piloto); palavra solta não pede nada
+        dlg = []; pg.on('dialog', lambda d: dlg.append(d.type)); S['pending'] = None; S['autonomy'] = 'ask'; S['desktopPath'] = 'C:/Users/Teste/Desktop'; n0 = len(calls)
+        pg.fill('#mission', 'Organize os arquivos da minha Área de Trabalho'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
+        ask = [c for c in calls[n0:] if c[0] == 'ask'][-1][1]
+        check('pasta citada: uma janela só, que já autoriza a pasta e liga o Modo Piloto', dlg == ['prompt'] and ask.get('extraDir') == 'C:/Users/Teste/Desktop' and ('autonomy', {'mode': 'pilot'}) in calls[n0:], (dlg, ask, calls[n0:]))
+        dlg.clear(); S['pending'] = None; n0 = len(calls); nap(0.5)
+        pg.fill('#mission', 'Crie um documento de requisitos'); pg.keyboard.press('Enter'); until(lambda: [c for c in calls[n0:] if c[0] == 'ask']); nap(0.4)
+        ask = [c for c in calls[n0:] if c[0] == 'ask'][-1][1]; S['pending'] = None
+        check('"crie um documento" não pede autorização de pasta', dlg == [] and 'extraDir' not in ask, (dlg, ask))
         # lembra o estado
         pg.reload(); pg.wait_for_selector('#rail button', timeout=15000); nap(0.8); check('o chat lembra que estava aberto depois de recarregar', pg.is_visible('#chat') and not pg.is_visible('#chat-bubble'))
         pg.click('[data-act=chat-min]'); pg.reload(); pg.wait_for_selector('#rail button', timeout=15000); nap(0.8); check('e lembra que estava minimizado', pg.is_visible('#chat-bubble') and not pg.is_visible('#chat'))

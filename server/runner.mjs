@@ -150,10 +150,14 @@ export class Runner {
     for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de contexto: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     if (agent.browser === 'isolado') entry.browserOutputDir = await mkdtemp(join(tmpdir(), 'code-room-browser-'));
-    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, browserOutputDir: entry.browserOutputDir || null, timeoutMs: task.limits.timeoutMs });
+    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, timeoutMs: task.limits.timeoutMs });
     if (task.resume) this.event(attempt.id, { type: 'diagnostic', text: `Continuando a conversa: sessão ${task.resume.sessionId.slice(0, 8)}… da tarefa ${task.resume.fromTask.slice(0, 8)}… (mesmo provedor).` });
     const before = await snapshot(root);
-    const externalBefore = task.extraDir ? await snapshot(task.extraDir, { strict: true }) : null;
+    let externalBefore = task.extraDir ? await snapshot(task.extraDir, { strict: true }) : null;
+    if (externalBefore && !externalBefore.complete) {   // pasta grande (ex.: Área de Trabalho): acompanha o primeiro nível em vez de recusar a tarefa
+      const top = await snapshot(task.extraDir, { strict: true, shallow: true });
+      if (top.complete) { this.event(attempt.id, { type: 'diagnostic', text: `A pasta extra é grande (${externalBefore.reason || 'leitura incompleta'}). Nesta execução o Code Room registra só os arquivos e pastas do primeiro nível dela; mudanças dentro das subpastas não aparecem na lista.` }); externalBefore = top; }
+    }
     if (externalBefore && !externalBefore.complete) throw fail('external_snapshot_unavailable', `Não foi possível acompanhar as mudanças na pasta extra: ${externalBefore.reason || 'leitura incompleta'}. Escolha uma pasta menor ou mais específica.`);
     attempt.spawnedAt = Date.now();
     const child = this.launch(cmd.file, cmd.args, { cwd: root, env: { ...process.env, ...this.extraEnv }, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -229,7 +233,8 @@ export class Runner {
       if (o.externalBefore) try {
         const current = await realpath(task.extraDir);
         if (current !== task.extraDir) throw new Error('A pasta extra mudou de destino durante a execução. Confira-a manualmente.');
-        externalDeliverables = await diffSnapshots(task.extraDir, o.externalBefore, await snapshot(task.extraDir, { strict: true }));
+        externalDeliverables = await diffSnapshots(task.extraDir, o.externalBefore, await snapshot(task.extraDir, { strict: true, shallow: !!o.externalBefore.shallow }));
+        if (o.externalBefore.shallow) externalDeliverables.shallow = true;
       } catch (e) { externalDeliverables = { available: false, files: [], reason: e.message }; }
     }
     const changed = [...deliverables.files.map(f => f.path), ...(externalDeliverables?.files || []).map(f => `Pasta extra: ${f.path}`)];

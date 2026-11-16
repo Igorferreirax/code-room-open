@@ -12,6 +12,7 @@ A pasta de dados é `.data/` (rodando pelo código) ou `%LOCALAPPDATA%\CodeRoom\
 | `access.key` | A chave de acesso ao serviço local | Nunca é versionada nem aparece na tela |
 | `code-room.sqlite` | Projetos, agentes, tarefas, resultados, conversas, memória do projeto, rotinas, propostas de postagem | Só local |
 | `assistente/` | Conversa e memória do Assistente | Só local |
+| `assistant-images/` | Prints anexados ao chat do Assistente | Só local; cada print fica numa pasta própria e é apagado quando a resposta chega (sobras com mais de um dia são removidas ao anexar outro) |
 | `social-secrets.json` | Senhas de aplicativo e tokens das contas de redes sociais | Nunca volta para a tela; apagado junto com a conta |
 | `api-secrets.json` | Chaves da Biblioteca de APIs | Mostra só os 4 últimos caracteres |
 | `publish.json`, `publish-tokens.json` | ID e segredo do app Google e o token do YouTube | Nunca volta para a tela |
@@ -23,7 +24,7 @@ Os arquivos de segredo são gravados com permissão restrita. **No Windows essa 
 ## O que sai, para onde e quando
 | O quê | Para onde | Quando | O que vai |
 | --- | --- | --- | --- |
-| Pedidos às IAs | O provedor da IA que **você** escolheu (Codex, Claude, Antigravity), pelo CLI dela, sob os termos e a cota da sua conta | Quando uma tarefa roda | O objetivo, o contexto e a memória do projeto, as skills escolhidas, notas do Obsidian (se você ligou), arquivos das pastas de referência e o material de outros agentes |
+| Pedidos às IAs | O provedor da IA que **você** escolheu (Codex, Claude, Antigravity), pelo CLI dela, sob os termos e a cota da sua conta | Quando uma tarefa roda | O objetivo, o contexto e a memória do projeto, as skills escolhidas, notas do Obsidian (se você ligou), arquivos das pastas de referência, prints anexados ao chat e o material de outros agentes |
 | Hermes | O seu servidor, por SSH | Só se você configurar | O mesmo pedido, para o seu servidor |
 | Pesquisar na web | A internet, pelo Claude | Só em agentes com a opção ligada | As buscas e as páginas lidas |
 | Verificar atualização | `api.github.com` (e, para baixar, hosts do GitHub) | A cada verificação; dá para desligar em Configurações › Atualizações | Nada seu; o GitHub vê o seu IP. O arquivo só é aceito se o SHA-256 bater |

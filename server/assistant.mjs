@@ -10,6 +10,8 @@ import { cleanBrowser, BROWSER_LABEL } from './browseruse.mjs';
 import { validateRoutine } from './routines.mjs';
 import { STYLES } from './channels.mjs';
 import { blockFor } from './obsidian.mjs';
+import { saveChatImage, removeChatImage } from './chat-image.mjs';
+import { knownFolders } from './known-folders.mjs';
 
 // Assistente: a IA que a PESSOA conectou (Claude Code, Codex ou Gemini) vira o suporte dentro do Code Room.
 // 1) Briefing: na primeira conexão a IA lê o manual (docs/ASSISTENTE.md), diz o que entendeu e isso é GRAVADO na máquina da pessoa.
@@ -44,11 +46,44 @@ export function parseActions(text) {
   return { text: clean, actions: raws };
 }
 
+// Autocorreção das propostas da IA antes de mostrar os cartões: a pessoa pede "monte uma equipe" e não deve
+// esbarrar em travas que o próprio Code Room consegue resolver. Cada ajuste vira uma nota curta na resposta.
+// - agente com nome que já existe: reaproveita (vincula ao projeto em foco/citado ou some, se já está lá);
+// - IA que não está conectada neste computador: troca pela IA conectada preferida;
+// - detalhes que só valem para outra IA (web, programas, navegador, modelo): tira o detalhe e mantém o agente;
+// - equipe com nome repetido: ganha um sufixo (2), (3)...
+export function fixProposal(proposal, world, planned = { agents: [], teams: [], projects: [], skills: [] }, { focusProject = '' } = {}) {
+  let raw = { ...proposal }; const notes = [], lc = x => String(x ?? '').trim().toLowerCase();
+  if (raw.acao === 'criar_agente') {
+    const matches = world.agents.filter(a => lc(a.name) === lc(raw.nome));
+    const existing = matches.find(a => a.provider === raw.provedor) || matches.find(a => world.connected.has(a.provider)) || matches[0];
+    if (existing) {
+      const project = raw.projeto || (planned.projects.length === 1 ? planned.projects[0] : '') || focusProject;
+      if (!project) { notes.push(`reaproveitei o agente “${existing.name}” que você já tem (${existing.provider})`); return { raw, n: null, notes }; }
+      raw = { acao: 'vincular_agente', agente: existing.name, provedor: existing.provider, projeto: project };
+    } else if (!world.connected.has(raw.provedor)) {
+      const alt = chooseProvider(null, world.connected) || [...world.connected].find(p => /^x-[a-z0-9-]{1,40}$/.test(p));
+      if (alt) { notes.push(`“${short(raw.nome, 60)}” vai usar ${alt}, porque ${short(raw.provedor, 30) || 'a IA pedida'} não está conectada aqui`); raw = { ...raw, provedor: alt }; delete raw.modelo; delete raw.esforco; }
+    }
+  }
+  if (raw.acao === 'criar_equipe' && raw.nome) {
+    const taken = n => world.teams.some(t => lc(t.name) === lc(n)) || planned.teams.some(t => lc(t) === lc(n));
+    if (taken(raw.nome)) { let i = 2; while (taken(`${raw.nome} (${i})`) && i < 50) i++; notes.push(`a equipe “${short(raw.nome, 60)}” já existia, então a nova se chama “${short(raw.nome, 60)} (${i})”`); raw = { ...raw, nome: `${raw.nome} (${i})` }; }
+  }
+  let n = normalizeAction(raw, world, planned);
+  // Detalhes que travavam a criação do agente: tira o detalhe e tenta de novo (no máximo uma vez por detalhe).
+  const drops = [[/Pesquisar na web/, ['pesquisar_web'], 'sem pesquisa na web (só o Claude Code tem)'], [/programas/i, ['programas'], 'sem a lista de programas (só vale no Claude Code)'], [/navegador/i, ['navegador'], 'sem navegador (essa IA não usa)'], [/modelo|esfor[cç]o/i, ['modelo', 'esforco'], 'com o modelo padrão da conta']];
+  for (const [re, keys, why] of drops) if (raw.acao === 'criar_agente' && !n?.valid && re.test(n?.error || '') && keys.some(k => raw[k] !== undefined)) { raw = { ...raw }; for (const k of keys) delete raw[k]; notes.push(`“${short(raw.nome, 60)}” ficou ${why}`); n = normalizeAction(raw, world, planned); }
+  if (proposal.acao === 'criar_agente' && raw.acao === 'vincular_agente' && !n?.valid && /já trabalha no projeto/.test(n?.error || '')) { notes.push(`“${short(raw.agente, 60)}” já está no projeto`); return { raw, n: null, notes }; }
+  return { raw, n, notes };
+}
+
 // Valida UMA ação contra o estado atual. Nunca confia no texto da IA: nomes viram ids reais, papéis e permissões são conferidos.
 // world = { agents: [{id,name,provider,mode}], teams: [{name}], connected: Set(ids de IAs instaladas), skills: [{id,name,recognized,blocked}] }
 export function normalizeAction(raw, world, planned = { agents: [], teams: [], projects: [], skills: [] }) {
   const lc = x => String(x ?? '').trim().toLowerCase(); planned = { agents: [], teams: [], projects: [], skills: [], ...planned };
-  const find = (name, provider = null) => { const n = lc(name), hit = world.agents.filter(a => a.name.trim().toLowerCase() === n && (!provider || a.provider === provider)); if (hit.length === 1) return { agent: hit[0] }; if (hit.length > 1) return { error: `Há mais de um agente chamado “${short(name, 60)}”. Informe também o provedor.` }; if (!provider && planned.agents.some(x => lc(x) === n)) return { agent: { id: null, name: short(name, 100), planned: true } }; return { error: `O agente “${short(name, 60)}” não existe${provider ? ` na IA “${short(provider, 50)}”` : ''}.` }; };
+  // Nome repetido em IAs diferentes não trava mais a proposta: usa o da IA conectada (ou o primeiro).
+  const find = (name, provider = null) => { const n = lc(name), hit = world.agents.filter(a => a.name.trim().toLowerCase() === n && (!provider || a.provider === provider)); if (hit.length === 1) return { agent: hit[0] }; if (hit.length > 1) return { agent: hit.find(a => world.connected?.has?.(a.provider)) || hit[0] }; if (!provider && planned.agents.some(x => lc(x) === n)) return { agent: { id: null, name: short(name, 100), planned: true } }; return { error: `O agente “${short(name, 60)}” não existe${provider ? ` na IA “${short(provider, 50)}”` : ''}.` }; };
   const findProject = name => { const n = lc(name), hit = (world.projects || []).filter(p => p.name.trim().toLowerCase() === n); if (hit.length === 1) return { project: hit[0] }; if (hit.length > 1) return { error: `Há mais de um projeto chamado “${short(name, 60)}”.` }; if (planned.projects.some(x => lc(x) === n)) return { project: { id: null, name: short(name, 100), planned: true } }; return { error: `O projeto “${short(name, 60)}” não existe.` }; };
   const findTeam = name => { const n = lc(name), hit = world.teams.filter(t => t.name.trim().toLowerCase() === n); if (hit.length === 1) return { team: hit[0] }; if (planned.teams.some(x => lc(x) === n)) return { team: { id: null, name: short(name, 100), planned: true } }; return { error: `A equipe “${short(name, 60)}” não existe.` }; };
   const bad = (type, error) => ({ type, summary: '', payload: null, valid: false, error });
@@ -394,10 +429,10 @@ export class Assistant {
     if (!old || JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web'].map(k => !!old[k] && typeof old[k] === 'boolean' ? true : old[k])) !== JSON.stringify(['mode', 'commands', 'mcpTools', 'browser', 'skillTool', 'web'].map(k => !!want[k] && typeof want[k] === 'boolean' ? true : want[k]))) this.store.put('agents', { ...base, ...(old || {}), ...want, revision: (old?.revision || 0) + 1 });
     return id;
   }
-  #task(provider, objective, tag, { pilot = false, projectId = null, extraDir = null } = {}) {
+  #task(provider, objective, tag, { pilot = false, projectId = null, extraDir = null, imagePath = null } = {}) {
     const agentId = this.#ensure(provider, pilot), pj = pilot && projectId ? this.store.get('projects', projectId) : null;
     const useProject = pj && !pj.internal && pj.area !== 'Financeiro' ? pj.id : ASSISTANT_PROJECT;
-    const { task } = this.createTaskFn(this.store, { projectId: useProject, agentId, requestId: `assistant:${tag}:${randomUUID()}`, objective, extraDir, criteria: [], limits: { timeoutMs: (pilot ? 20 : 4) * 60 * 1000 } });
+    const { task } = this.createTaskFn(this.store, { projectId: useProject, agentId, requestId: `assistant:${tag}:${randomUUID()}`, objective, extraDir, imagePath, criteria: [], limits: { timeoutMs: (pilot ? 20 : 4) * 60 * 1000 } });
     this.pump(); return task;
   }
 
@@ -407,7 +442,7 @@ export class Assistant {
     const taskOf = id => id ? this.store.get('tasks', id) : null, pt = taskOf(s.pending?.taskId), bt = taskOf(s.briefing?.taskId);
     return {
       manual: { available: !manual.missing, hash: manual.hash }, briefed: !!s.briefedAt, stale: !!s.briefedAt && !!manual.hash && s.manualHash !== manual.hash,
-      name: cleanName(s.name), autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
+      name: cleanName(s.name), autonomy: s.autonomy === 'pilot' ? 'pilot' : 'ask', ...(f => ({ desktopPath: f.desktop, downloadsPath: f.downloads, documentsPath: f.documents }))(knownFolders()), briefedAt: s.briefedAt, knowledge: s.knowledge || '', provider: s.provider, connected: [...w.connected].filter(p => PROVIDER_ORDER.includes(p)), messages: (s.messages || []).map(m => ({ ...m, actions: (m.actions || []).map(({ raw, ...a }) => a) })), error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
       pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at, activity: this.#activity(pt) } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
@@ -428,22 +463,20 @@ export class Assistant {
     if (p) {
       const t = this.store.get('tasks', p.taskId);
       if (ended(t) || !t) {
+        removeChatImage(this.dataDir, t?.imagePath);   // o print só existe enquanto a IA responde
         const tid = p.threadId || this.s.thread?.id, inActive = tid === (this.s.thread?.id || tid), msgs = inActive ? [...(this.s.messages || [])] : [...((this.s.others || []).find(o => o.id === tid)?.messages || [])];
         const putMsgs = extra => inActive ? this.#save({ ...extra, messages: msgs }) : this.#save({ ...extra, others: (this.s.others || []).map(o => o.id === tid ? { ...o, messages: msgs } : o) });
         if (t?.status === 'completed') {
           const { text, actions } = parseActions(answerOf(t)), w = await this.worldFn();
-          const planned = { agents: [], teams: [], projects: [], skills: [] }, acts = actions.map(proposal => {
-            let raw = proposal;
-            if (raw.acao === 'criar_agente') {
-              const existing = w.agents.find(a => a.name.trim().toLowerCase() === String(raw.nome || '').trim().toLowerCase() && a.provider === raw.provedor);
-              const project = raw.projeto || (planned.projects.length === 1 ? planned.projects[0] : '');
-              if (existing && project) raw = { acao: 'vincular_agente', agente: existing.name, provedor: existing.provider, projeto: project };
-            }
-            const n = normalizeAction(raw, w, planned);
+          const planned = { agents: [], teams: [], projects: [], skills: [] }, fixes = [], focusProject = p.projectId ? this.store.get('projects', p.projectId)?.name || '' : '', acts = actions.map(proposal => {
+            const { raw, n, notes } = fixProposal(proposal, w, planned, { focusProject }); fixes.push(...notes);
+            if (!n) return { raw, n };
             if (n?.valid) { if (n.type === 'criar_agente') planned.agents.push(n.payload.name); else if (n.type === 'criar_equipe') planned.teams.push(n.payload.name); else if (n.type === 'criar_projeto') planned.projects.push(n.payload.name); else if (n.type === 'criar_skill') planned.skills.push(n.payload.name); }
             return { raw, n };
           }).filter(x => x.n).map((x, idx) => ({ idx, ...x.n, raw: x.raw, status: 'pending' }));
-          msgs.push({ id: randomUUID(), role: 'assistant', text: text || '(a IA não escreveu uma resposta)', at: new Date(this.now()).toISOString(), taskId: t.id, ...(p.pilot ? { pilot: true, fileCount: (t.result?.deliverables?.files?.length || 0) + (t.result?.externalDeliverables?.files?.length || 0), externalApproved: !!t.extraDir, externalTracked: t.result?.externalDeliverables?.available !== false } : {}), actions: acts });
+          msgs.push({ id: randomUUID(), role: 'assistant', text: (text || '(a IA não escreveu uma resposta)') + (fixes.length ? `
+
+Ajustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at: new Date(this.now()).toISOString(), taskId: t.id, ...(p.pilot ? { pilot: true, fileCount: (t.result?.deliverables?.files?.length || 0) + (t.result?.externalDeliverables?.files?.length || 0), externalApproved: !!t.extraDir, externalTracked: t.result?.externalDeliverables?.available !== false, externalShallow: !!t.result?.externalDeliverables?.shallow } : {}), actions: acts });
           putMsgs({ pending: null, error: null });
         } else { msgs.push({ id: randomUUID(), role: 'assistant', text: '', error: `Não foi possível responder: ${short(t?.reason || t?.status || 'tarefa não encontrada', 300)}`, failureKind: t?.failureKind || null, at: new Date(this.now()).toISOString(), taskId: p.taskId }); putMsgs({ pending: null }); }
       }
@@ -465,7 +498,7 @@ export class Assistant {
     const p = await this.#pickProvider(provider), task = this.#task(p, briefingPrompt(p === 'agy' ? manual.text.slice(0, AGY_BUDGET - 4000) : manual.text), 'brief');
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
-  async ask(text, { projectId = null, screen = '', extraDir = null } = {}) {
+  async ask(text, { projectId = null, screen = '', extraDir = null, image = null } = {}) {
     await this.#sync(); let s = this.s; const q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     const focusProject = projectId ? this.store.get('projects', projectId) : null;
@@ -475,13 +508,19 @@ export class Assistant {
     if (s.autonomy === 'pilot' && focusProject?.area === 'Financeiro') throw new Error('Modo piloto não roda com um projeto financeiro em foco (navegador e ferramentas externas ficam bloqueados ali). Troque o foco ou volte ao modo consulta.');
     if (!s.briefedAt) throw new Error('Antes, apresente o Code Room à sua IA (botão “Apresentar”).'); if (s.pending) throw new Error('Aguarde a resposta anterior.');
     const w = await this.worldFn(), manual = loadManual(this.root), p = await this.#pickProvider(s.provider), pilot = s.autonomy === 'pilot';
-    if (extraDir && (!pilot || !focusProject || focusProject.internal)) throw new Error('Para autorizar uma pasta extra, ligue o Modo Piloto e selecione um projeto.');
+    if (extraDir && !pilot) throw new Error('Para autorizar uma pasta extra, ligue o Modo Piloto.');
     // Notas do Obsidian da pessoa (só se ela ligou o vínculo; nunca com projeto Financeiro em foco).
     let obsText = '', obsidianNotes = 0; try { const po = focusProject; if (po?.area !== 'Financeiro') { const r = await blockFor(this.store, { objective: q, project: po ? { id: po.id, name: po.name, area: po.area } : { id: 'assistant-chat', name: '', area: 'Geral' } }, { role: '' }); if (r.text) { obsText = '\n' + r.text; obsidianNotes = r.n; } } } catch {}
     const screenContext = screenLine(screen).trim(), context = { ...(focusProject && !focusProject.internal ? { projectId: focusProject.id } : {}), project: focusProject?.name || '', screen: !!screenContext, obsidianNotes };
-    const prompt = buildPrompt({ name: s.name, pilot, extras: [screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: [s.knowledge, memoText(s.memo)].filter(Boolean).join('\n\n'), summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET }), task = this.#task(p, prompt, 'ask', { pilot, projectId, extraDir });
+    const imagePath = image ? saveChatImage(this.dataDir, image) : null;
+    const imageNote = imagePath ? `\nPRINT ANEXADO PELA PESSOA: ${imagePath}. Leia a imagem para responder; se a ferramenta de imagem falhar, diga isso claramente, sem inventar o conteúdo.` : '';
+    let task;
+    try {
+      const prompt = buildPrompt({ name: s.name, pilot, extras: [screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: [s.knowledge, memoText(s.memo)].filter(Boolean).join('\n\n'), summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : '') , history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q + imageNote, max: p === 'agy' ? AGY_BUDGET : TASK_BUDGET });
+      task = this.#task(p, prompt, 'ask', { pilot, projectId, extraDir, imagePath });
+    } catch (e) { removeChatImage(this.dataDir, imagePath); throw e; }
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
-    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir } : {}) } }], error: null });
+    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, projectId: focusProject?.internal ? null : focusProject?.id || null, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir } : {}) } }], error: null });
     return this.status();
   }
   reset() { this.#save({ messages: [], error: null }); return this.status(); }

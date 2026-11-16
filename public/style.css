@@ -447,8 +447,10 @@ select option:checked{background:var(--accent);color:var(--on-accent,#fff)}
 .cw-body{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}.cw-body .as-log{flex:1;min-height:0}
 .cw-direct p{margin:.4em 0}
 .cw-foot{border-top:1px solid var(--line);background:var(--bg2)}
-.cw-foot .composer-bar{position:static;padding:8px;margin:0!important;border:0;background:none}.cw-foot .composer{display:grid;grid-template-columns:auto auto 1fr auto;grid-template-areas:'tg tg tg tg' 'cl mc tx sd';gap:6px;padding:6px;min-height:0;align-items:center}
+.cw-foot .composer-bar{position:static;padding:8px;margin:0!important;border:0;background:none}.cw-foot .composer{display:grid;grid-template-columns:auto auto auto auto minmax(0,1fr) auto;grid-template-areas:'tg tg tg tg tg tg' 'cl im ex mc tx sd';gap:6px;padding:6px;min-height:0;align-items:center}
+.asst-image-preview{font-size:.78rem;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cw-foot .asst-image-preview{grid-area:tx;align-self:start;z-index:1;transform:translateY(-34px)}
 .cw-foot .composer .target{grid-area:tg;max-width:none;width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:.3em .2em;font-size:.82rem}.cw-foot .composer>.iconbtn{grid-area:cl}.cw-foot .composer>.mic{grid-area:mc}.cw-foot .composer textarea{grid-area:tx;min-height:40px;max-height:130px}.cw-foot .composer .sendbtn{grid-area:sd;width:42px;height:42px}.cw-foot .composer .hint{display:none}
+.cw-foot .composer>[data-act="asst-image"]{grid-area:im}.cw-foot .composer>[data-act="asst-extra-dir"]{grid-area:ex}
 .cw-foot .opts-pop{bottom:calc(100% + 6px);left:6px;right:6px}.cw-foot .foot{display:none}
 .chat-bubble{position:fixed;right:18px;bottom:18px;width:62px;height:62px;border-radius:50%;border:2px solid var(--accent);background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.45);display:grid;place-items:center;z-index:40;cursor:pointer;padding:0}.chat-bubble:hover{transform:translateY(-2px)}
 .cb-face{width:44px;height:44px;display:block}.cb-face svg{width:100%;height:100%}

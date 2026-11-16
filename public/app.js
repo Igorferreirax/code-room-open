@@ -16,6 +16,7 @@ import { liveTaskOf } from './live-ui.js';
 import { cleanMini, addMini, miniShellHtml, miniBodyHtml, bubbleLiveHtml } from './minichat.js';
 import { sayOf } from './mascot.js';
 import { extractProject, projectToken } from './mentions.js';
+import { mentionedFolder } from './chat-paths.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
 addEventListener('pointermove', e => { if (ctx.prefs?.anim === false) return; const r = document.documentElement.style; r.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(2)); r.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(2)); }, { passive: true });
 import { folderJobDialogHtml, noticesBarHtml, emptyJobForm, formFromJob, payloadFromJobForm } from './folderjobs-ui.js';
@@ -267,6 +268,7 @@ function render() {
   $('view').setAttribute('aria-label', TITLES[ctx.view]);
   $('view').innerHTML = VIEWS[ctx.view](ctx);
   $('composer-root').innerHTML = V.composerBar(ctx);
+  showChatImage();
   setTimeout(updatePop, 0);
   const panel = $('panel');
   const content = ctx.ui.panel === 'new-project' ? V.panelNewProject(ctx) : ctx.ui.panel === 'context' ? V.panelContext(ctx) : ctx.ui.panel === 'routine' ? W.panelRoutine(ctx) : ctx.ui.panel === 'recipe' ? panelRecipe(ctx) : ctx.ui.panel === 'recipe-run' ? panelRecipeRun(ctx) : '';
@@ -438,16 +440,34 @@ async function loadAsst() {
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
 // Guarda (até 3 por destino) o que foi pedido a uma equipe ou agente pelo chat, para o chat mostrar o pedido e o andamento.
 function rememberSent(target, text, ref) { const all = ctx.ui.sent ?? (ctx.ui.sent = store.get('cr.sent', {})); all[target] = [{ text: String(text).slice(0, 400), at: new Date().toISOString(), ...ref }, ...(all[target] || [])].slice(0, 3); store.set('cr.sent', all); renderAsst(); }
-async function askAssistant(text, { includeContext = true, extraDir = null } = {}) {
+function showChatImage() { const el = $('asst-image-preview'); if (!el) return; el.hidden = !ctx.ui.asstImage; el.textContent = ctx.ui.asstImage ? `🖼️ ${ctx.ui.asstImage.name} · clique para remover` : ''; el.title = ctx.ui.asstImage ? 'Clique para remover o print' : ''; }
+async function attachChatImage(file) {
+  if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('Use um print PNG, JPG ou WebP.');
+  if (file.size > 1024 * 1024) throw new Error('Print maior que 1 MB. Reduza a imagem e tente de novo.');
+  const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('Não consegui ler o print.')); reader.readAsDataURL(file); });
+  ctx.ui.asstImage = { name: file.name || 'print', data }; showChatImage(); notify('Print pronto. Escreva o que quer analisar e envie.');
+}
+async function askAssistant(text, { includeContext = true, extraDir = null, image = ctx.ui.asstImage?.data || null } = {}) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
   const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
-  if (extraDir && (!ctx.project || ctx.asst?.autonomy !== 'pilot')) { notify('Selecione um projeto e ligue o Modo Piloto para autorizar uma pasta extra.', true); return false; }
-  if (extraDir && !confirm(`Autorizar esta IA a LER E EDITAR a pasta abaixo nesta execução?\n\n${extraDir}\n\nO Code Room registra as mudanças para revisão, mas não desfaz automaticamente alterações fora do projeto.`)) return false;
+  const mentioned = mentionedFolder(text, { desktop: ctx.asst?.desktopPath, downloads: ctx.asst?.downloadsPath, documents: ctx.asst?.documentsPath });
+  const focusedPath = ctx.state.projects.find(p => p.id === ctx.project)?.path || '';
+  const targetPath = String(mentioned || '').toLowerCase().replaceAll('/', '\\'), currentPath = focusedPath.toLowerCase().replaceAll('/', '\\').replace(/\\+$/, '');
+  const externalMention = mentioned && !(currentPath && (targetPath === currentPath || targetPath.startsWith(currentPath + '\\')));
+  // Uma confirmação só (antes eram três janelas seguidas): caminho editável + o que a autorização libera.
+  const pilotNote = ctx.asst?.autonomy !== 'pilot' ? '\n• O Modo Piloto será ligado (você pode voltar ao modo consulta no menu ☰).' : '';
+  const accessNote = `\n• Vale só para este pedido.\n• O Code Room registra o que mudar, mas não desfaz sozinho alterações fora do projeto.${pilotNote}`;
+  if (!extraDir && !local && externalMention) {
+    extraDir = prompt(`Autorizar a IA a LER E EDITAR esta pasta?${accessNote}\n\nConfira o caminho (pode corrigir) e clique em OK para autorizar:`, mentioned);
+    if (extraDir === null) return false;
+    extraDir = extraDir.trim(); if (!extraDir) { notify('Informe o caminho completo da pasta.', true); return false; }
+  } else if (extraDir && !confirm(`Autorizar a IA a LER E EDITAR a pasta abaixo?\n\n${extraDir}\n${accessNote}`)) return false;
+  if (extraDir && ctx.asst?.autonomy !== 'pilot' && !await asstCall('autonomy', { mode: 'pilot' })) return false;
   ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
-  const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
+  const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir } : {}), ...(image ? { image } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
   if (ok && local) await loadAsst();   // comandos imediatos mostram a resposta sem esperar o próximo ciclo de atualização
   if (!ok) { await loadAsst(); notify('A mensagem não foi enviada. Seu texto continua na barra: tente de novo.', true); }   // antes: a mensagem aparecia e sumia, e o texto era apagado
   return ok;
@@ -621,6 +641,7 @@ const actions = {
   'asst-rename': async () => { const cur = ctx.asst?.name || 'Nico', n = prompt('Como o Assistente deve se chamar? (até 24 letras)', cur); if (n == null) return; ctx.asst = { ...ctx.asst, ...(await api('assistant/name', { name: n })) }; render(); renderAsst(); notify(`Pronto: o Assistente agora se chama ${ctx.asst.name}.`); },
   'asst-autonomy': id => { if (id === 'pilot' && !confirm('Ligar o modo piloto?\n\nO Assistente passa a agir como a sua IA no terminal: cria e edita arquivos na pasta do projeto em foco, roda programas liberados (node, git, ffmpeg…), usa skills, ferramentas MCP e o seu Chrome.\n\nNada é postado, enviado ou pago sem o seu “sim”, mas ele pode mexer nos seus arquivos. Use só em pastas que você aceita que sejam alteradas. Você pode voltar ao modo consulta quando quiser.')) return; return asstCall('autonomy', { mode: id }); },
   'asst-extra-dir': (_, el) => { const path = prompt('Caminho completo da pasta adicional para esta tarefa. Deixe vazio para remover.', ctx.ui.asstExtraDir || ''); if (path === null) return; ctx.ui.asstExtraDir = path.trim() || null; if (el) { el.title = ctx.ui.asstExtraDir ? `Pasta extra: ${ctx.ui.asstExtraDir}` : 'Autorizar pasta extra nesta tarefa'; el.setAttribute('aria-pressed', String(!!ctx.ui.asstExtraDir)); } notify(ctx.ui.asstExtraDir ? 'Pasta escolhida. Você confirma o acesso antes de enviar.' : 'Pasta extra removida.'); },
+  'asst-image': () => $('asst-image-file')?.click(),
   'asst-pilot-note-dismiss': () => { store.set('cr.pilot-note-dismissed', true); renderAsst(); },
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
   'retention-preview': async () => { ctx.retention = 'busy'; render(); try { ctx.retention = await api('retention?days=7'); } catch (e) { ctx.retention = null; notify(e.message, true); } render(); },
@@ -970,6 +991,7 @@ document.addEventListener('change', async e => {
   if (e.target.matches?.('#agent-form [name=provider]')) { fillModelOptions(e.target.value); syncBrowserOptions(); }
   const t = e.target;
   try {
+    if (t.id === 'asst-image-file') { if (t.files?.[0]) await attachChatImage(t.files[0]); t.value = ''; return; }
     if (t.id === 'project-select') { setProject(t.value); render(); }
     else if (t.id === 'api-service') { ctx.ui.apiForm = { ...(ctx.ui.apiForm || {}), service: t.value }; render(); }
     else if (t.id === 'social-net') { ctx.ui.socialForm = { ...(ctx.ui.socialForm || {}), network: t.value }; render(); }
@@ -989,6 +1011,12 @@ document.addEventListener('change', async e => {
     }
   } catch (err) { notify(err.message, true); }
 });
+document.addEventListener('paste', e => {
+  if (e.target?.id !== 'mission' || V.targetOf(ctx) !== 'assistant') return;
+  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (file) { e.preventDefault(); attachChatImage(file).catch(err => notify(err.message, true)); }
+});
+document.addEventListener('click', e => { if (e.target?.id === 'asst-image-preview') { ctx.ui.asstImage = null; showChatImage(); } });
 document.addEventListener('input', e => {
   const t = e.target, m = { 'proj-q': 'projQuery', 'tool-q': 'toolQ', 'skill-q': 'skillQ', 'routine-q': 'routineQ', 'review-note': 'reviewNote' }[t.id];
   if (t.id === 'workspace-name') return;
@@ -1025,7 +1053,7 @@ document.addEventListener('submit', async e => {
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
       const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase() && (!ctx.project || ctx.projectAgentIds().has(a.id)));
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
-      if (target === 'assistant') { if (await askAssistant(text, { extraDir: ctx.ui.asstExtraDir })) { $('mission').value = ''; ctx.ui.asstExtraDir = null; const btn = document.querySelector('[data-act="asst-extra-dir"]'); if (btn) { btn.title = 'Autorizar pasta extra nesta tarefa'; btn.setAttribute('aria-pressed', 'false'); } } return; }
+      if (target === 'assistant') { if (await askAssistant(text || (ctx.ui.asstImage ? 'Analise este print e me ajude a resolver o problema.' : ''), { extraDir: ctx.ui.asstExtraDir })) { $('mission').value = ''; ctx.ui.asstImage = null; showChatImage(); ctx.ui.asstExtraDir = null; const btn = document.querySelector('[data-act="asst-extra-dir"]'); if (btn) { btn.title = 'Autorizar pasta extra nesta tarefa'; btn.setAttribute('aria-pressed', 'false'); } } return; }
       let projId = ctx.project; const px = extractProject(text, ctx.state.projects); if (px.project) { projId = px.project.id; text = px.text; } else if (px.ambiguous) throw new Error('Mais de um projeto combina com o # que você escreveu. Escreva o nome inteiro.');
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);

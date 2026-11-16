@@ -121,6 +121,7 @@ export function createTask(store, input) {
     inputs: cleanInputs(input.inputs), dependsOn, limits: cleanLimits(input.limits, store.get('settings', 'limits')),
     parentTaskId: input.parentTaskId || null, depth, flowId: input.flowId || null, step: input.step || null,
     handoffFrom: input.handoffFrom || null, isolate: input.isolate === true, resume, extraDir,
+    imagePath: agent.internal && typeof input.imagePath === 'string' ? input.imagePath : null,
     hops: Number.isInteger(input.hops) ? input.hops : 0, linkFrom: input.linkFrom || null, rootObjective: typeof input.rootObjective === 'string' ? input.rootObjective.slice(0, 2000) : null,
     extraSkillIds: Array.isArray(input.skillIds) ? [...new Set(input.skillIds.filter(s => typeof s === 'string' && /^[a-f0-9]{24}$/.test(s)))].slice(0, 8) : [],
     attempts: [], attemptCount: 0, result: null, reason: null, createdAt: now(), updatedAt: now()

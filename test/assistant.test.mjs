@@ -21,14 +21,14 @@ test('ações: extrai só blocos code-room-action válidos, limpa o texto, limit
   assert.deepEqual(parseActions(null), { text: '', actions: [] }); assert.deepEqual(parseActions(block([1, 2])).actions, [], 'só objetos');
 });
 
-test('criar_equipe: nomes viram ids reais; papel, agente inexistente, nome ambíguo e equipe repetida são recusados', () => {
+test('criar_equipe: nomes viram ids reais; papel, agente inexistente, nome repetido usa a IA conectada e equipe repetida é recusada', () => {
   const ok = normalizeAction({ acao: 'criar_equipe', nome: ' Equipe Dev ', membros: [{ papel: 'desenvolvedor', agente: 'desenvolvedor' }, { papel: 'revisor', agente: 'Gemini' }] }, world());
   assert.equal(ok.valid, true); assert.deepEqual(ok.payload, { name: 'Equipe Dev', members: [{ role: 'desenvolvedor', agentId: 'a1' }, { role: 'revisor', agentId: 'a3' }] }); assert.match(ok.summary, /Criar a equipe “Equipe Dev”: desenvolvedor → Desenvolvedor, revisor → Gemini/);
   const linked = normalizeAction({ acao: 'criar_equipe', nome: 'Equipe do Canal', projeto: 'Canal', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }] }, world());
   assert.equal(linked.valid, true); assert.equal(linked.payload.projectId, 'p1'); assert.match(linked.summary, /vinculá-la ao projeto “Canal”/);
   assert.match(normalizeAction({ acao: 'criar_equipe', nome: 'Equipe Perdida', projeto: 'Fantasma', membros: [{ papel: 'desenvolvedor', agente: 'Desenvolvedor' }] }, world()).error, /projeto “Fantasma” não existe/);
   const err = (m, re, n = 'Nova') => { const r = normalizeAction({ acao: 'criar_equipe', nome: n, membros: m }, world()); assert.equal(r.valid, false); assert.match(r.error, re); };
-  err([{ papel: 'chefe', agente: 'Gemini' }], /Papel inválido: chefe/); err([{ papel: 'revisor', agente: 'Fantasma' }], /não existe/); err([{ papel: 'revisor', agente: 'Revisor' }], /mais de um agente/); err([], /1 a 12/); err(Array(13).fill({ papel: 'revisor', agente: 'Gemini' }), /1 a 12/);
+  err([{ papel: 'chefe', agente: 'Gemini' }], /Papel inválido: chefe/); err([{ papel: 'revisor', agente: 'Fantasma' }], /não existe/); assert.deepEqual(normalizeAction({ acao: 'criar_equipe', nome: 'Nova', membros: [{ papel: 'revisor', agente: 'Revisor' }] }, world()).payload.members, [{ role: 'revisor', agentId: 'a2' }], 'nome repetido em IAs diferentes: usa o da IA conectada'); err([], /1 a 12/); err(Array(13).fill({ papel: 'revisor', agente: 'Gemini' }), /1 a 12/);
   err([{ papel: 'revisor', agente: 'Gemini' }], /Já existe uma equipe/, 'equipe antiga'); err([{ papel: 'revisor', agente: 'Gemini' }], /precisa de um nome/, '   ');
 });
 
@@ -45,7 +45,7 @@ test('vincular_agente: reaproveita agente existente sem duplicar e recusa víncu
   const w = world({ projects: [{ id: 'p1', name: 'Canal', agentIds: [] }, { id: 'p2', name: 'Novo', agentIds: [] }] });
   const a = normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Novo' }, w);
   assert.equal(a.valid, true); assert.deepEqual(a.payload, { agentId: 'a1', projectId: 'p2' }); assert.match(a.summary, /mantendo-o nos outros projetos/);
-  assert.match(normalizeAction({ acao: 'vincular_agente', agente: 'Revisor', projeto: 'Novo' }, w).error, /mais de um agente/);
+  assert.equal(normalizeAction({ acao: 'vincular_agente', agente: 'Revisor', projeto: 'Novo' }, w).payload.agentId, 'a2', 'nome repetido: usa o da IA conectada em vez de travar');
   assert.equal(normalizeAction({ acao: 'vincular_agente', agente: 'Revisor', provedor: 'claude', projeto: 'Novo' }, w).payload.agentId, 'a2');
   assert.match(normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Fantasma' }, w).error, /não existe/);
   w.projects[1].agentIds = ['a1']; assert.match(normalizeAction({ acao: 'vincular_agente', agente: 'Desenvolvedor', projeto: 'Novo' }, w).error, /já trabalha/);
@@ -266,6 +266,21 @@ test('Assistente: proposta duplicada vira vínculo ao projeto novo, com aprovaç
   assert.deepEqual(store.get('projects', 'p-novo').agentIds, [dev.id]);
   assert.deepEqual(store.get('projects', 'p-canal').agentIds, [dev.id]);
   assert.equal(store.list('agents').filter(a => !a.internal).length, 2);
+});
+
+test('Assistente: no projeto em foco, agente existente vira vínculo e vínculo já presente some do plano', async () => {
+  const { asst, say, done, store, dev } = await rig(); say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); await done();
+  const project = await addProject(store, 'novo-projeto');
+  say(block({ acao: 'criar_agente', nome: 'Desenvolvedor', funcao: 'Programação', provedor: 'codex' }));
+  await asst.ask('Traga o Desenvolvedor', { projectId: project.id });
+  let msg = (await done()).messages.at(-1);
+  assert.deepEqual(msg.actions.map(a => a.type), ['vincular_agente']);
+  await asst.apply(msg.id, 0);
+  say(block({ acao: 'criar_agente', nome: 'Desenvolvedor', funcao: 'Programação', provedor: 'codex' }));
+  await asst.ask('Use o Desenvolvedor de novo', { projectId: project.id });
+  msg = (await done()).messages.at(-1);
+  assert.equal(msg.actions.length, 0);
+  assert.deepEqual(store.get('projects', project.id).agentIds, [dev.id]);
 });
 
 test('Assistente: projeto e equipe podem ser propostos juntos e aprovados em ordem', async () => {

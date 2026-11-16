@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
-import { join, delimiter } from 'node:path';
+import { join, delimiter, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { effortsFor } from './effort.mjs';
 const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
@@ -86,7 +86,7 @@ export function checkKiroLogin({ find = findProgram, spawnProcess = spawn, timeo
 }
 
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
-export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, browserOutputDir = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
+export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
   const provider = (catalog || connectors()).find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
   if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
@@ -96,6 +96,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     if (extraDir && resumeId) throw new Error('Não é possível autorizar pasta extra ao continuar uma sessão do Codex. Inicie uma tarefa nova.');
     args = resumeId ? ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode="${mode}"`] : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', mode];
     if (extraDir) args.push('--add-dir', extraDir);
+    if (imagePath) args.push('--image', imagePath);
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('-c', `model_reasoning_effort="${e}"`); }
     args.push(...codexBrowserArgs(agent.browser, agent.browser === 'isolado' ? playwrightServer(findLocalPlaywright, browserOutputDir) : undefined));
@@ -109,6 +110,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     args = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--mode', agent.mode === 'write' ? 'accept-edits' : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
     if (cwd) args.push('--add-dir', cwd);
     if (extraDir) args.push('--add-dir', extraDir);
+    if (imagePath) args.push('--add-dir', dirname(imagePath));
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
     if (resumeId) args.push('--conversation', resumeId);
@@ -124,6 +126,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     const mcpOn = browserOn || (agent.mcpTools || []).some(s => /^[\w-]{1,40}$/.test(s));
     args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' || mcpOn ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
     if (extraDir) args.push('--add-dir', extraDir);
+    if (imagePath) args.push('--add-dir', dirname(imagePath));
     if (mcpOn && agent.mode !== 'write') args.push('--disallowedTools', browserOn ? 'Edit,Write,NotebookEdit,Bash,PowerShell' : 'Edit,Write,NotebookEdit');
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
     for (const prog of agent.commands || []) if (/^[\w.-]{1,40}$/.test(prog)) for (const tool of ['Bash', 'PowerShell']) args.push('--allowedTools', `${tool}(${prog}:*)`);
@@ -146,9 +149,12 @@ export const agyHeadlessNote = (mode, extraDir = null) => `[Execução automáti
 // A CLI saiu sem resposta porque uma ferramenta pediu permissão e o modo sem tela negou (mensagem “no output produced … auto-denied” do Antigravity).
 export function deniedTool(text = '') { const t = String(text); if (!/auto-denied|headless mode cannot prompt/i.test(t)) return null; return t.match(/required the "?([\w.-]{1,40})"? permission/i)?.[1] || 'ferramenta'; }
 export const MODEL_ERROR = /invalid model|not recognized as a known model|unknown model|model_not_found|model .{0,60}(not found|does not exist|is not supported|isn't supported|not available)/i;
+// Só frases de erro de login. Antes qualquer "login", "sign in" ou "credential" na saída
+// (ex.: a IA falando de uma página de login) virava "faça login" e levava a pessoa ao lugar errado.
+export const AUTH_ERROR = /not (?:logged|signed) in|please (?:log ?in|sign ?in|re-?authenticate|run [\w\s-]{0,30}login)|(?:log ?in|sign ?in|authentication|auth) (?:is )?(?:required|failed|expired|error)|unauthori[sz]ed|\b401\b|invalid (?:api[ _-]?key|token|credentials?)|api[ _-]?key (?:is )?(?:missing|invalid|not (?:set|found))|(?:missing|expired|no) credentials?|credentials? (?:expired|not found|missing|are invalid|is invalid)|(?:token|session) (?:has )?expired/i;
 export function classifyFailure(text = '') {
   if (MODEL_ERROR.test(text)) return 'model';
-  if (/not logged in|log ?in|sign ?in|unauthori[sz]ed|\b401\b|authentication|invalid api key|credential/i.test(text)) return 'auth';
+  if (AUTH_ERROR.test(text)) return 'auth';
   if (/rate.?limit|usage limit|quota|\b429\b|too many requests/i.test(text)) return 'rate_limit';
   return null;
 }

@@ -1,5 +1,7 @@
 # Roadmap
 
+> **Registro histórico.** A abertura abaixo descreve a preparação da 0.3.3 em 09/11/2026; a 0.3.5 já foi publicada. Para o estado atual, pendências verificadas e próxima rodada, leia [HANDOFF-CLAUDE-ATUAL.md](HANDOFF-CLAUDE-ATUAL.md). Itens antigos deste roadmap podem já ter sido entregues.
+
 Legenda: ✅ feito · ⬜ a fazer
 
 Atualizado em 09/11/2026, considerando o código e o [CHANGELOG.md](../CHANGELOG.md) até a versão 0.3.1. O arquivo [STATUS-2026-11-06.md](STATUS-2026-11-06.md) registra a validação daquela data, não o estado atual.

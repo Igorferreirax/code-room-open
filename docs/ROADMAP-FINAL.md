@@ -1,5 +1,7 @@
 # Roadmap final: últimas verificações até a entrega pública
 
+> **Histórico de lançamentos anteriores.** A 0.3.5 já foi publicada; consulte [HANDOFF-CLAUDE-ATUAL.md](HANDOFF-CLAUDE-ATUAL.md) para o estado atual.
+
 Legenda: ✅ feito · 🔄 em andamento · ⬜ a fazer · 👤 depende do Igor
 
 ## A. Qualidade (eu faço)

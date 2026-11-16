@@ -321,7 +321,7 @@ function saveLink(b) {
   const when = ['approved', 'rejected'].includes(b.when) ? b.when : 'always';   // quando seguir: sempre, só se aprovado ou só se reprovado
   return store.put('links', { id: randomUUID(), projectId: project.id, from: from.id, to: to.id, maxHops, when, enabled: true, createdAt: new Date().toISOString() });
 }
-async function body(req) { const limit = 100000; let size = 0, chunks = [], tooLarge = false; for await (const chunk of req) { size = Math.min(limit + 1, size + chunk.length); if (size > limit) { tooLarge = true; chunks = []; continue; } if (!tooLarge) chunks.push(chunk); } if (tooLarge) throw Object.assign(new Error('Requisição muito grande'), { status: 413 }); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
+async function body(req, limit = 100000) { let size = 0, chunks = [], tooLarge = false; for await (const chunk of req) { size = Math.min(limit + 1, size + chunk.length); if (size > limit) { tooLarge = true; chunks = []; continue; } if (!tooLarge) chunks.push(chunk); } if (tooLarge) throw Object.assign(new Error('Requisição muito grande'), { status: 413 }); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 
 const brief = t => ({ hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
@@ -500,7 +500,7 @@ const handle = async (req, res) => {
       if (get && p === '/api/finance/balance') { const project = store.get('projects', url.searchParams.get('project') || ''); if (!project || project.area !== 'Financeiro') throw new Error('Projeto financeiro não encontrado.'); return send(res, 200, balances(store, project.id)); }
       if (req.method === 'POST') {
         if (!req.headers['content-type']?.startsWith('application/json')) return send(res, 415, { error: 'Envie JSON' });
-        const b = await body(req);
+        const b = await body(req, p === '/api/assistant/ask' ? 1500000 : 100000);
         res.once('finish', () => { if (res.statusCode < 400) auditRoute(p, b, auth); });   // trilha de ações: só o que deu certo
         if (p === '/api/connectors/login') { masterOnly(auth); return send(res, 200, launchLogin(text(b.provider, 30))); }
         if (p === '/api/connectors/cli-action') { masterOnly(auth); return send(res, 200, launchCliAction(text(b.provider, 30), text(b.action, 20))); }
@@ -623,7 +623,7 @@ const handle = async (req, res) => {
         if (p.startsWith('/api/assistant/')) {
           masterOnly(auth); const a = p.slice('/api/assistant/'.length);
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
-          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null }));
+          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null, image: typeof b.image === 'string' ? b.image : null }));
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null }));
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
@@ -671,6 +671,7 @@ const handle = async (req, res) => {
         if (p === '/api/agents') return send(res, 200, saveAgent(b));
         if (p === '/api/runs' || p === '/api/tasks') {
           const agent = store.get('agents', b.agentId);
+          if (agent?.internal) throw new Error('Agente interno só pode ser usado pelo Assistente.');
           if (agent && !installed(agent)) throw Object.assign(new Error('Provedor não instalado.'), { failureKind: 'executable_missing' });
           const { task, duplicate } = createTask(store, { ...b, objective: social.expandMentions(b.objective ?? b.prompt).text });   // +conta vira o bloco "contas para postar"
           send(res, duplicate ? 200 : 201, brief(task)); void runner.pump(); return;

@@ -17,7 +17,9 @@ test('pacote: hashes incluem somente ZIP e Setup da versão escolhida', { skip: 
     };
     for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content);
     const script = new URL('../installer/sums.ps1', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, '');
-    const result = spawnSync('pwsh.exe', ['-NoProfile', '-File', decodeURIComponent(script), '-OutDir', dir, '-Version', '0.3.5'], { encoding: 'utf8' });
+    // Mesmo PowerShell do build e do release.yml (Windows PowerShell 5.1, presente em todo Windows).
+    // Antes chamava pwsh.exe (PowerShell 7), que não vem instalado no Windows e quebrava o teste.
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', decodeURIComponent(script), '-OutDir', dir, '-Version', '0.3.5'], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const lines = readFileSync(join(dir, 'SHA256SUMS.txt'), 'utf8').trim().split(/\r?\n/);
     assert.equal(lines.length, 2);

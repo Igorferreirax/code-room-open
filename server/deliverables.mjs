@@ -10,7 +10,9 @@ const SENSITIVE_NAME = /(^|[._-])(secrets?|tokens?|credentials?|passwords?|passw
 const redactDiff = text => text.replace(/((?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|passwd|secret)\s*["']?\s*[:=]\s*["']?)[^"'\s,;}]+/gi, '$1[OCULTO]');
 
 // Foto da pasta: caminho relativo → tamanho e mtime. "complete:false" quando a pasta é grande demais.
-export async function snapshot(root, { strict = false } = {}) {
+// shallow: só o primeiro nível (arquivos e nomes das subpastas). Serve para pastas grandes como a Área de Trabalho,
+// em que pedir "organize" mexe justamente no primeiro nível e ler a árvore inteira estoura o limite ou trava em arquivo em uso.
+export async function snapshot(root, { strict = false, shallow = false } = {}) {
   const files = new Map();
   let complete = true, reason = null, textBytes = 0;
   async function walk(dir) {
@@ -19,7 +21,7 @@ export async function snapshot(root, { strict = false } = {}) {
       if (files.size >= MAX_FILES) { complete = false; reason = 'A pasta tem mais de 5.000 arquivos.'; return; }
       if (e.isSymbolicLink()) continue;
       const path = join(dir, e.name);
-      if (e.isDirectory()) { if (!SKIP.has(e.name)) await walk(path); }
+      if (e.isDirectory()) { if (SKIP.has(e.name)) continue; if (shallow) files.set(relative(root, path).split(sep).join('/') + '/', { size: 0, mtimeMs: 0, dir: true }); else await walk(path); }
       else if (e.isFile()) { try {
         const s = await stat(path), rel = relative(root, path).split(sep).join('/'), item = { size: s.size, mtimeMs: s.mtimeMs };
         if (TEXT_EXT.has(extname(path).toLowerCase()) && !SENSITIVE_NAME.test(e.name) && s.size <= MAX_DIFF_FILE && textBytes + s.size <= MAX_DIFF_SNAPSHOT) {
@@ -27,11 +29,11 @@ export async function snapshot(root, { strict = false } = {}) {
           try { item.text = redactDiff(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); textBytes += s.size; } catch {}
         }
         files.set(rel, item);
-      } catch { if (strict) { complete = false; reason = 'Um arquivo não pôde ser lido.'; } } }
+      } catch { if (strict && !shallow) { complete = false; reason = 'Um arquivo não pôde ser lido.'; } else if (shallow) files.set(relative(root, path).split(sep).join('/'), { size: -1, mtimeMs: 0 }); } }
     }
   }
   await walk(root);
-  return { files, complete, ...(reason ? { reason } : {}) };
+  return { files, complete, ...(shallow ? { shallow: true } : {}), ...(reason ? { reason } : {}) };
 }
 
 async function sha256(path, size) {
@@ -62,7 +64,7 @@ export async function diffSnapshots(root, before, after) {
   for (const [path, now] of after.files) {
     const old = before.files.get(path);
     if (!old || old.size !== now.size || old.mtimeMs !== now.mtimeMs) {
-      const item = { path, change: old ? 'modified' : 'created', bytes: now.size, sha256: await sha256(join(root, path), now.size) };
+      const item = { path, change: old ? 'modified' : 'created', bytes: now.dir || now.size < 0 ? null : now.size, sha256: now.dir || now.size < 0 ? null : await sha256(join(root, path), now.size).catch(() => null) };
       if ((old?.text != null || !old) && now.text != null) {
         const diff = unifiedDiff(path, old?.text ?? null, now.text);
         if (diff && diffChars + diff.length <= MAX_TASK_DIFF_CHARS) { item.diff = diff; diffChars += diff.length; }

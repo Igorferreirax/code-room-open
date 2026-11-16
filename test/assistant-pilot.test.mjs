@@ -4,6 +4,8 @@ import { Store } from '../server/store.mjs';
 import { Assistant, buildPrompt } from '../server/assistant.mjs';
 import { assistantHtml } from '../public/assistant-ui.js';
 import { command } from '../server/connectors.mjs';
+import { decodeChatImage } from '../server/chat-image.mjs';
+import { existsSync } from 'node:fs';
 import { tempDir } from './helpers.mjs';
 
 const world = async () => ({ agents: [], teams: [], links: [], projects: [], skills: [], connected: new Set(['claude']), runs: [], flows: [], folderJobs: [] });
@@ -36,6 +38,35 @@ test('modo piloto: desligado por padrão; ligado, o agente interno vira escrita 
   store.put('settings', { ...store.get('settings', 'assistant'), pending: null });
   await asst.setAutonomy('ask'); await asst.ask('de novo');
   ag = store.get('agents', 'assistant-claude'); assert.equal(ag.mode, 'read'); assert.deepEqual(ag.mcpTools, []); assert.equal(ag.browser, 'off');
+});
+
+test('chat: print PNG validado entra como arquivo local na tarefa e nos comandos das IAs', async () => {
+  const { asst, store, tasks } = await make();
+  const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRwAAAABJRU5ErkJggg==';
+  assert.equal(decodeChatImage(image).ext, 'png');
+  await asst.ask('Leia o erro do print', { image });
+  const path = tasks[0].imagePath;
+  assert.ok(existsSync(path)); assert.match(tasks[0].objective, /PRINT ANEXADO/);
+  assert.equal((await asst.status()).messages.find(m => m.role === 'user')?.hasImage, true);
+  const catalog = ['codex', 'claude', 'agy'].map(id => ({ id, path: id }));
+  const opts = { catalog, cwd: 'C:/projeto', imagePath: path };
+  const codex = command({ provider: 'codex', mode: 'read' }, 'oi', opts);
+  assert.equal(codex.args[codex.args.indexOf('--image') + 1], path);
+  for (const provider of ['claude', 'agy']) {
+    const args = command({ provider, mode: 'read' }, 'oi', opts).args;
+    assert.ok(args.includes('--add-dir') && args.includes(path.slice(0, path.lastIndexOf('\\'))), provider);
+  }
+  store.put('settings', { ...store.get('settings', 'assistant'), pending: null });
+  await assert.rejects(() => asst.ask('inválido', { image: 'data:image/png;base64,YWJj' }), /conteúdo|formato/i);
+});
+
+test('chat geral: Modo Piloto aceita pasta externa por autorização pontual, sem projeto em foco', async () => {
+  const { asst, store, tasks } = await make();
+  await asst.setAutonomy('pilot');
+  const dir = process.cwd();
+  await asst.ask('Organize esta pasta', { extraDir: dir });
+  assert.equal(tasks[0].projectId, 'assistant-internal');
+  assert.equal(tasks[0].extraDir, dir);
 });
 
 test('modo piloto: recusa projeto financeiro em foco, valor inválido e troca com resposta em andamento', async () => {

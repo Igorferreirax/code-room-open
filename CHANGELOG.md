@@ -9,6 +9,19 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.6] - 2026-11-16
+
+### Corrigido
+- **Montar equipe sem travar:** o Nico reaproveita agente com nome que já existe (em qualquer IA), troca a IA que não está conectada pela que está, tira do agente opções que só valem para outra IA e dá “(2)” à equipe com nome repetido. Ele avisa o que ajustou no fim da resposta.
+- **Pasta citada no chat:** “organize a minha Área de Trabalho” funciona sem projeto selecionado, com uma janela só (caminho editável, o que a autorização libera e o Modo Piloto). Palavras soltas como “documento”, “downloads” ou “app desktop” não pedem mais autorização; caminho com espaço sem aspas vem inteiro.
+- **Pasta grande:** com mais de 5.000 arquivos ou arquivo em uso, o Code Room acompanha o primeiro nível em vez de recusar a tarefa, e o chat avisa.
+- Área de Trabalho, Downloads e Documentos pelo caminho real do Windows (OneDrive).
+- Aviso de login só com erro de login de verdade; limite de uso e modelo recusado ganham orientação e botão no chat.
+- Teste do pacote usa o mesmo PowerShell do build.
+
+### Adicionado
+- **Prints no Nico:** cole ou anexe PNG, JPG ou WebP de até 1 MB; Codex, Claude Code e Antigravity leem a imagem. Cada print fica numa pasta própria e é apagado quando a resposta chega.
+
 ## [0.3.4] - 2026-11-11
 
 ### Adicionado

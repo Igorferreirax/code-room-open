@@ -1,5 +1,7 @@
 # Checklist de lançamento (Code Room 0.3.1)
 
+> **Checklist histórico da 0.3.1.** Para retomar o estado depois da publicação da 0.3.5, leia [HANDOFF-CLAUDE-ATUAL.md](HANDOFF-CLAUDE-ATUAL.md).
+
 Marque cada item antes de divulgar. **[x]** = já verificado (com a data); **[ ]** = falta testar.
 
 ## 1. Instalação e atualização
