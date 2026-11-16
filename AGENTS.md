@@ -3,7 +3,7 @@
 Code Room: orquestrador local de agentes de IA para Windows. Node ESM **sem dependências**, `node:sqlite`, front em JavaScript puro, serviço em `127.0.0.1:4780`, acesso por `X-Code-Room-Key`. Responda e escreva textos de interface em **português do Brasil**.
 
 ## Comandos
-- Testes: `node --test test/*.test.mjs` (última suíte completa: 479). Auditoria de segurança: `node scripts/audit-security.mjs` (66). Sintaxe: `node scripts/check.mjs`.
+- Testes: `node --test test/*.test.mjs` (última suíte completa: 485). Auditoria de segurança: `node scripts/audit-security.mjs` (66). Sintaxe: `node scripts/check.mjs`.
 - Interface (Playwright do Python): `python scripts/ui_smoke.py` (156), `crawl_ui.py`, `ui_assistant.py`, `ui_onboarding.py`, `ui_mention.py`, `ui_providers.py`, `test_radio.py`, `ui_updates.py`, `ui_touch.py`, `ui_live.py`, `ui_canvas_live.py`. **Não edite arquivos enquanto eles rodam.**
 - Pacote Windows: `powershell -File installer\build.ps1`, depois `scripts\smoke-package.ps1`.
 - Reiniciar o serviço: `scripts\stop.ps1 -Seguro` (recusa se há tarefa rodando) e `scripts\start.ps1 -Silencioso`. Nunca reinicie com o usuário no meio de uma aprovação.
@@ -29,6 +29,8 @@ Code Room: orquestrador local de agentes de IA para Windows. Node ESM **sem depe
 - Testes não podem depender do Codex, Claude ou Antigravity instalados: no CI do GitHub eles não existem (use um executável falso no PATH, como em `test/terminais.test.mjs`).
 
 ## Estado atual (16/11/2026)
+
+- **0.3.7 PUBLICADA em 16/11/2026** (commit `acbf398`, tag `v0.3.7`, zip `151915dc…`, Setup `4b7fcc5f…`, landing `9bd334b`). Entrou: `server/files-mcp.mjs` (ferramenta MCP “arquivos”: listar, criar pasta e mover, presa às pastas da tarefa, nunca apaga nem sobrescreve; ligada ao Claude que edita, porque o Claude não tem “mover” e o terminal é bloqueado); seletor de IA/modelo/esforço do Nico no topo do chat (`aiButton`/`aiPanel` em `public/chat-ui.js`, `setProvider(p, { model, effort })`); cartão de pasta no chat (“Só ver” sem Piloto / “Ver e editar”) lembrado na conversa; motivo real da recusa numa bolha; `knownFolders` via PowerShell UTF-8 + OneDrive; `quietStderr` para o ruído do Codex; cenário vivo removido. Homologação real: Claude e Codex organizaram uma Área de Trabalho (OneDrive, acento) sem perder arquivo; **Antigravity não consegue mover** (trava pedindo permissão; só aceita MCP pela configuração global `agy mcp add`, que não alteramos).
 
 - **0.3.6 PUBLICADA em 16/11/2026** em `code-room-open` (público, MIT): commit `90b1912`, tag `v0.3.6`, Release com zip `76b5f8db…` e Setup `968cdcfe…` conferidos com `SHA256SUMS.txt`; landing (`c406b37`) na Vercel com os links novos. Publicação feita com `git push https://github.com/Igorferreirax/code-room-open.git HEAD:refs/heads/main` (o remoto `legacy-public` está sem push de propósito) e a landing publicada de uma cópia limpa (`git worktree`) para não levar mudanças locais dela. Inclui: `fixProposal` (Nico sem travas ao montar equipe), pasta grande acompanhada no primeiro nível (`snapshot({ shallow })`), `server/known-folders.mjs` (OneDrive), `public/chat-paths.js` (pasta citada no chat), uma janela só para autorizar pasta, prints em pasta própria apagada após a resposta, `AUTH_ERROR` mais preciso. Homologação real em 16/11 com Codex, Claude e Antigravity: arquivos, pasta extra, recusa sem autorização e leitura de print passaram.
 
