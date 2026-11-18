@@ -30,11 +30,18 @@ export function hostAllowed(hostHeader, port, bound) {
   const h = String(hostHeader || '').toLowerCase();
   if (h === `127.0.0.1:${port}` || h === `localhost:${port}`) return true;
   if (bound.some(b => h === `${b.ip}:${port}`)) return true;
-  const m = h.match(/^(?:[a-z0-9-]+\.)+ts\.net:(\d+)$/); // nome MagicDNS do Tailscale
-  return !!m && Number(m[1]) === port && bound.some(b => b.kind === 'tailscale');
+  if (bound.some(b => b.kind === 'tailscale') && /^(?:[a-z0-9-]+\.)+ts\.net(?::(?:443|\d+))?$/.test(h)) {
+    const p = h.includes(':') ? Number(h.split(':').pop()) : 443;
+    return p === port || p === 443 || p === 8443;
+  }
+  return false;
 }
 export function originAllowed(origin, port, bound) {
-  try { const u = new URL(origin); return u.protocol === 'http:' && hostAllowed(u.host, port, bound); } catch { return false; }
+  try {
+    const u = new URL(origin);
+    const okProto = u.protocol === 'http:' || (u.protocol === 'https:' && /\.ts\.net$/i.test(u.hostname));
+    return okProto && hostAllowed(u.host, port, bound);
+  } catch { return false; }
 }
 
 const EXES = [process.env.ProgramFiles && join(process.env.ProgramFiles, 'Tailscale', 'tailscale.exe'), 'tailscale'].filter(Boolean);
@@ -148,4 +155,37 @@ export function phoneGuide(view, checks = []) {
   lines.push('', '**Passo a passo:**', '1. Em **Configurações › Acesso**, ligue Tailscale ou Rede local.', '2. Se o celular não abrir a página, clique em **Liberar no firewall do Windows** (o Windows pede a sua permissão uma vez).', '3. Clique em **Parear um celular** e escaneie o QR (ou abra o endereço e digite o código).', '4. Tailscale: o app precisa estar instalado e ligado no celular, na mesma conta do computador.');
   lines.push('', '⚠️ A Rede local usa HTTP sem criptografia: desligue fora de casa. O celular pareado recebe um token próprio que você revoga em Acesso.');
   return lines.join(String.fromCharCode(10));
+}
+
+// HTTPS privado via Tailscale Serve (destrava microfone/ditado por voz no navegador do celular).
+export function tailscaleServeStatus(dnsName = null, port = 4780) {
+  const exe = EXES.find(p => p === 'tailscale' || existsSync(p));
+  return new Promise(resolve => {
+    if (!exe) return resolve({ active: false, httpsUrl: null });
+    execFile(exe, ['serve', 'status', '--json'], { timeout: 4000, windowsHide: true }, (_err, stdout) => {
+      try {
+        const raw = String(stdout || '').trim();
+        const active = raw.includes(`:${port}`) || (raw.length > 4 && raw !== '{}' && /Web|TCP/i.test(raw));
+        resolve({ active, httpsUrl: active && dnsName ? ['https:', '', dnsName, ''].join('/') : null });
+      } catch {
+        resolve({ active: false, httpsUrl: null });
+      }
+    });
+  });
+}
+
+export function setTailscaleHttps(port, enable = true, dnsName = null) {
+  const exe = EXES.find(p => p === 'tailscale' || existsSync(p));
+  return new Promise((resolve, reject) => {
+    if (!exe) return reject(new Error('O Tailscale não está instalado neste computador.'));
+    const args = enable ? ['serve', '--bg', String(port)] : ['serve', '--https=443', 'off'];
+    execFile(exe, args, { timeout: 15000, windowsHide: true }, async (err, stdout, stderr) => {
+      const msg = `${stdout || ''} ${stderr || ''} ${err?.message || ''}`.trim();
+      if (err && enable && /HTTPS.*not enabled|enable HTTPS|admin console/i.test(msg)) {
+        return reject(new Error('Ative “HTTPS Certificates” uma única vez no painel DNS da sua conta Tailscale e clique aqui novamente.'));
+      }
+      if (err && enable) return reject(new Error('Não foi possível ativar o HTTPS no Tailscale: ' + msg.split(/\r?\n/)[0].slice(0, 180)));
+      resolve(await tailscaleServeStatus(dnsName, port));
+    });
+  });
 }

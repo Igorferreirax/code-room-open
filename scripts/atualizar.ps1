@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $log = Join-Path $Data 'update.log'
 function Log($m) { try { Add-Content -LiteralPath $log -Value ('{0:s} {1}' -f (Get-Date), $m) } catch {} }
 function Port-Open { try { $c = New-Object Net.Sockets.TcpClient; $r = $c.BeginConnect('127.0.0.1', $Port, $null, $null); $ok = $r.AsyncWaitHandle.WaitOne(400) -and $c.Connected; $c.Close(); $ok } catch { $false } }
-function Stop-Service-In($dir) { $env:CODE_ROOM_NO_PAUSE = '1'; Start-Process powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'scripts\stop.ps1') + '"') -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue; for ($i = 0; $i -lt 40 -and (Port-Open); $i++) { Start-Sleep -Milliseconds 500 } }
+function Stop-Service-In($dir, $flag = '-Seguro') { $env:CODE_ROOM_NO_PAUSE = '1'; $env:CODE_ROOM_DATA = $Data; $env:CODE_ROOM_PORT = [string]$Port; Start-Process powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'scripts\stop.ps1') + '" ' + $flag) -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue; for ($i = 0; $i -lt 40 -and (Port-Open); $i++) { Start-Sleep -Milliseconds 500 } }
 function Start-Service-In($dir) { $env:CODE_ROOM_NO_BROWSER = '1'; $env:CODE_ROOM_NO_PROMPT = '1'; $env:CODE_ROOM_DATA = $Data; $env:CODE_ROOM_PORT = [string]$Port; Start-Process powershell.exe -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'scripts\start.ps1') + '"') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $Data 'update-start.log') -RedirectStandardError (Join-Path $Data 'update-start-erro.log') }
 function Wait-Version($want, $seconds) {
   $key = (Get-Content -LiteralPath (Join-Path $Data 'access.key') -Raw).Trim(); $deadline = (Get-Date).AddSeconds($seconds)
@@ -53,7 +53,7 @@ try {
   # 6) volta para a versão anterior
   try {
     if ($swapped) {
-      if (Test-Path -LiteralPath $AppDir) { Stop-Service-In $AppDir; Remove-Item -LiteralPath $AppDir -Recurse -Force }
+      if (Test-Path -LiteralPath $AppDir) { Stop-Service-In $AppDir '-Forcar'; Remove-Item -LiteralPath $AppDir -Recurse -Force }
       Move-Item -LiteralPath $backup -Destination $AppDir; Log 'VOLTOU para a versao anterior'
     }
     if (-not (Port-Open)) { Start-Service-In $AppDir }

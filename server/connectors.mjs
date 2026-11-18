@@ -87,7 +87,7 @@ export function checkKiroLogin({ find = findProgram, spawnProcess = spawn, timeo
 }
 
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
-export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
+export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, opsLog = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
   const provider = (catalog || connectors()).find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
   if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
@@ -134,7 +134,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     // Ferramentas MCP liberadas por servidor (ex.: flow-studio). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP.
     for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
     // Criar pasta e mover/renomear sem terminal (o Claude não tem "mover"): ferramenta própria, presa às pastas desta tarefa, sem apagar nem sobrescrever.
-    if (agent.mode === 'write' && (cwd || extraDir)) args.push('--mcp-config', JSON.stringify({ mcpServers: { [FILES_MCP]: filesServer([cwd, extraDir]) } }), '--allowedTools', `mcp__${FILES_MCP}`);
+    if (agent.mode === 'write' && (cwd || extraDir)) args.push('--mcp-config', JSON.stringify({ mcpServers: { [FILES_MCP]: filesServer([cwd, extraDir], { opsLog }) } }), '--allowedTools', `mcp__${FILES_MCP}`);
     if (agent.skillTool) args.push('--allowedTools', 'Skill');   // o Assistente em modo piloto usa as skills instaladas (a ferramenta Skill só carrega instruções)
     if (agent.web) args.push('--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch');   // pesquisa na internet (só leitura)
     args.push(...claudeBrowserArgs(agent.browser, agent.browser === 'isolado' ? playwrightServer(findLocalPlaywright, browserOutputDir) : undefined));
@@ -176,7 +176,13 @@ export function classifyFailure(text = '') {
 
 export function normalize(provider, e) {
   if (provider === 'agy') {
-    // O modo stream-json emite init, step_update e result; só o result fecha esta tarefa.
+    // O modo stream-json emite init, step_update e result; step_update alimenta o andamento ao vivo e result fecha a tarefa.
+    if (e.event === 'step_update' || e.type === 'step_update') {
+      const step = e.step || e, tools = (step.tool_calls || e.tool_calls || []).map(c => c?.name || c?.tool_name).filter(Boolean);
+      if (tools.length) return { type: 'activity', text: `Ferramentas: ${tools.join(', ')}` };
+      const label = step.summary || step.stateDetail || e.summary || e.tool_name;
+      return label ? { type: 'activity', text: `Etapa: ${String(label).replace(/\s+/g, ' ').trim().slice(0, 90)}` } : null;
+    }
     if (e.event === 'result') e = e.result || {};
     if (!('conversation_id' in e) && !('status' in e)) return null;
     const out = []; if (e.conversation_id) out.push({ type: 'session', text: e.conversation_id });
@@ -201,7 +207,9 @@ export function normalize(provider, e) {
     if (e.type === 'item.completed' && e.item?.type === 'agent_message') return { type: 'answer', text: e.item.text };
     if (e.type === 'turn.completed') return { type: 'usage', usage: { input: e.usage?.input_tokens ?? null, output: e.usage?.output_tokens ?? null, cached: e.usage?.cached_input_tokens ?? null, cost: null } };
     if (e.type === 'error' || e.type === 'turn.failed') return { type: 'error', text: e.message || e.error?.message || 'Falha do provedor' };
-    if (e.item?.type === 'command_execution') return { type: 'activity', text: `${e.item.command || 'Comando'}\n${e.item.aggregated_output || ''}` };
+    if (e.item?.type === 'mcp_tool_call') return { type: 'activity', text: `Ferramentas: ${[e.item.server, e.item.tool].filter(Boolean).join('/') || 'MCP'}` };
+    if (e.item?.type === 'file_change') return { type: 'activity', text: `Etapa: editando ${(e.item.changes || []).map(c => c?.path).filter(Boolean).slice(0, 3).join(', ') || 'arquivos'}` };
+    if (e.item?.type === 'command_execution') { const cmd = String(e.item.command || 'comando').replace(/\s+/g, ' ').trim().slice(0, 90); return { type: 'activity', text: `Executando: ${cmd}${e.item.aggregated_output ? '\n' + e.item.aggregated_output : ''}` }; }
   } else {
     if (e.type === 'system' && e.subtype === 'init') return { type: 'session', text: e.session_id, model: e.model };
     if (e.type === 'assistant') {

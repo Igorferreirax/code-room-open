@@ -3,7 +3,7 @@ import { createTask } from './tasks.mjs';
 
 // Receita = passos que se repetem. Cada passo é de um agente (vira tarefa normal) ou seu (você faz por fora e marca "concluí").
 // Qualquer passo pode pedir a sua aprovação antes de começar. A execução de uma receita é um registro "recipeRuns" que anda um passo por vez.
-export const KINDS = ['video', 'app', 'outro'];
+export const KINDS = ['video', 'app', 'site', 'automacao', 'outro'];
 const now = () => new Date().toISOString();
 const text = (v, max, label, required = true) => {
   if (v == null || v === '') { if (required) throw new Error(`${label}: obrigatório.`); return ''; }

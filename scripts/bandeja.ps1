@@ -27,6 +27,8 @@ $ni = New-Object System.Windows.Forms.NotifyIcon
 $ni.Text = 'Code Room'
 $ni.Icon = if (Test-Path -LiteralPath $iconPath) { New-Object System.Drawing.Icon($iconPath) } else { [System.Drawing.SystemIcons]::Application }
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+$statusItem = New-Object System.Windows.Forms.ToolStripMenuItem('Code Room · ativo'); $statusItem.Enabled = $false; [void]$menu.Items.Add($statusItem)
+[void]$menu.Items.Add('-')
 $abrir = $menu.Items.Add('Abrir o Code Room'); $abrir.Font = New-Object System.Drawing.Font($abrir.Font, [System.Drawing.FontStyle]::Bold)
 [void]$menu.Items.Add('-')
 $inicio = New-Object System.Windows.Forms.ToolStripMenuItem('Iniciar com o Windows'); $inicio.CheckOnClick = $true; [void]$menu.Items.Add($inicio)
@@ -36,6 +38,7 @@ $ni.ContextMenuStrip = $menu
 
 $abrir.add_Click({ Invoke-Script 'start.ps1' })
 $ni.add_DoubleClick({ Invoke-Script 'start.ps1' })
+$ni.add_BalloonTipClicked({ Invoke-Script 'start.ps1' })
 $menu.add_Opening({ $inicio.Checked = Test-Inicio })
 $inicio.add_Click({ if ($inicio.Checked) { Invoke-Script 'iniciar-com-windows.ps1' -Wait } else { Invoke-Script 'iniciar-com-windows.ps1' @('-Remover') -Wait } })
 $fechar.add_Click({
@@ -45,14 +48,84 @@ $fechar.add_Click({
   [System.Windows.Forms.Application]::Exit()
 })
 
+$seenFail = @{}
+$seenDone = @{}
+$bootAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+function Update-StatusBandeja {
+  $kf = Join-Path $env:CODE_ROOM_DATA 'access.key'
+  if (-not (Test-Path -LiteralPath $kf)) { return }
+  try {
+    $k = (Get-Content -LiteralPath $kf -Raw).Trim()
+    $st = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/state" -Headers @{ 'X-Code-Room-Key' = $k } -TimeoutSec 2
+    $runs = @($st.runs)
+    $act = @($runs | Where-Object { $_.status -eq 'running' -or $_.status -eq 'cancelling' }).Count
+    $wait = @($runs | Where-Object { $_.status -eq 'queued' -or $_.status -eq 'waiting_dependency' }).Count
+    $txt = if ($act -gt 0) { "Code Room · $act rodando" + $(if ($wait -gt 0) { " · $wait fila" } else { '' }) } elseif ($wait -gt 0) { "Code Room · $wait na fila" } else { 'Code Room · pronto' }
+    if ($txt.Length -gt 63) { $txt = $txt.Substring(0, 63) }
+    $ni.Text = $txt
+    $statusItem.Text = $txt
+    foreach ($r in ($runs | Select-Object -First 8)) {
+      if (($r.status -eq 'failed' -or $r.status -eq 'blocked') -and -not $script:seenFail.ContainsKey($r.id)) {
+        $script:seenFail[$r.id] = $true
+        $ag = if ($r.agent.name) { $r.agent.name } else { 'Agente' }
+        $ni.ShowBalloonTip(5000, "Code Room · $ag parou", ([string]$r.prompt).Substring(0, [Math]::Min(90, ([string]$r.prompt).Length)), [System.Windows.Forms.ToolTipIcon]::Warning)
+        break
+      }
+      if ($r.status -eq 'completed' -and $null -ne $r.qaScore -and -not $script:seenDone.ContainsKey($r.id)) {
+        $script:seenDone[$r.id] = $true
+        $updMs = try { [DateTimeOffset]::Parse([string]$r.updatedAt).ToUnixTimeMilliseconds() } catch { 0 }
+        if ($updMs -ge $script:bootAt) {
+          $ag = if ($r.agent.name) { $r.agent.name } else { 'Agente' }
+          $qaLbl = if ($r.qaStatus -eq 'ok') { "Qualidade $($r.qaScore)% OK" } else { "Qualidade $($r.qaScore)% (revisar)" }
+          $ni.ShowBalloonTip(4000, "Code Room · $ag concluiu ($qaLbl)", ([string]$r.prompt).Substring(0, [Math]::Min(90, ([string]$r.prompt).Length)), [System.Windows.Forms.ToolTipIcon]::Info)
+          break
+        }
+      }
+    }
+  } catch {}
+}
+
+function Invoke-NicoVoz {
+  $kf = Join-Path $env:CODE_ROOM_DATA 'access.key'
+  if (-not (Test-Path -LiteralPath $kf)) { return }
+  try {
+    $k = (Get-Content -LiteralPath $kf -Raw).Trim()
+    [void](Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/voice-hotkey" -Headers @{ 'X-Code-Room-Key' = $k } -ContentType 'application/json' -Body '{}' -TimeoutSec 2)
+    $ws = New-Object -ComObject WScript.Shell
+    if (-not $ws.AppActivate('Nico · Code Room')) { [void]$ws.AppActivate('Code Room') }
+  } catch {}
+}
+
+Add-Type -ReferencedAssemblies 'System.Windows.Forms' -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public class CrHotKeyWin : NativeWindow {
+  [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mod, uint vk);
+  [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+  public event Action Pressed;
+  public CrHotKeyWin() { CreateHandle(new CreateParams()); }
+  protected override void WndProc(ref Message m) {
+    if (m.Msg == 0x0312 && Pressed != null) Pressed();
+    base.WndProc(ref m);
+  }
+}
+"@
+$hk = $null
+try {
+  $hk = New-Object CrHotKeyWin
+  $hk.add_Pressed({ Invoke-NicoVoz })
+  [void][CrHotKeyWin]::RegisterHotKey($hk.Handle, 1, 0x4006, 0x20) # Ctrl+Shift+Espaço
+} catch {}
+
 $falhas = 0
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = [Math]::Max(1, $IntervaloSeg) * 1000
 $timer.add_Tick({
-  if (Test-Servico) { $script:falhas = 0 } else { $script:falhas++ }
+  if (Test-Servico) { $script:falhas = 0; Update-StatusBandeja } else { $script:falhas++ }
   if ($script:falhas -ge $FalhasMax) { $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() }
 })
 $ni.Visible = $true
 $timer.Start()
 try { [System.Windows.Forms.Application]::Run() }
-finally { $timer.Stop(); $ni.Visible = $false; $ni.Dispose(); $mutex.ReleaseMutex(); $mutex.Dispose() }
+finally { if ($hk) { try { [void][CrHotKeyWin]::UnregisterHotKey($hk.Handle, 1); $hk.DestroyHandle() } catch {} }; $timer.Stop(); $ni.Visible = $false; $ni.Dispose(); $mutex.ReleaseMutex(); $mutex.Dispose() }

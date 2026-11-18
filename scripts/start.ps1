@@ -32,7 +32,18 @@ function Test-NossoServico([int]$p) {
   if (-not (Test-Path -LiteralPath $keyFile)) { return $false }
   try { $k = (Get-Content -LiteralPath $keyFile -Raw).Trim(); $null = Invoke-RestMethod -Uri "http://127.0.0.1:$p/api/state" -Headers @{'X-Code-Room-Key'=$k} -TimeoutSec 2; $true } catch { $false }
 }
+function Test-OutroCodeRoom([int]$p) {
+  try { $m = Invoke-RestMethod -Uri "http://127.0.0.1:$p/manifest.webmanifest" -TimeoutSec 1; return ($m.name -eq 'Code Room') } catch { return $false }
+}
+function Focus-JanelaExistente {
+  try { return [bool](New-Object -ComObject WScript.Shell).AppActivate('Code Room') } catch { return $false }
+}
 if (-not $portaExplicita -and (Test-PortaEmUso $port) -and -not (Test-NossoServico $port)) {
+  if ($env:CODE_ROOM_ALLOW_MULTI -ne '1' -and (Test-OutroCodeRoom $port)) {
+    if (Focus-JanelaExistente) { exit 0 }
+    Show-Erro "Já existe um Code Room aberto na porta $port. Use a janela que já está aberta ou encerre-o pelo ícone perto do relógio antes de abrir outro."
+    exit 1
+  }
   $livre = 4781..4799 | Where-Object { -not (Test-PortaEmUso $_) } | Select-Object -First 1
   if (-not $livre) { throw "As portas 4780 a 4799 estão ocupadas. Feche outro Code Room ou defina CODE_ROOM_PORT." }
   $port = $livre
@@ -40,11 +51,13 @@ if (-not $portaExplicita -and (Test-PortaEmUso $port) -and -not (Test-NossoServi
 $env:CODE_ROOM_PORT = [string]$port
 if (-not $portaExplicita) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null; Set-Content -LiteralPath $portFile -Value $port }
 $base = "http://127.0.0.1:$port"
+$alreadyRunning = $false
 if (Test-Path -LiteralPath $keyFile) {
   try {
     $key = (Get-Content -LiteralPath $keyFile -Raw).Trim()
     $state = Invoke-RestMethod -Uri "$base/api/state" -Headers @{'X-Code-Room-Key'=$key} -TimeoutSec 2
     $reachable = $true
+    $alreadyRunning = $true
     $expected = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
     if ($state.runtime.version -ne $expected) {
       Write-Host "Um Code Room da versao $($state.runtime.version) ainda esta ativo (esperado: $expected)."
@@ -102,6 +115,7 @@ function Find-Navegador {
   $null
 }
 if ($env:CODE_ROOM_NO_BROWSER -ne '1') {
+  if ($alreadyRunning -and (Focus-JanelaExistente)) { exit 0 }
   $url = "$base/#" + $key
   $nav = if ($env:CODE_ROOM_JANELA -eq 'navegador') { $null } else { Find-Navegador }
   if ($nav) { Start-Process -FilePath $nav -ArgumentList @("--app=$url", '--window-size=1366,880') }

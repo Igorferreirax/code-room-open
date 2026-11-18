@@ -42,8 +42,8 @@ export function parseSums(text) {
 }
 
 export class Updates {
-  constructor({ store, version, dataDir, appDir = null, port = 4780, repo = DEFAULT_REPO, releasesUrl = '', fetchImpl = globalThis.fetch, intervalMs = 12 * 3600e3, timeoutMs = 5000, downloadTimeoutMs = 10 * 60e3, spawnImpl = spawn, now = Date.now } = {}) {
-    Object.assign(this, { store, version, dataDir, appDir, port, repo, releasesUrl, fetchImpl, intervalMs, timeoutMs, downloadTimeoutMs, spawnImpl, now });
+  constructor({ store, version, dataDir, appDir = null, port = 4780, repo = DEFAULT_REPO, releasesUrl = '', fetchImpl = globalThis.fetch, intervalMs = 12 * 3600e3, timeoutMs = 5000, downloadTimeoutMs = 10 * 60e3, spawnImpl = spawn, countRunning = null, now = Date.now } = {}) {
+    Object.assign(this, { store, version, dataDir, appDir, port, repo, releasesUrl, fetchImpl, intervalMs, timeoutMs, downloadTimeoutMs, spawnImpl, countRunning, now });
     this.latest = null; this.checkedAt = null; this.error = null; this.dl = { state: 'idle' }; this.timer = null;
     const saved = store?.get('settings', 'updates'); if (saved?.latest) { this.latest = saved.latest; this.checkedAt = saved.checkedAt || null; }
   }
@@ -145,6 +145,7 @@ export class Updates {
   // ---------- instalar (só pacote portátil/instalado; quem roda pelo código-fonte usa git pull) ----------
   install({ scriptPath, expectedPort = this.port } = {}) {
     if (!this.packaged) throw new Error('Esta cópia roda pelo código-fonte: atualize com “git pull”. A instalação em um clique vale para o pacote do Windows.');
+    if (this.countRunning && this.countRunning() > 0) throw new Error('Há tarefa em execução agora. Aguarde terminar ou cancele antes de instalar a atualização.');
     const d = this.dl; if (d.state !== 'ready' || !d.file || !existsSync(d.file)) throw new Error('Baixe e confira a atualização antes de instalar.');
     const hash = createHash('sha256').update(readFileSync(d.file)).digest('hex'); if (hash !== d.sha256) throw new Error('O arquivo baixado mudou depois da conferência. Baixe de novo.');
     const script = scriptPath || join(this.appDir, 'scripts', 'atualizar.ps1'); if (!existsSync(script)) throw new Error('O script de atualização não foi encontrado.');

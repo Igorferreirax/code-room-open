@@ -9,6 +9,21 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.8] - 2026-11-18
+
+### Adicionado
+- **Navegador interno multi-abas e pré-visualização ao vivo:** acompanhe composições HyperFrames, sites, landing pages e servidores dev locais sem sair do Code Room, lado a lado com o chat/Canvas (**Navegador** no topo) ou dentro da Sala (**Cenário | Canvas | Navegador**), nos formatos **Desktop**, **Celular (390×844)** e **Vertical 9:16**, com recarregamento automático ao salvar e botão **🎯 Ajustar** direto na tela aberta. Inclui proxy reverso estritamente local (`/lp/:porta/:token/`) que evita bloqueios `X-Frame-Options` e permite ver servidores `localhost` pelo celular via Tailscale.
+- **Estúdio de Artefatos, Storyboard e Portão de Qualidade nas Entregas:** as entregas agora contam com as abas **Prévia**, **Artefatos** (Cue Sheet de vídeo com minutagem e `[motion]`, blocos copiáveis em 1 clique, checklist e resumo estruturado) e **Storyboard** (cenas numeradas lado a lado com botão *Pedir ajuste só na Cena X*), além de validação técnica automática (sintaxe JS/JSON/Python, chaves expostas, HTML mobile/ativos locais e métricas de vídeo/áudio) e download completo em **`.zip`**.
+- **Nico Flutuante (estilo Wispr Flow + mini-janela sempre visível):** chame o ditado inteligente com `Ctrl+Espaço` no app ou `Ctrl+Shift+Espaço` em qualquer programa do Windows; ele limpa vícios de fala, formata em texto ou lista e insere onde o cursor estiver. Com **⧉ Destacar Nico**, uma mini-janela sempre no topo acompanha os projetos e alertas mesmo com o Code Room minimizado.
+- **Tela inicial com modelos de prompt, padrões de qualidade e lista interativa:** atalhos para *Desenvolver*, *Criar site*, *Editar vídeo*, *Automação*, *Pesquisar* e *Revisar entrega* já montam o pedido com `[campos selecionáveis]`, chips de qualidade por área e construtor de lista.
+- **Orquestração consciente de cota, auto-fallback e comparação entre IAs:** perfis *Poupar cota*, *Equilibrado* e *Qualidade máxima* em **Consumo e limites**, comando `/alethe`, reencaminhamento automático para outra IA conectada quando uma atinge `rate_limit`, comparação em paralelo isolada em worktree Git e destaque âmbar-dourado **`★ Orquestrador`** no agente líder.
+- **Ponto de restauração Git por tarefa e desfazer organização de pasta:** tarefas de escrita em repositórios Git permitem **Reverter alterações** em 1 clique sem sujar o `index`, e pastas externas organizadas pelo Nico têm botão **Desfazer organização**.
+- **Nico seguro no celular pareado e HTTPS em 1 clique no Tailscale:** converse com o Nico pelo celular sem expor caminhos locais do PC e ative HTTPS privado via `tailscale serve` em **Configurações › Acesso**.
+
+### Alterado
+- **Nico mais direto e execução sem travas desnecessárias:** sem autoapresentações repetidas, memórias permanentes via `/aprender` e `/memorias`, ações aplicadas direto no Modo Piloto, planos/subtarefas sem bloqueio manual (`directExec`) e alertas de aprovação focados apenas em mídia (imagens/vídeos), lotes e redes sociais (`mediaOnlyReview`).
+- **Proteção de instância única:** trava `instance.lock` e ativação da janela existente impedem abrir dois Code Rooms duplicados na mesma máquina; atualizações bloqueiam instalação enquanto houver tarefa em execução.
+
 ## [0.3.7] - 2026-11-16
 
 ### Adicionado

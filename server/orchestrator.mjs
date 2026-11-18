@@ -1,8 +1,9 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { proposeSubtasks } from './subtasks.mjs';
+import { proposeSubtasks, approveSubtask } from './subtasks.mjs';
 import { createTask, transition } from './tasks.mjs';
 import { emptyContext, mayShare } from './context.mjs';
 import { planPrompt, parsePlan, validatePlan } from './supervisor.mjs';
+import { qaSummaryBadge } from './quality-gates.mjs';
 
 const STOP_RE = /SEM PEND[ÊE]NCIAS|VEREDITO:\s*APROVADO/i, DEFAULT_HOPS = 3;
 export const ROLES = ['desenvolvedor', 'revisor', 'editor', 'pesquisador', 'financeiro', 'operacoes', 'supervisor'];
@@ -35,7 +36,7 @@ export class Orchestrator {
     return new Set(ids.filter(id => known.has(id)));
   }
 
-  // ---------- fluxo sequencial: desenvolvedor → revisor, com correção limitada ----------
+  // ---------- fluxo sequencial: desenvolvedor → revisor (ou direto sem revisor quando skipReview está ativo) ----------
   startSequential(input) {
     const requestId = String(input.requestId || '');
     if (!requestId) throw new Error('requestId obrigatório.');
@@ -44,15 +45,15 @@ export class Orchestrator {
     const project = this.store.get('projects', input.projectId), team = this.store.get('teams', input.teamId);
     if (!project || !team) throw new Error('Escolha projeto e equipe.');
     const dev = team.members.find(m => m.role === 'desenvolvedor'), reviewer = team.members.find(m => m.role === 'revisor');
-    if (!dev || !reviewer) throw new Error('A equipe precisa de um desenvolvedor e um revisor.');
-    for (const m of [dev, reviewer]) if (!mayShare(project.area || 'Geral', this.store.get('agents', m.agentId).room)) throw new Error('Projeto financeiro: o agente não é do ambiente financeiro.');
+    const skipReview = input.skipReview === true || (!reviewer && this.store.get('settings', 'orchestrationPolicy')?.directExec === true);
+    if (!dev || (!skipReview && !reviewer)) throw new Error('A equipe precisa de um desenvolvedor e um revisor.');
+    for (const m of (skipReview ? [dev] : [dev, reviewer])) if (!mayShare(project.area || 'Geral', this.store.get('agents', m.agentId).room)) throw new Error('Projeto financeiro: o agente não é do ambiente financeiro.');
     const common = { projectId: project.id, criteria: input.criteria || [], limits: input.limits };
-    const flow = { id: randomUUID(), kind: 'sequential', requestId, projectId: project.id, teamId: team.id, objective: String(input.objective || '').trim(), criteria: common.criteria, round: 1, maxReviewRounds: Math.min(3, Math.max(1, Math.trunc(input.maxReviewRounds) || 1)), taskIds: [], status: 'running', verdict: null, createdAt: now() };
+    const flow = { id: randomUUID(), kind: 'sequential', requestId, projectId: project.id, teamId: team.id, objective: String(input.objective || '').trim(), criteria: common.criteria, round: 1, maxReviewRounds: skipReview ? 0 : Math.min(3, Math.max(1, Math.trunc(input.maxReviewRounds) || 1)), taskIds: [], status: 'running', verdict: skipReview ? 'approved' : null, createdAt: now() };
     if (!flow.objective) throw new Error('Objetivo obrigatório.');
     this.store.put('projects', { ...project, teamIds: [...new Set([...this.projectTeamIds(project), team.id])] });
     const t1 = createTask(this.store, { ...common, requestId: `${requestId}:dev:1`, agentId: dev.agentId, objective: flow.objective, inputs: input.inputs, flowId: flow.id, step: 'dev' }).task;
-    const t2 = this.reviewTask(flow, t1, reviewer.agentId, 1);
-    flow.taskIds = [t1.id, t2.id];
+    flow.taskIds = skipReview ? [t1.id] : [t1.id, this.reviewTask(flow, t1, reviewer.agentId, 1).id];
     this.store.put('flows', flow);
     this.pump();
     return { flow, duplicate: false };
@@ -88,11 +89,19 @@ export class Orchestrator {
 
   onFinal(task) {
     if (task.status === 'completed' && task.kind === 'work' && !task.batchId) { try { this.social?.proposePosts(task, this.attemptAnswer(task)).catch(() => {}); } catch {} }   // propostas de postagem do agente (+conta): só viram post se a pessoa aprovar
-    if (task.status === 'completed' && task.kind === 'work' && !task.batchId) { try { proposeSubtasks(this.store, task, this.attemptAnswer(task)); } catch {} }   // pedidos de ajuda entre agentes: só viram tarefa se a pessoa aprovar
+    if (task.status === 'completed' && task.kind === 'work' && !task.batchId) {
+      try {
+        const subs = proposeSubtasks(this.store, task, this.attemptAnswer(task));
+        if (subs.length && task.project?.area !== 'Financeiro' && (this.store.get('settings', 'orchestrationPolicy')?.directExec === true || this.store.get('settings', 'assistant')?.autonomy === 'pilot')) {
+          for (const sb of subs) { try { approveSubtask(this.store, this, sb.id); } catch {} }
+          this.pump();
+        }
+      } catch {}
+    }   // pedidos de ajuda entre agentes: rodam direto quando autorizado (Piloto / execução direta), ou aguardam aprovação
     if (task.batchId) { try { this.batches?.onFinal(task); } catch (e) { this.store.event(task.id, { type: 'diagnostic', text: `Falha no lote: ${e.message}`, at: new Date().toISOString() }); } return; }
     if (task.status === 'completed' && task.kind === 'work' && (task.step !== 'review' || task.result.deliverables.files.length)) this.recordDeliverable(task);
     if (task.kind === 'plan') return this.onPlanFinished(task);
-    if (!task.flowId && String(task.requestId || '').startsWith('routine:') && ['completed', 'failed', 'blocked', 'interrupted'].includes(task.status)) { try { this.routineDone?.({ requestId: task.requestId, status: task.status, text: task.status === 'completed' ? this.attemptAnswer(task) || task.result?.summary : task.reason || task.result?.summary, project: task.project }); } catch {} }
+    if (!task.flowId && String(task.requestId || '').startsWith('routine:') && ['completed', 'failed', 'blocked', 'interrupted'].includes(task.status)) { const qb = qaSummaryBadge(task.result?.qaGate); try { this.routineDone?.({ requestId: task.requestId, status: task.status, text: (task.status === 'completed' ? this.attemptAnswer(task) || task.result?.summary : task.reason || task.result?.summary) + (qb ? `\n\n${qb}` : ''), project: task.project }); } catch {} }
     if (!task.flowId) return this.forwardLinks(task);
     const flow = this.store.get('flows', task.flowId); if (!flow) return;
     if (task.status === 'completed') {
@@ -106,7 +115,8 @@ export class Orchestrator {
     if (f.status !== 'running' && String(f.requestId || '').startsWith('routine:') && !f.notifiedAt) {   // rotina com equipe: avisa uma vez, com a última entrega do desenvolvedor
       f.notifiedAt = now(); this.store.put('flows', f);
       const dev = f.taskIds.map(id => this.store.get('tasks', id)).filter(t => t?.status === 'completed' && t.step !== 'review').at(-1);
-      try { this.routineDone?.({ requestId: f.requestId, status: f.status, text: dev ? this.attemptAnswer(dev) || dev.result?.summary : '', project: task.project }); } catch {}
+      const qb = qaSummaryBadge(dev?.result?.qaGate);
+      try { this.routineDone?.({ requestId: f.requestId, status: f.status, text: (dev ? this.attemptAnswer(dev) || dev.result?.summary : '') + (qb ? `\n\n${qb}` : ''), project: task.project }); } catch {}
     }
   }
 

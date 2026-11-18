@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ArchivePath = (Join-Path $PSScriptRoot ("..\dist\Code-Room-" + (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json).version + "-portatil-win-x64.zip")),
   [string]$AppPath = ''
 )

@@ -2,7 +2,7 @@
 import { icon } from './icons.js';
 import { esc, hero, empty, note } from './views.js';
 
-const KIND = { video: 'Vídeo', app: 'App / código', outro: 'Outro' };
+const KIND = { video: 'Vídeo', app: 'App / código', site: 'Site / Landing', automacao: 'Automação', outro: 'Outro' };
 const RUN = { running: ['Rodando', 'ok'], waiting: ['Esperando você', 'warn'], done: ['Concluída', 'ok'], failed: ['Falhou', 'bad'], cancelled: ['Cancelada', ''] };
 export const ROWS = 8;
 
@@ -16,6 +16,14 @@ export const TEMPLATES = {
     { type: 'agent', role: 'roteirista', title: 'Roteiro', prompt: 'Escreva o roteiro do vídeo seguindo o formato do canal.' },
     { type: 'agent', role: 'diretor', title: 'Produção do vídeo', prompt: 'Produza o vídeo a partir do roteiro aprovado e entregue a prévia na pasta do projeto.', approval: true },
     { type: 'agent', role: 'revisor', title: 'Revisão e texto da postagem', prompt: 'Revise a prévia e escreva título, descrição e hashtags.', approval: true }] },
+  'site-landing': { name: 'Site / Landing: estrutura, implementação responsiva e revisão', kind: 'site', description: 'Define seções e oferta, constrói a página responsiva (desktop e celular) e revisa experiência e conversão.', outside: '', steps: [
+    { type: 'agent', role: 'texto', title: 'Estrutura e textos', prompt: 'Estruture as seções da página (hero, benefícios, prova social, oferta, FAQ e chamada final) com textos diretos e naturais.' },
+    { type: 'agent', role: 'desenvolvedor', title: 'Construir o site', prompt: 'Implemente a página com identidade visual marcante, responsiva no computador e no celular (390px) e sem rolagem lateral.' },
+    { type: 'agent', role: 'interface', title: 'Revisão visual e mobile', prompt: 'Revise contraste, hierarquia, botões de toque, estados de formulário e clareza. Aponte ajustes por impacto.', approval: true }] },
+  'automacao-fluxo': { name: 'Automação: mapear, criar script seguro e validar', kind: 'automacao', description: 'Mapeia entradas e riscos, implementa a automação de forma reversível e valida antes de virar rotina.', outside: '', steps: [
+    { type: 'agent', role: 'arquitetura', title: 'Mapear entradas e segurança', prompt: 'Mapeie arquivos/entradas, saídas esperadas e o que nunca pode apagar ou sobrescrever dados.' },
+    { type: 'agent', role: 'desenvolvedor', title: 'Implementar automação', prompt: 'Implemente o script ou fluxo de forma idempotente, com tratamento claro de erros e registro do que processou.' },
+    { type: 'agent', role: 'teste', title: 'Validar a seco', prompt: 'Teste os cenários principais e de falha sem afetar dados reais e entregue o resumo de validação.', approval: true }] },
   'app-novo': { name: 'App novo: desenvolver, revisar e testar', kind: 'app', description: 'Um agente desenvolve, outro revisa e outro testa. Você aprova a revisão antes de fechar.', outside: 'Se preferir programar por fora, use o passo "Eu faço por fora".', steps: [
     { type: 'agent', role: 'desenvolvedor', title: 'Desenvolver', prompt: 'Implemente o que foi pedido, com testes quando fizer sentido.' },
     { type: 'agent', role: 'revisor', title: 'Revisar o código', prompt: 'Revise o que foi feito: erros, segurança e clareza. Liste o que precisa mudar.', approval: true },

@@ -111,3 +111,26 @@ test('Nico: o seletor guarda IA, modelo e esforço por IA, e a próxima resposta
   s = await asst.setProvider('codex'); assert.equal(s.model, 'gpt-5.5');
   await assert.rejects(() => asst.setProvider('agy'), /não está instalada/);
 });
+
+test('Nico: pasta extra entra listada no pedido e o Antigravity cede a vez ao Claude/Codex', async () => {
+  const { Store } = await import('../server/store.mjs'); const { Assistant, loadManual, folderListing, persona } = await import('../server/assistant.mjs');
+  const data = await tempDir('cr-agy-'), pasta = join(data, 'mesa'), store = new Store(join(data, 'db.sqlite')), tasks = [];
+  try {
+    await mkdir(join(pasta, 'Fotos'), { recursive: true }); await writeFile(join(pasta, 'nota.pdf'), 'x'.repeat(2048)); await writeFile(join(pasta, 'desktop.ini'), '');
+    const l = folderListing(pasta); assert.match(l, /2 item/); assert.match(l, /\[pasta\] Fotos/); assert.match(l, /nota\.pdf \(2 KB\)/); assert.doesNotMatch(l, /desktop\.ini/);
+    assert.match(folderListing(join(data, 'nao-existe')), /não consegui ler/);
+    assert.match(persona('Nico'), /Não se apresente/); assert.doesNotMatch(persona('Nico'), /avise em uma linha/);
+    let connected = new Set(['agy', 'codex']);
+    const world = async () => ({ agents: [], teams: [], projects: [], connected, skills: [], runs: [] });
+    const asst = new Assistant({ store, root: process.cwd(), dataDir: data, world, pump: () => {}, mcpFn: () => [], createTaskFn: (st, input) => { const task = { id: 't' + tasks.length, ...input }; tasks.push(task); store.put('tasks', { ...task, status: 'completed', result: { summary: 'Pronto.' } }); return { task }; } });
+    store.put('settings', { id: 'assistant', provider: 'agy', autonomy: 'pilot', briefedAt: new Date().toISOString(), manualHash: loadManual(process.cwd()).hash, knowledge: 'x', messages: [], thread: { id: 't1', title: 'T' }, others: [], order: ['t1'] });
+    await asst.ask('Organize a pasta', { extraDir: pasta });
+    assert.equal(store.get('agents', tasks[0].agentId).provider, 'codex', 'Antigravity não mexe em pasta externa: usa o Codex conectado');
+    assert.match(tasks[0].objective, /PASTA EXTRA AUTORIZADA[\s\S]*nota\.pdf/);
+    const s = await asst.status(); assert.match(s.messages.at(-1).text, /Respondi com o Codex desta vez/); assert.equal(s.provider, 'agy', 'a escolha da pessoa não muda');
+    connected = new Set(['agy']); await asst.ask('E agora?', { extraDir: pasta });
+    assert.equal(store.get('agents', tasks[1].agentId).provider, 'agy', 'só Antigravity conectado: segue com ele');
+    await asst.ask('Sem pasta extra');
+    assert.doesNotMatch(tasks[2].objective, /PASTA EXTRA AUTORIZADA/);
+  } finally { store.close?.(); await rm(data, { recursive: true, force: true }).catch(() => {}); }
+});

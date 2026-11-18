@@ -43,7 +43,7 @@ import { proposeDecision, resolveProposal } from './context.mjs';
 import { simulateFlow } from './simulate.mjs';
 import { approveSubtask, dismissSubtask } from './subtasks.mjs';
 import { ApiLibrary } from './apilib.mjs';
-import { applyUnblocks } from './unblock.mjs';
+import { applyUnblocks, NEVER } from './unblock.mjs';
 import { SyncIas } from './sync-ias.mjs';
 import { Outbox, loggedFetch } from './outbound.mjs';
 import { usageReport, suggest as economySuggest, applySuggestions, undoEconomy } from './economy.mjs';
@@ -57,7 +57,7 @@ import { Power } from './power.mjs';
 import { AutoClean } from './autoclean.mjs';
 import { startupState, setStartup } from './startup.mjs';
 import { saveHermesFile, clearHermesFile, loadHermesFile, testHermes, validateHermes, findSsh } from './hermes.mjs';
-import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, Throttle } from './network.mjs';
+import { changeFirewall, phoneGuide, diagnoseNetwork, loadNetwork, saveNetwork, wantedAddresses, hostAllowed, originAllowed, tailscaleStatus, tailscaleServeStatus, setTailscaleHttps, Throttle } from './network.mjs';
 import { Devices } from './devices.mjs';
 import { limitsView, claudeFromEvent } from './usage.mjs';
 import { execFile } from 'node:child_process';
@@ -74,12 +74,22 @@ import { FolderJobs } from './folderjobs.mjs';
 import { describeFolder, folderLine } from './folderinfo.mjs';
 import { cleanModel, cleanEffort, effortsFor, EFFORT_LABEL, matchModel } from './effort.mjs';
 import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, MAX_CUSTOM, findProgram, launcher } from './providers.mjs';
+import { GOALS, PLAYBOOKS, getPolicy, savePolicy, quotaHeadroom, policyPromptLine, aletheCommandReport, startComparison, polishDictationWithAi } from './alethe-playbook.mjs';
+import { acquireInstanceLock } from './single-instance.mjs';
+import { scanLocalPorts, scanProjectPages, liveContentType, proxyLocalPort } from './live-preview.mjs';
+import { revertTaskChanges } from './task-checkpoint.mjs';
+import { validateTaskArtifacts } from './quality-gates.mjs';
+import { buildZip } from './zip-writer.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = readPackageVersion(join(root, 'package.json'));   // uma só fonte da versão
 const data = resolve(process.env.CODE_ROOM_DATA || join(root, '.data'));
+const port = Number(process.env.CODE_ROOM_PORT || 4780);
 setHermesDir(data);
 mkdirSync(data, { recursive: true });
+let instanceLock;
+try { instanceLock = acquireInstanceLock(data, { port }); }
+catch (e) { console.error(e.message); process.exit(1); }
 const keyFile = join(data, 'access.key');
 if (!existsSync(keyFile)) writeFileSync(keyFile, randomBytes(32).toString('hex'), { mode: 0o600 });
 const key = readFileSync(keyFile, 'utf8').trim();
@@ -91,7 +101,6 @@ function projectTeamIds(project) {
   const known = new Set(store.list('teams').map(t => t.id));
   return [...new Set(ids)].filter(id => known.has(id));
 }
-const port = Number(process.env.CODE_ROOM_PORT || 4780);
 const origins = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
 let netCfg = loadNetwork(data), bound = []; // endereços extras em que o serviço escuta (Tailscale e/ou rede local)
 const throttle = new Throttle(), devices = new Devices(store);
@@ -113,10 +122,10 @@ const power = new Power({ store, countRunning: () => store.list('tasks').filter(
 power.start();
 const autoClean = new AutoClean({ store, dataDir: data, appDir: root });
 autoClean.start();
-const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '', fetchImpl: loggedFetch(store, (...a) => fetch(...a), 'Verificar atualização') });
+const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '', countRunning: () => store.list('tasks').filter(t => ['running', 'cancelling'].includes(t.status)).length, fetchImpl: loggedFetch(store, (...a) => fetch(...a), 'Verificar atualização') });
 setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
-const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees') });
+const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees'), availableProviders: () => new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)) });
 let assistantSkillsCache = null;
 async function assistantSkills() {
   const roots = store.get('settings', 'skillRoots')?.roots || [], key = JSON.stringify(roots);
@@ -130,12 +139,25 @@ async function assistantSkills() {
   return cache.pending;
 }
 const assistantWorld = async () => {
-  const skills = await assistantSkills();
-  const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => ({ id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', updatedAt: t.updatedAt, createdAt: t.createdAt, files: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').length, review: !!t.review, step: t.step || null }));
-  const focusInfo = id => { const pr = store.get('projects', id); return pr && !isInternal(pr) ? folderLine(describeFolder(pr.path)) : ''; };
+  const skills = await assistantSkills(), MEDIA_RE = /\.(mp4|webm|mov|png|jpe?g|gif|webp)$/i;
+  const runs = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 120).map(t => {
+    const liveFiles = (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted');
+    return { id: t.id, status: t.status, agent: { id: t.agent.id, name: t.agent.name }, project: { id: t.project.id, name: t.project.name }, prompt: String(t.objective).slice(0, 120), reason: t.reason || '', unblock: (t.unblock || []).filter(u => u.kind !== 'never').map(u => u.value), updatedAt: t.updatedAt, createdAt: t.createdAt, files: liveFiles.length, hasMedia: liveFiles.some(f => MEDIA_RE.test(f.path)), review: !!t.review, step: t.step || null };
+  });
+  const focusInfo = id => {
+    const pr = store.get('projects', id); if (!pr || isInternal(pr)) return '';
+    const base = folderLine(describeFolder(pr.path));
+    const agIds = new Set(pr.agentIds || []), tmIds = new Set(projectTeamIds(pr));
+    const ags = store.list('agents').filter(a => !isInternal(a) && agIds.has(a.id)).map(a => `${a.name} (${a.provider}, ${a.mode === 'write' ? 'edita' : 'leitura'})`);
+    const tms = store.list('teams').filter(t => tmIds.has(t.id)).map(t => t.name);
+    const ctx = store.get('contexts', pr.id);
+    const ctxParts = ctx ? [ctx.goals ? `Objetivos: ${String(ctx.goals).slice(0, 220)}` : '', ctx.decisions?.length ? `Decisões: ${ctx.decisions.slice(-4).join('; ').slice(0, 220)}` : '', ctx.pending?.length ? `Pendências: ${ctx.pending.slice(0, 4).join('; ').slice(0, 220)}` : ''].filter(Boolean) : [];
+    return [base, tms.length ? `Equipes no projeto: ${tms.join(', ')}.` : '', ags.length ? `Agentes no projeto: ${ags.join(', ')}.` : '', ...ctxParts].filter(Boolean).join('\n');
+  };
   // Modelos conhecidos de cada IA (do cache; a primeira consulta aquece em segundo plano) para o Assistente escolher o modelo por atividade.
   const models = {}; for (const pid of ['claude', 'codex', 'agy']) { const hit = modelCache.get(pid); if (hit) models[pid] = hit.models.map(m => m.id); else if (Date.now() - (modelWarmAt.get(pid) || 0) > 10 * 60000) { modelWarmAt.set(pid, Date.now()); modelSuggestions(pid).catch(() => {}); } }   // uma tentativa a cada 10 min por IA: consultar os modelos abre a CLI
-  return { models, focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), skills };
+  const allConn = connectors(), connSet = new Set(allConn.filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), pol = getPolicy(store);
+  return { models, mediaOnlyReview: pol.careful !== true, providerNames: Object.fromEntries(allConn.map(c => [c.id, c.name])), policyLine: policyPromptLine(store, connSet), aletheReport: aletheCommandReport(store, { connected: connSet, runs }), focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: connSet, skills };
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
@@ -179,7 +201,7 @@ const AUDIT_ROUTES = [
   [/^\/api\/tasks\/([\w-]+)\/approve$/, 'aprovou uma entrega', 'task'], [/^\/api\/tasks\/([\w-]+)\/unblock$/, 'liberou uma ferramenta para um agente', 'task'], [/^\/api\/tasks\/([\w-]+)\/request-changes$/, 'pediu ajustes em uma entrega', 'task'], [/^\/api\/(?:runs|tasks)\/([\w-]+)\/cancel$/, 'cancelou uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/retry$/, 'repetiu uma tarefa', 'task'], [/^\/api\/tasks\/([\w-]+)\/fix-model$/, 'corrigiu o modelo de um agente e repetiu a tarefa', 'task'],
   [/^\/api\/projects\/([\w-]+)\/git\/commit$/, 'commitou uma entrega no Git', 'project'], [/^\/api\/obsidian\/save$/, 'salvou uma entrega no Obsidian'], [/^\/api\/obsidian\/config$/, 'mudou o vínculo com o Obsidian'], [/^\/api\/git\/config$/, 'mudou o commit automático do Git'], [/^\/api\/projects\/([\w-]+)\/references$/, 'mudou as pastas de referência', 'project'],
   [/^\/api\/batches\/[\w-]+\/approve$/, 'liberou os créditos de um lote'], [/^\/api\/batches\/[\w-]+\/episodes\/[\w-]+\/approve-preview$/, 'aprovou a prévia de um episódio'],
-  [/^\/api\/posts\/[\w-]+\/confirm$/, 'confirmou uma publicação'], [/^\/api\/assistant\/apply$/, 'aprovou uma ação proposta pelo Assistente'], [/^\/api\/assistant\/autonomy$/, 'mudou o modo do Assistente (conversa/piloto)'], [/^\/api\/devices\/[\w-]+\/revoke$/, 'revogou o acesso de um aparelho'],
+  [/^\/api\/posts\/[\w-]+\/confirm$/, 'confirmou uma publicação'], [/^\/api\/assistant\/apply$/, 'aprovou uma ação proposta pelo Assistente'], [/^\/api\/assistant\/autonomy$/, 'mudou o modo do Assistente (conversa/piloto)'], [/^\/api\/assistant\/undo-folder$/, 'desfez uma organização de pasta pelo Assistente'], [/^\/api\/assistant\/cancel$/, 'cancelou a resposta do Assistente'], [/^\/api\/devices\/[\w-]+\/revoke$/, 'revogou o acesso de um aparelho'],
 ];
 function auditRoute(p, b, auth) {
   try {
@@ -201,7 +223,59 @@ function retryNow(id) {
   store.put('tasks', t);   // grava o novo limite: retryTask lê a tarefa de novo (sem isso, “Limite de 1 tentativa” bloqueava quem foi interrompido por reinício)
   const r = retryTask(store, id); void runner.pump(); return r;
 }
-const assistant = new Assistant({ retryTask: async id => retryNow(id), saveMemory: async ({ title, text, projectId }) => { const cfg = obsCfg(), pj = projectId ? store.get('projects', projectId) : null; if (cfg.enabled && cfg.vault && cfg.allowWrite && pj?.area !== 'Financeiro') { const r = await obsSave(cfg, { project: pj?.name || 'Geral', area: pj?.area, agent: 'Assistente', title, summary: text, files: [] }); return { where: 'obsidian', rel: r.rel }; } return { where: 'local' }; }, store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide({ addresses: bound.map(b => ({ ...b, url: `http://${b.ip}:${port}/` })) }) });
+function taskThumbs(t) {
+  if (!t) return [];
+  const IMG = /\.(png|jpe?g|webp|gif|svg)$/i, out = [];
+  const tok = mintToken(key, t.id), extTok = t.extraDir ? mintToken(key, `ext:${t.id}`) : null;
+  for (const f of t.result?.deliverables?.files || []) {
+    if (f.change !== 'deleted' && IMG.test(f.path)) out.push({ path: f.path, name: f.path.split('/').pop(), url: `/d/${t.id}/${tok}/${f.path.split('/').map(encodeURIComponent).join('/')}` });
+    if (out.length >= 6) return out;
+  }
+  if (extTok) {
+    for (const f of t.result?.externalDeliverables?.files || []) {
+      if (f.change !== 'deleted' && IMG.test(f.path)) out.push({ path: f.path, name: f.path.split('/').pop(), external: true, url: `/de/${t.id}/${extTok}/${f.path.split('/').map(encodeURIComponent).join('/')}` });
+      if (out.length >= 6) return out;
+    }
+  }
+  return out;
+}
+const assistant = new Assistant({
+  retryTask: async id => retryNow(id),
+  cancelTask: id => runner.cancel(id),
+  thumbsFor: taskThumbs,
+  hireLibrary: async p => {
+    const conn = new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id));
+    if (p.kind === 'pack') {
+      const o = hireLibraryPack(store, saveAgent, x => orchestrator.saveTeam(x), { id: p.id, projectId: p.projectId || null, connected: conn });
+      const parts = [o.created.length ? `criados: ${o.created.join(', ')}` : '', o.reused.length ? `reaproveitados: ${o.reused.join(', ')}` : ''].filter(Boolean).join('; ');
+      return { result: `Pacote contratado${o.team ? ` (${o.team})` : ''}${parts ? ` — ${parts}` : ''}.`, projectId: o.projectId || null };
+    }
+    const { agent: ag, projectId } = hireLibraryAgent(store, saveAgent, { id: p.id, provider: p.provider, projectId: p.projectId || null });
+    return { result: `Especialista “${ag.name}” (${ag.provider}) contratado${projectId ? ' e vinculado ao projeto' : ''}.`, projectId };
+  },
+  manageRoutine: async ({ routineId, op }) => {
+    const r = store.get('routines', routineId); if (!r) throw new Error('Rotina não encontrada.');
+    if (op === 'rodar') { routines.run(r); return { result: `Rotina “${r.name}” colocada para rodar.`, projectId: r.projectId || null, view: 'routines' }; }
+    routines.setStatus(r.id, op === 'pausar' ? 'paused' : 'active');
+    return { result: `Rotina “${r.name}” ${op === 'pausar' ? 'pausada' : 'retomada'}.`, projectId: r.projectId || null, view: 'routines' };
+  },
+  saveContext: async ({ projectId, goals, decisions, pending }) => {
+    const pr = store.get('projects', projectId); if (!pr) throw new Error('Projeto não encontrado.');
+    const cur = store.get('contexts', pr.id) || emptyContext(pr.id);
+    store.put('contexts', cleanContext({ goals: goals !== undefined ? goals : cur.goals, decisions: decisions !== undefined ? decisions : cur.decisions, pending: pending !== undefined ? pending : cur.pending }, cur));
+    return { result: `Contexto do projeto “${pr.name}” atualizado.`, projectId: pr.id };
+  },
+  saveOrchPolicy: async p => {
+    const pol = savePolicy(store, p);
+    return { result: `Política de orquestração atualizada: ${GOALS[pol.goal]?.label || pol.goal}${pol.careful ? ' · Modo cuidadoso' : ''}.`, view: 'usage' };
+  },
+  compareAgents: async p => {
+    const r = startComparison(store, { ...p, installed, pump: () => void runner.pump() });
+    return { result: `Comparação iniciada com ${r.tasks.length} agentes em paralelo. Acompanhe em Tarefas.` };
+  },
+  saveMemory: async ({ title, text, projectId }) => { const cfg = obsCfg(), pj = projectId ? store.get('projects', projectId) : null; if (cfg.enabled && cfg.vault && cfg.allowWrite && pj?.area !== 'Financeiro') { const r = await obsSave(cfg, { project: pj?.name || 'Geral', area: pj?.area, agent: 'Assistente', title, summary: text, files: [] }); return { where: 'obsidian', rel: r.rel }; } return { where: 'local' }; },
+  store, root, dataDir: data, world: assistantWorld, pump: () => void runner.pump(), createTaskFn: createTask, saveAgent: b => saveAgent(b), saveTeam: b => orchestrator.saveTeam(b), saveProject: createProjectFolder, startTask: startAssistantTask, saveLink: async p => saveLink(p), saveSkill: spec => createSkillFile(store, data, spec), saveFolderJob: p => createFolderJob(p), importProject: p => registerProject(p), saveChannel: p => createChannel(p), saveRoutine: p => routines.save(p), phoneHelp: async () => phoneGuide({ addresses: bound.map(b => ({ ...b, url: `http://${b.ip}:${port}/` })) }),
+});
 orchestrator.attach(runner);
 orchestrator.batches = new Batches(store, orchestrator);
 const recipes = new Recipes(store, { pump: () => void runner.pump() });
@@ -267,6 +341,7 @@ function saveAgent(b) {
           if (!Array.isArray(b.skillIds) || b.skillIds.length > 8 || b.skillIds.some(s => typeof s !== 'string')) throw new Error('Escolha até 8 skills.');
           const prev = b.id ? store.get('agents', b.id) : null;
           const commands = [...new Set((b.commands ?? prev?.commands ?? []).map(c => String(c).trim()).filter(Boolean))]; if (commands.length > 10 || commands.some(c => !/^[\w.-]{1,40}$/.test(c))) throw new Error('Programas liberados: até 10 nomes simples (ex.: yt-dlp, ffmpeg), sem caminhos nem espaços.');
+          if (commands.some(c => NEVER.has(c.toLowerCase().replace(/\.(exe|cmd|bat)$/i, '')) || /^remove-item$/i.test(c))) throw new Error('Shells e comandos de exclusão (powershell, cmd, bash, rm, del) nunca podem ser liberados.');
           const mcpTools = [...new Set((b.mcpTools ?? prev?.mcpTools ?? []).map(c => String(c).trim()).filter(Boolean))]; if (mcpTools.length > 6 || mcpTools.some(c => !/^[\w-]{1,40}$/.test(c))) throw new Error('Ferramentas MCP liberadas: até 6 nomes de servidor (ex.: flow-studio, elevenlabs), sem espaços.');
           if (mcpTools.length && b.provider !== 'claude') throw new Error('A liberação de ferramentas MCP só vale para o Claude Code.');
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
@@ -327,16 +402,19 @@ async function body(req, limit = 100000) { let size = 0, chunks = [], tooLarge =
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 
 const brief = t => ({ hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
-  environment: t.environment, prompt: t.objective.slice(0, 200), usage: t.usage ?? null, actualModel: t.modelReported ?? null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), externalCount: t.result?.externalDeliverables?.files?.length || 0, flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
+  environment: t.environment, prompt: t.objective.slice(0, 200), usage: t.usage ?? null, actualModel: t.modelReported ?? null, fallbackFrom: t.fallbackFrom || null, qaScore: t.result?.qaGate?.score ?? null, qaStatus: t.result?.qaGate?.status ?? null, canRevert: !!(t.result?.checkpoint?.available && !t.result?.checkpoint?.revertedAt), revertedSummary: t.result?.checkpoint?.summary || null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), externalCount: t.result?.externalDeliverables?.files?.length || 0, flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
 function detail(t) {
   const attempts = t.attempts.map(id => store.get('runs', id)).filter(Boolean);
   const last = attempts.at(-1);
   const events = [...store.events(t.id), ...attempts.flatMap(a => store.events(a.id))].sort((a, b) => a.seq - b.seq).slice(-300);
   const token = mintToken(key, t.id);
   const files = (t.result?.deliverables?.files || []).map(f => ({ ...f, url: f.change === 'deleted' ? null : `/d/${t.id}/${token}/${f.path.split('/').map(encodeURIComponent).join('/')}` }));
+  const zipUrl = files.some(f => f.change !== 'deleted') ? `/dz/${t.id}/${mintToken(key, `zip:${t.id}`)}/entrega-${t.id.slice(0, 8)}.zip` : null;
+  const extTok = t.extraDir && t.result?.externalDeliverables?.files?.length ? mintToken(key, `ext:${t.id}`) : null;
+  const externalDeliverables = t.result?.externalDeliverables ? { ...t.result.externalDeliverables, files: (t.result.externalDeliverables.files || []).map(f => ({ ...f, url: !extTok || f.change === 'deleted' ? null : `/de/${t.id}/${extTok}/${f.path.split('/').map(encodeURIComponent).join('/')}` })) } : undefined;
   const handoffs = store.list('messages').filter(m => m.fromTask === t.id || m.toTask === t.id).slice(-16);
   const handoffRow = m => ({ fromTask: m.fromTask, toTask: m.toTask, fromAgent: m.fromAgent, toAgent: m.toAgent, summary: String(m.summary || '').slice(0, 1200), files: (m.files || []).slice(0, 20).map(f => f.path), deliveredAt: m.deliveredAt, nextStatus: store.get('tasks', m.toTask)?.status || 'desconhecido' });
-  return { ...t, prompt: t.objective, answer: last?.answer || '', actualModel: t.modelReported ?? null, attempts, events, deliverables: { ...(t.result?.deliverables || { available: false, files: [] }), files }, handoffContext: { incoming: handoffs.filter(m => m.toTask === t.id).map(handoffRow), outgoing: handoffs.filter(m => m.fromTask === t.id).map(handoffRow) }, events_note: 'Eventos ordenados por seq; eventId deduplica repetições.' };
+  return { ...t, prompt: t.objective, answer: last?.answer || '', actualModel: t.modelReported ?? null, attempts, events, deliverables: { ...(t.result?.deliverables || { available: false, files: [] }), files, zipUrl }, ...(externalDeliverables ? { externalDeliverables } : {}), handoffContext: { incoming: handoffs.filter(m => m.toTask === t.id).map(handoffRow), outgoing: handoffs.filter(m => m.fromTask === t.id).map(handoffRow) }, events_note: 'Eventos ordenados por seq; eventId deduplica repetições.' };
 }
 const taskOfRun = run => store.get('tasks', run) ? run : store.get('runs', run)?.taskId ?? null;
 
@@ -353,12 +431,40 @@ async function serveRange(req, res, file, type) {
 }
 const handle = async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'self' http: https: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (!hostAllowed(req.headers.host, port, bound)) return send(res, 403, { error: 'Host não permitido' });
   if (req.headers.origin && !originAllowed(req.headers.origin, port, bound)) return send(res, 403, { error: 'Origem não permitida' });
   const ip = req.socket.remoteAddress;
   const url = new URL(req.url, origins[0]);
   try {
+    // Pré-visualização interativa de projeto (Navegador Interno: HyperFrames, sites, landing pages). Nunca para Financeiro.
+    const lv = url.pathname.match(/^\/live\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)(?:\/(.*))?$/);
+    if (lv && req.method === 'GET') {
+      const pr = store.get('projects', lv[1]);
+      if (!pr || isInternal(pr) || pr.area === 'Financeiro' || !checkToken(key, `live:${lv[1]}`, lv[2])) return send(res, 403, { error: 'Link de pré-visualização inválido ou expirado.' });
+      const rawRel = (lv[3] || 'index.html').split('/').filter(Boolean).map(decodeURIComponent).join('/') || 'index.html';
+      let file = await safeFile(pr.path, rawRel);
+      if ((await stat(file)).isDirectory()) file = await safeFile(pr.path, `${rawRel}/index.html`);
+      const ct = liveContentType(file);
+      if (/^(video|audio)\//.test(ct)) {
+        const size = (await stat(file)).size, range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+        const head = { 'Content-Type': ct, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'self'" };
+        if (!range) { res.writeHead(200, { ...head, 'Content-Length': size }); return createReadStream(file).pipe(res); }
+        const start = range[1] === '' ? Math.max(0, size - Number(range[2])) : Number(range[1]), end = range[1] === '' || range[2] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
+        if (!(start <= end) || start >= size) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
+        res.writeHead(206, { ...head, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
+        return createReadStream(file, { start, end }).pipe(res);
+      }
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'self'" });
+      return res.end(await readFile(file));
+    }
+    // Proxy local reverso (/lp/:porta/:token/...) para servidores dev locais no Navegador Interno (evita X-Frame-Options: deny e funciona pelo celular).
+    const lpm = url.pathname.match(/^\/lp\/(\d{4,5})\/([a-z0-9.]+)(?:\/(.*))?$/);
+    if (lpm && ['GET', 'HEAD'].includes(req.method)) {
+      const targetPort = Number(lpm[1]);
+      if (!checkToken(key, `lp:${targetPort}`, lpm[2])) return send(res, 403, { error: 'Link de pré-visualização local expirado.' });
+      return proxyLocalPort(req, res, { port: targetPort, subPath: '/' + (lpm[3] || ''), search: url.search, proxyPrefix: `/lp/${targetPort}/${lpm[2]}`, excludePort: port });
+    }
     // Pré-visualização de entregas: token curto por tarefa, só arquivos registrados, sem scripts (sandbox).
     const d = url.pathname.match(/^\/d\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)\/(.+)$/);
     if (d && req.method === 'GET') {
@@ -366,10 +472,49 @@ const handle = async (req, res) => {
       if (!task || !checkToken(key, d[1], d[2])) return send(res, 403, { error: 'Link de entrega inválido ou expirado.' });
       const rel = d[3].split('/').map(decodeURIComponent).join('/');
       if (!task.result?.deliverables?.files?.some(f => f.path === rel && f.change !== 'deleted')) return send(res, 404, { error: 'Arquivo não é uma entrega desta tarefa.' });
-      const file = await safeFile(task.project.path, rel);
+      const file = await safeFile(task.project.path, rel), ct = contentType(file);
+      if (/^(video|audio|image)\//.test(ct)) return serveRange(req, res, file, ct);
       res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:");
-      res.writeHead(200, { 'Content-Type': contentType(file), 'Cache-Control': 'no-store' });
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store' });
       return res.end(await readFile(file));
+    }
+    // Download de todos os arquivos finais de uma entrega em um único .zip (prático no celular e para enviar por WhatsApp/drive).
+    const dz = url.pathname.match(/^\/dz\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)\/([a-zA-Z0-9._-]+\.zip)$/);
+    if (dz && req.method === 'GET') {
+      const task = store.get('tasks', dz[1]);
+      if (!task || !checkToken(key, `zip:${dz[1]}`, dz[2])) return send(res, 403, { error: 'Link do pacote .zip inválido ou expirado.' });
+      const rawFiles = (task.result?.deliverables?.files || []).filter(f => f?.path && f.change !== 'deleted');
+      if (!rawFiles.length) return send(res, 404, { error: 'Esta entrega não possui arquivos para compactar.' });
+      const entries = [];
+      let totalBytes = 0;
+      for (const f of rawFiles.slice(0, 80)) {
+        try {
+          const full = await safeFile(task.project.path, f.path);
+          const st = await stat(full);
+          if (!st.isFile() || totalBytes + st.size > 250_000_000) continue;
+          totalBytes += st.size;
+          entries.push({ name: f.path, data: await readFile(full) });
+        } catch {}
+      }
+      if (!entries.length) return send(res, 404, { error: 'Arquivos da entrega não estão mais disponíveis na pasta.' });
+      const zipBuf = buildZip(entries);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Length': zipBuf.length,
+        'Content-Disposition': `attachment; filename="${dz[3]}"`,
+        'Cache-Control': 'no-store',
+      });
+      return res.end(zipBuf);
+    }
+    // Pré-visualização de entregas em pasta extra autorizada (ex.: fotinhas organizadas/geradas fora do projeto).
+    const de = url.pathname.match(/^\/de\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)\/(.+)$/);
+    if (de && req.method === 'GET') {
+      const task = store.get('tasks', de[1]);
+      if (!task?.extraDir || !checkToken(key, `ext:${de[1]}`, de[2])) return send(res, 403, { error: 'Link de entrega inválido ou expirado.' });
+      const rel = de[3].split('/').map(decodeURIComponent).join('/');
+      if (!task.result?.externalDeliverables?.files?.some(f => f.path === rel && f.change !== 'deleted')) return send(res, 404, { error: 'Arquivo não é uma entrega desta tarefa.' });
+      const file = await safeFile(task.extraDir, rel);
+      return serveRange(req, res, file, contentType(file));
     }
     // Vídeo/capa de um episódio de lote: token curto (1 h) por episódio, só dentro de videos/*/saida/ do projeto.
     const mm = url.pathname.match(/^\/m\/([a-zA-Z0-9-]+)\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)\/(previa|final|capa|post)$/);
@@ -412,6 +557,10 @@ const handle = async (req, res) => {
       if (get && p === '/api/network') { masterOnly(auth); return send(res, 200, await networkView()); }
       if (get && p === '/api/devices') { masterOnly(auth); return send(res, 200, devices.list().map(d => devices.view(d))); }
       if (get && p === '/api/usage/limits') return send(res, 200, { providers: limitsView(store), now: new Date().toISOString() });
+      if (get && p === '/api/orchestration') {
+        const conn = new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id));
+        return send(res, 200, { policy: getPolicy(store), goals: Object.values(GOALS), playbooks: PLAYBOOKS, headroom: quotaHeadroom(store, conn) });
+      }
       if (get && p === '/api/whoami') return send(res, 200, { level: auth });
       if (get && p === '/api/preflight') { masterOnly(auth); const pr = store.get('projects', url.searchParams.get('projectId')); return send(res, 200, await preflight({ workDir: pr?.path || '' })); }
       if (get && p === '/api/publish/status') return send(res, 200, await publisher.status());
@@ -463,6 +612,26 @@ const handle = async (req, res) => {
       if (get && p === '/api/audit') { masterOnly(auth); return send(res, 200, { entries: store.events('_audit').filter(e => e.type === 'audit').reverse().slice(0, 200).map(({ seq, type, ...e }) => e) }); }
       if (get && p === '/api/obsidian') { masterOnly(auth); return send(res, 200, await obsStatus()); }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
+      if (get && p === '/api/mobile/assistant') {
+        const st = await assistant.status();
+        return send(res, 200, { ...st, desktopPath: null, downloadsPath: null, documentsPath: null, mobile: true });
+      }
+      if (get && p === '/api/browser/ports') {
+        const ports = await scanLocalPorts({ excludePort: port });
+        return send(res, 200, { ports: ports.map(x => ({ ...x, proxyUrl: `/lp/${x.port}/${mintToken(key, `lp:${x.port}`)}/` })) });
+      }
+      if (get && p === '/api/browser/proxy-token') {
+        const tp = Number(url.searchParams.get('port'));
+        if (!Number.isInteger(tp) || tp < 1024 || tp > 65535 || tp === port) throw new Error('Porta local inválida.');
+        return send(res, 200, { port: tp, proxyUrl: `/lp/${tp}/${mintToken(key, `lp:${tp}`)}/` });
+      }
+      const pvGet = get ? p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/preview-info$/) : null;
+      if (pvGet) {
+        const pr = store.get('projects', pvGet[1]); if (!pr || isInternal(pr)) throw new Error('Projeto não encontrado.');
+        if (pr.area === 'Financeiro') return send(res, 200, { financeiro: true, baseUrl: null, pages: [] });
+        const token = mintToken(key, `live:${pr.id}`);
+        return send(res, 200, { financeiro: false, baseUrl: `/live/${pr.id}/${token}`, pages: await scanProjectPages(pr.path) });
+      }
       if (get && p === '/api/stream') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
         let last = Number(req.headers['last-event-id'] || url.searchParams.get('since') || store.lastSeq());
@@ -526,6 +695,18 @@ const handle = async (req, res) => {
         if (p === '/api/mcp/deactivate') { masterOnly(auth); return send(res, 200, mcpDeactivate(mcpCtx())); }
         if (p === '/api/retention/purge') { masterOnly(auth); return send(res, 200, await retentionClean({ store, dataDir: data, appDir: root, days: Number(b.days) || 7 })); }
         if (p === '/api/network/firewall') { masterOnly(auth); const r = await changeFirewall(b.remove === true ? 'remove' : 'add', process.execPath, port); return send(res, r.ok ? 200 : 502, r.ok ? { ok: true } : { error: r.error }); }
+        if (p === '/api/network/tailscale-https') {
+          masterOnly(auth);
+          const ts = await tailscaleStatus();
+          if (!ts.installed || ts.state !== 'Running' || !ts.name) throw new Error('Conecte o Tailscale neste computador antes de ativar o HTTPS.');
+          await setTailscaleHttps(port, b.enable !== false, ts.name);
+          return send(res, 200, await networkView());
+        }
+        if (p === '/api/voice-hotkey') {
+          masterOnly(auth);
+          store.event('_hotkey', { type: 'voice_hotkey', at: new Date().toISOString() });
+          return send(res, 200, { ok: true });
+        }
         if (p === '/api/network') { masterOnly(auth); netCfg = saveNetwork(data, { lan: b.lan === true, tailscale: b.tailscale === true }); await syncListeners(); return send(res, 200, await networkView()); }
         if (p === '/api/usage/refresh') {
           // Leitura sob demanda dos limites do Claude: uma chamada mínima (usa um pouco da sua cota). Só quando você pede.
@@ -638,6 +819,39 @@ const handle = async (req, res) => {
           if (a === 'name') return send(res, 200, await assistant.setName(b.name));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
+          if (a === 'cancel') return send(res, 200, await assistant.cancel());
+          if (a === 'undo-folder') return send(res, 200, await assistant.undoFolder(text(b.messageId, 80)));
+          if (a === 'polish-voice') {
+            const conn = new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id));
+            const prov = ['claude', 'codex', 'agy'].find(x => conn.has(x)) || [...conn][0] || null;
+            if (!prov) return send(res, 200, { ok: false, text: '' });
+            return send(res, 200, await polishDictationWithAi(text(b.text, 4000), { provider: prov, format: b.format === 'list' ? 'list' : 'text' }));
+          }
+        }
+        // Nico seguro para celular pareado (sem expor caminhos do PC nem pastas fora dos projetos).
+        if (p.startsWith('/api/mobile/assistant/')) {
+          const a = p.slice('/api/mobile/assistant/'.length);
+          const cleanMob = st => ({ ...st, desktopPath: null, downloadsPath: null, documentsPath: null, mobile: true });
+          if (a === 'ask') return send(res, 202, cleanMob(await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: null, readOnly: true })));
+          if (a === 'cancel') return send(res, 200, cleanMob(await assistant.cancel()));
+          if (a === 'dismiss') return send(res, 200, cleanMob(await assistant.dismiss(text(b.messageId, 80), Number(b.index))));
+          if (a === 'thread/select') return send(res, 200, cleanMob(await assistant.selectThread(text(b.id, 40))));
+          if (a === 'thread/new') return send(res, 200, cleanMob(await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null })));
+          if (a === 'apply') {
+            const st0 = await assistant.status(), msg = (st0.messages || []).find(x => x.id === b.messageId), act = msg?.actions?.find(x => x.idx === Number(b.index));
+            if (act && ['importar_projeto', 'criar_pasta_entrada'].includes(act.type)) throw new Error('Esta ação abre pastas locais e só pode ser aprovada no computador.');
+            const r = await assistant.apply(text(b.messageId, 80), Number(b.index));
+            return send(res, 200, { ...r, status: cleanMob(r.status) });
+          }
+        }
+        if (p === '/api/orchestration/policy') {
+          masterOnly(auth);
+          const pol = savePolicy(store, b), conn = new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id));
+          return send(res, 200, { policy: pol, goals: Object.values(GOALS), playbooks: PLAYBOOKS, headroom: quotaHeadroom(store, conn) });
+        }
+        if (p === '/api/tasks/compare') {
+          const r = startComparison(store, { projectId: b.projectId, agentIds: b.agentIds, objective: b.objective, installed, pump: () => void runner.pump() });
+          return send(res, 201, { groupId: r.groupId, tasks: r.tasks.map(brief) });
         }
         if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/git\/(init|commit)$/))) {
           masterOnly(auth); const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
@@ -684,6 +898,22 @@ const handle = async (req, res) => {
           return send(res, 200, brief(retryNow(m[1])));
         }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/fix-model$/))) { const r = await fixModel(m[1], b.model ? String(b.model).slice(0, 80) : ''); return send(res, 200, { task: brief(r.task), model: r.model, label: r.label }); }
+        if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/revert$/))) {
+          masterOnly(auth);
+          const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
+          if (['running', 'cancelling', 'queued'].includes(t.status)) throw new Error('Aguarde a tarefa terminar antes de reverter.');
+          const pr = store.get('projects', t.project?.id); if (!pr) throw new Error('O projeto desta tarefa não existe mais.');
+          const r = await revertTaskChanges(pr.path, t.result?.checkpoint, t.result?.deliverables);
+          const updated = store.put('tasks', { ...t, result: { ...(t.result || {}), checkpoint: { ...t.result.checkpoint, revertedAt: new Date().toISOString(), summary: r.summary } } });
+          return send(res, 200, { ...r, task: detail(updated) });
+        }
+        if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/validate$/))) {
+          const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
+          const pr = store.get('projects', t.project?.id);
+          const qa = await validateTaskArtifacts(pr?.path || t.project?.path || '', t);
+          const updated = store.put('tasks', { ...t, result: { ...(t.result || {}), qaGate: qa } });
+          return send(res, 200, { qa, task: detail(updated) });
+        }
         if (p === '/api/settings/limits') {
           const timeoutMin = Number(b.timeoutMin), budgetUsd = b.budgetUsd === '' || b.budgetUsd == null ? null : Number(b.budgetUsd);
           if (!(timeoutMin >= 1 && timeoutMin <= 60)) throw new Error('Duração máxima: de 1 a 60 minutos.');
@@ -819,8 +1049,9 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
         }
         if (p === '/api/settings/concurrency') {
           const n = (v, d) => Number.isInteger(v) && v >= 1 && v <= 8 ? v : d;
-          const cur = runner.concurrency();
-          store.put('settings', { id: 'concurrency', global: n(b.global, cur.global), provider: { codex: n(b.provider?.codex, cur.provider.codex), claude: n(b.provider?.claude, cur.provider.claude) }, video: n(b.video, cur.video) });
+          const cur = runner.concurrency(), nextProv = { ...cur.provider, codex: n(b.provider?.codex, cur.provider.codex), claude: n(b.provider?.claude, cur.provider.claude), agy: n(b.provider?.agy, cur.provider.agy ?? 1) };
+          for (const [k, v] of Object.entries(b.provider || {})) if ((k === 'hermes' || k.startsWith('x-')) && Number.isInteger(v) && v >= 1 && v <= 8) nextProv[k] = v;
+          store.put('settings', { id: 'concurrency', global: n(b.global, cur.global), provider: nextProv, video: n(b.video, cur.video) });
           void runner.pump(); return send(res, 200, runner.concurrency());
         }
         if (p === '/api/queue/pause') { store.put('settings', { id: 'queue', paused: b.paused === true }); void runner.pump(); return send(res, 200, { paused: runner.paused() }); }
@@ -852,7 +1083,8 @@ async function syncListeners() {
 }
 async function networkView() {
   const ts = await tailscaleStatus();
-  return { config: netCfg, port, tailscale: ts, addresses: bound.map(b => ({ ...b, url: `http://${b.ip}:${port}/` })), nameUrl: ts.name && bound.some(b => b.kind === 'tailscale') ? `http://${ts.name}:${port}/` : null,
+  const https = ts.state === 'Running' ? await tailscaleServeStatus(ts.name, port) : { active: false, httpsUrl: null };
+  return { config: netCfg, port, tailscale: ts, https, addresses: bound.map(b => ({ ...b, url: `http://${b.ip}:${port}/` })), nameUrl: ts.name && bound.some(b => b.kind === 'tailscale') ? `http://${ts.name}:${port}/` : null,
     note: 'O serviço nunca escuta em todas as interfaces: só no computador, e nos endereços do Tailscale e/ou da rede local que você liberar. Rede local usa HTTP sem criptografia; fora de casa use o Tailscale.' };
 }
 // O executor só assume o trabalho depois de ocupar a porta: assim, qualquer claim antigo pertence a um serviço morto.
@@ -865,6 +1097,6 @@ server.listen(port, '127.0.0.1', async () => {
   try { await syncListeners(); for (const b of bound) console.log(`Acesso remoto (${b.kind}): http://${b.ip}:${port}/`); } catch (e) { console.error('Rede:', e.message); }
   const t = setInterval(() => syncListeners().catch(() => {}), 20000); t.unref?.(); // o Tailscale pode conectar depois do serviço
 });
-server.on('error', e => { console.error(e.message); process.exitCode = 1; store.close(); });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { power.stop(); autoClean.stop(); process.exit(0); });
-process.on('exit', () => power.stop());
+server.on('error', e => { console.error(e.message); instanceLock?.release(); process.exitCode = 1; store.close(); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { power.stop(); autoClean.stop(); instanceLock?.release(); process.exit(0); });
+process.on('exit', () => { power.stop(); instanceLock?.release(); });

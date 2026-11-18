@@ -1,6 +1,6 @@
 import { icon } from './icons.js';
 import { avatar, agentAv } from './art.js';
-import { esc, idx, PROVIDER } from './views.js';
+import { esc, idx, PROVIDER, isLeadAgent } from './views.js';
 import { agentTip } from './activity.js';
 
 // Canvas: os agentes como cartões numa tela, com ligações reais entre eles.
@@ -44,19 +44,19 @@ const port = (p, side) => side === 'out' ? { x: p.x + NW, y: p.y + NH / 2 } : { 
 function curve(a, b) { const dx = Math.max(50, Math.abs(b.x - a.x) / 2); return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`; }
 
 function nodeHtml(ctx, a, p) {
-  const s = ctx.agentStatus(a), st = s.status === 'queued' ? 'waiting' : s.status, ic = STATE_ICON[st];
+  const s = ctx.agentStatus(a), st = s.status === 'queued' ? 'waiting' : s.status, ic = STATE_ICON[st], lead = isLeadAgent(ctx, a);
   const badge = st === 'idle' ? '<span class="cv-zzz" aria-hidden="true">z<b>Z</b></span>' : st === 'running' ? '<span class="cv-typing" aria-hidden="true"><i></i><i></i><i></i></span>' : ic ? `<span class="cv-st b-${ic[1]}" aria-hidden="true">${icon(ic[0], 18)}</span>` : '';
   if (termMode) {   // nó com terminal: cabeçalho + as últimas linhas da tarefa do agente neste projeto (pintadas pelo app.js, como no modo Terminais)
     const t = ctx.termTask?.(a) || null, c = t && ctx.term?.[t.id];
-    return `<div class="cv-node cv-t st-${st}" role="button" tabindex="0" data-agent="${esc(a.id)}" title="${esc(agentTip(ctx, a))}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" aria-label="${esc(a.name)}, ${esc(a.role)}. ${esc(s.label)}">
-    <span class="cv-head"><span class="cv-av">${agentAv(a, idx(ctx, a), 28)}</span><span class="cv-meta"><b>${esc(a.name)}</b><small class="cv-prov">${esc(PROVIDER[a.provider] || a.provider)}${a.model ? ' · ' + esc(a.model) : ''} · ${esc(s.label)}</small></span>${badge}</span>
+    return `<div class="cv-node cv-t st-${st}${lead ? ' cv-lead' : ''}" role="button" tabindex="0" data-agent="${esc(a.id)}" title="${esc(agentTip(ctx, a))}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" aria-label="${esc(a.name)}, ${esc(a.role)}. ${esc(s.label)}">
+    <span class="cv-head"><span class="cv-av">${agentAv(a, idx(ctx, a), 28)}</span><span class="cv-meta"><b>${esc(a.name)}${lead ? ' <span class="lead-tag">★ Orquestrador</span>' : ''}</b><small class="cv-prov">${esc(PROVIDER[a.provider] || a.provider)}${a.model ? ' · ' + esc(a.model) : ''} · ${esc(s.label)}</small></span>${badge}</span>
     <pre class="term-out cv-term" ${t ? `data-task="${esc(t.id)}"` : ''}>${!t ? '<span class="tl-activity">Nenhuma tarefa deste agente neste projeto ainda.</span>' : c ? c.html : '<span class="tl-activity">Carregando a saída…</span>'}</pre>
     <form class="am-form term-form cv-msg" data-id="${esc(a.id)}"><label class="sr-only" for="cv-t-${esc(a.id)}">Mensagem para ${esc(a.name)}</label><textarea id="cv-t-${esc(a.id)}" rows="1" maxlength="8000" title="Enter envia; Shift+Enter quebra a linha" placeholder="${ctx.project ? `Mensagem para ${esc(a.name)}…` : 'Escolha um projeto para enviar'}" ${ctx.project ? '' : 'disabled'}></textarea></form>
     <i class="cv-port in" aria-hidden="true"></i><i class="cv-port out" data-out="${esc(a.id)}" title="Arraste até outro agente para ligar" aria-hidden="true"></i></div>`;
   }
-  return `<div class="cv-node st-${st}" role="button" tabindex="0" data-agent="${esc(a.id)}" title="${esc(agentTip(ctx, a))}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" aria-label="${esc(a.name)}, ${esc(a.role)}. ${esc(s.label)}">
+  return `<div class="cv-node st-${st}${lead ? ' cv-lead' : ''}" role="button" tabindex="0" data-agent="${esc(a.id)}" title="${esc(agentTip(ctx, a))}" style="left:${p.x}px;top:${p.y}px;width:${NW}px;height:${NH}px" aria-label="${esc(a.name)}, ${esc(a.role)}. ${esc(s.label)}">
     <span class="cv-av">${agentAv(a, idx(ctx, a), 36)}</span>
-    <span class="cv-meta"><b>${esc(a.name)}</b><small>${esc(a.role)}</small><small class="cv-prov">${esc(PROVIDER[a.provider] || a.provider)}${a.model ? ' · ' + esc(a.model) : ''}</small></span>${badge}
+    <span class="cv-meta"><b>${esc(a.name)}${lead ? ' <span class="lead-tag">★ Orquestrador</span>' : ''}</b><small>${esc(a.role)}</small><small class="cv-prov">${esc(PROVIDER[a.provider] || a.provider)}${a.model ? ' · ' + esc(a.model) : ''}</small></span>${badge}
     <i class="cv-port in" aria-hidden="true"></i><i class="cv-port out" data-out="${esc(a.id)}" title="Arraste até outro agente para ligar" aria-hidden="true"></i></div>`;
 }
 
@@ -86,7 +86,7 @@ export function canvasHtml(ctx) {
       ${teamEdges.map(e => edge(e, 'team' + (live(e) ? ' live' : ''))).join('')}${links.map(l => edge(l, 'link' + (l.enabled === false ? ' off' : '') + (live(l) ? ' live' : ''))).join('')}<path id="cv-temp" class="cv-temp" d="" hidden/></svg>
     ${agents.map(a => nodeHtml(ctx, a, pos[a.id])).join('')}</div></div>
     <form id="link-form" class="cv-form"><span>Ligar</span><label class="sr-only" for="lf-from">De</label><select id="lf-from" name="from">${opts}</select><span aria-hidden="true">→</span><label class="sr-only" for="lf-to">Para</label><select id="lf-to" name="to">${opts}</select><label class="sr-only" for="lf-hops">Repasses máximos</label><span class="small muted">até</span><input id="lf-hops" name="maxHops" type="number" min="1" max="6" value="3" style="width:64px"><span class="small muted">repasses</span><label class="sr-only" for="lf-when">Quando seguir</label><select id="lf-when" name="when" title="Quando o primeiro termina, o segundo segue: sempre, só se o resultado for APROVADO ou só se for REPROVADO"><option value="always">sempre</option><option value="approved">só se aprovado</option><option value="rejected">só se reprovado</option></select><label class="check small" title="Cria também a ligação de volta: o segundo responde ao primeiro, até o limite de repasses ou até alguém escrever SEM PENDÊNCIAS"><input type="checkbox" name="both" value="1"> ida e volta</label><button class="btn sm">${icon('plus', 16)} Criar ligação</button></form>
-    <p class="cv-legend small" aria-label="Legenda"><span><i class="lg run"></i> trabalhando</span><span><i class="lg wait"></i> esperando a vez</span><span><i class="lg idle"></i> parado (zZ)</span><span><i class="lg bad"></i> falhou</span><span><i class="lg flow"></i> linha verde = trabalho passando de um para outro</span></p>
+    <p class="cv-legend small" aria-label="Legenda"><span><i class="lg lead"></i> ★ orquestrador</span><span><i class="lg run"></i> trabalhando</span><span><i class="lg wait"></i> esperando a vez</span><span><i class="lg idle"></i> parado (zZ)</span><span><i class="lg bad"></i> falhou</span><span><i class="lg flow"></i> linha verde = trabalho passando de um para outro</span></p>
     ${chips ? `<div class="chips cv-chips">${chips}</div>` : ''}
     <p class="muted small cv-help">Use a rodinha do mouse (ou + e −) para aproximar e afastar, arraste o fundo para passear pelo fluxo e “Ver tudo” para enquadrar todos os agentes. Arraste o ponto da direita de um agente até outro para ligá-los (ou use o formulário acima). Quando o primeiro termina, o segundo recebe o resumo e os arquivos e continua. Com ligações nos dois sentidos, eles se respondem até o limite de repasses ou até alguém escrever “SEM PENDÊNCIAS”. Vale para missões avulsas de um agente (não para equipes nem supervisor). Linhas tracejadas cinzas são o fluxo das equipes.</p></div>`;
 }

@@ -8,6 +8,8 @@ node_modules/
 .env.local
 docs/evidencias-ui/
 dist/
+__pycache__/
+.preview-data/
 
 # Referências de arte do instalador: ficam só no computador do autor (o instalador já foi feito)
 /Tela de Instalação/

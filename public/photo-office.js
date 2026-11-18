@@ -34,7 +34,7 @@ function supervisor(s) {
   const status = s?.status || 'none', sitting = status !== 'running';
   const swap = `<img class="ps-sup-sit ${sitting ? 'on' : ''}" style="${pct(...SUP_SWAP)}" src="/assets/sup-sit.jpg" alt="" aria-hidden="true">`;
   const btn = s ? `<button class="ps-station ps-sup st-${status}" style="${pct(...SUP_BOX)}" data-agent="${esc(s.agent.id)}" aria-label="${esc(s.label)}"><span class="ps-veil"></span>${badge(status)}${zzz(status)}</button>` : '';
-  return `${swap}${btn}${plaque(SUP_PILL, 190, 44, 'ps-pill', s?.agent.name || 'Supervisor')}`;
+  return `${swap}${btn}${plaque(SUP_PILL, 190, 44, 'ps-pill ps-lead-pill', s?.agent.name ? '★ ' + s.agent.name : 'Supervisor')}`;
 }
 export function renderPhotoOffice(host, { stations, supervisor: sup, onSelect }) {
   const today = new Date().toLocaleDateString('pt-BR', { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('.');

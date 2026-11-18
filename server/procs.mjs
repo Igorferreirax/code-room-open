@@ -15,7 +15,7 @@ function powershell(script, timeout = 8000) {
 // Lista o PID e todos os descendentes. Sem PowerShell, cai para apenas o PID raiz.
 export async function listTree(pid) {
   if (!win) return [pid];
-  const out = await powershell(`$p=Get-CimInstance Win32_Process|Select-Object ProcessId,ParentProcessId;$q=@(${pid});$i=0;while($i -lt $q.Count){$c=$p|Where-Object{$_.ParentProcessId -eq $q[$i]}|ForEach-Object{$_.ProcessId};foreach($x in $c){if($q -notcontains $x){$q+=$x}};$i++};$q -join ','`);
+  const out = await powershell(`$p=Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId;$q=@(${pid});$i=0;while($i -lt $q.Count){$c=$p|Where-Object{$_.ParentProcessId -eq $q[$i]}|ForEach-Object{$_.ProcessId};foreach($x in $c){if($q -notcontains $x){$q+=$x}};$i++};$q -join ','`);
   const ids = (out || '').split(',').map(Number).filter(n => Number.isInteger(n) && n > 0);
   return ids.length ? ids : [pid];
 }

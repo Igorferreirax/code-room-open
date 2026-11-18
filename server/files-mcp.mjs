@@ -7,7 +7,7 @@
 // - Só age dentro das pastas autorizadas NESTA tarefa (a do projeto e a pasta extra), recebidas na linha de comando.
 // - Nunca apaga nada e nunca sobrescreve: se o destino existe, recusa.
 // - Recusa atalhos/links simbólicos e caminhos que escapam com "..".
-import { readdirSync, mkdirSync, renameSync, lstatSync, realpathSync, existsSync, statSync } from 'node:fs';
+import { appendFileSync, readdirSync, mkdirSync, renameSync, lstatSync, realpathSync, existsSync, statSync } from 'node:fs';
 import { resolve, dirname, sep, relative, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
@@ -38,32 +38,46 @@ export function makeGuard(roots) {
   };
 }
 
-export function callTool(guard, name, args = {}) {
+function missingDirs(dir) {
+  const out = []; let cur = resolve(dir);
+  while (!existsSync(cur) && dirname(cur) !== cur) { out.unshift(cur); cur = dirname(cur); }
+  return out;
+}
+
+export function callTool(guard, name, args = {}, { onOp = null } = {}) {
   if (name === 'listar_pasta') {
     const dir = guard(args.caminho, { mustExist: true });
     if (!statSync(dir).isDirectory()) throw new Error('Isso não é uma pasta.');
     const items = readdirSync(dir, { withFileTypes: true }).slice(0, 500).map(e => { let size = null; try { if (e.isFile()) size = statSync(join(dir, e.name)).size; } catch {} return `${e.isDirectory() ? '[pasta] ' : ''}${e.name}${size != null ? ` (${size} bytes)` : ''}`; });
     return items.length ? items.join('\n') : '(pasta vazia)';
   }
-  if (name === 'criar_pasta') { const dir = guard(args.caminho); mkdirSync(dir, { recursive: true }); return `Pasta pronta: ${dir}`; }
+  if (name === 'criar_pasta') {
+    const dir = guard(args.caminho), created = missingDirs(dir);
+    mkdirSync(dir, { recursive: true });
+    for (const d of created) try { onOp?.({ op: 'mkdir', path: d }); } catch {}
+    return `Pasta pronta: ${dir}`;
+  }
   if (name === 'mover') {
     const from = guard(args.de, { mustExist: true }), to = guard(args.para);
     if (norm(from) === norm(to)) throw new Error('Origem e destino são o mesmo caminho.');
     if (norm(to).startsWith(norm(from) + sep)) throw new Error('Não dá para mover uma pasta para dentro dela mesma.');
     if (existsSync(to)) throw new Error(`Já existe algo em ${to}. Escolha outro nome; nada foi sobrescrito.`);
+    const st = statSync(from), created = missingDirs(dirname(to));
     mkdirSync(dirname(to), { recursive: true });
     renameSync(from, to);
+    for (const d of created) try { onOp?.({ op: 'mkdir', path: d }); } catch {}
+    try { onOp?.({ op: 'move', from, to, size: st.isFile() ? st.size : null, isDir: st.isDirectory() }); } catch {}
     return `Movido: ${from} → ${to}`;
   }
   throw new Error(`Ferramenta desconhecida: ${name}`);
 }
 
-export function handle(guard, msg) {
+export function handle(guard, msg, opts = {}) {
   const { id, method, params } = msg || {};
   if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: PROTOCOLS.includes(params?.protocolVersion) ? params.protocolVersion : PROTOCOLS[0], capabilities: { tools: {} }, serverInfo: { name: NAME, version: '1.0.0' } } };
   if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: TOOLS } };
   if (method === 'tools/call') {
-    try { return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: callTool(guard, params?.name, params?.arguments || {}) }] } }; }
+    try { return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: callTool(guard, params?.name, params?.arguments || {}, opts) }] } }; }
     catch (e) { return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Não fiz: ${e.message}` }], isError: true } }; }
   }
   if (method === 'ping') return { jsonrpc: '2.0', id, result: {} };
@@ -72,12 +86,15 @@ export function handle(guard, msg) {
 }
 
 // Configuração para as CLIs: pastas autorizadas vão como argumentos (nada de variável de ambiente compartilhada).
-export function filesServer(roots) {
-  return { command: process.execPath, args: [fileURLToPath(import.meta.url), ...roots.filter(Boolean)] };
+export function filesServer(roots, { opsLog = null } = {}) {
+  return { command: process.execPath, args: [fileURLToPath(import.meta.url), ...roots.filter(Boolean)], ...(opsLog ? { env: { CODE_ROOM_OPS_LOG: opsLog } } : {}) };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  const guard = makeGuard(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2), logArg = rawArgs.find(a => a.startsWith('--ops-log='));
+  const logFile = logArg ? logArg.slice('--ops-log='.length) : process.env.CODE_ROOM_OPS_LOG || '';
+  const guard = makeGuard(rawArgs.filter(a => !a.startsWith('--ops-log=')));
+  const onOp = logFile ? entry => { try { mkdirSync(dirname(logFile), { recursive: true }); appendFileSync(logFile, JSON.stringify(entry) + '\n', 'utf8'); } catch {} } : null;
   const rl = createInterface({ input: process.stdin });
-  rl.on('line', line => { let msg; try { msg = JSON.parse(line); } catch { return; } const out = handle(guard, msg); if (out) process.stdout.write(JSON.stringify(out) + '\n'); });
+  rl.on('line', line => { let msg; try { msg = JSON.parse(line); } catch { return; } const out = handle(guard, msg, { onOp }); if (out) process.stdout.write(JSON.stringify(out) + '\n'); });
 }

@@ -17,6 +17,9 @@ import { cleanMini, addMini, miniShellHtml, miniBodyHtml, bubbleLiveHtml } from 
 import { sayOf } from './mascot.js';
 import { extractProject, projectToken } from './mentions.js';
 import { mentionedFolder } from './chat-paths.js';
+import { buildHomePrompt, syncListIntoPrompt, parseListItems, selectNextPlaceholder } from './home-prompts.js';
+import { initNicoFlow } from './nico-flow.js';
+import { createBrowserManager } from './browser-dock.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
 addEventListener('pointermove', e => { if (ctx.prefs?.anim === false) return; const r = document.documentElement.style; r.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(2)); r.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(2)); }, { passive: true });
 import { folderJobDialogHtml, noticesBarHtml, emptyJobForm, formFromJob, payloadFromJobForm } from './folderjobs-ui.js';
@@ -47,12 +50,14 @@ const ctx = {
   state: { recipes: [], recipeRuns: [], projects: [], agents: [], teams: [], runs: [], flows: [], plans: [], routines: [], limits: {}, connectors: [], runtime: {} },
   view: 'home', project: store.get('cr.project', ''), room: null, detail: null, execTab: 'resumo', skills: [], skillLibrary: null, audit: null, checks: null, modules: null, storage: null,
   projectContext: null, teamDraft: { id: null, name: 'Minha equipe', members: [] }, flows: {}, connection: 'connecting', maxStations: MAX_STATIONS,
-  prefs: { motion: 'auto', list: false, board: true, musicHidden: false, ...store.get('cr.prefs', {}) },
+  prefs: { motion: 'auto', list: false, board: true, musicHidden: false, mediaOnlyReview: true, directExec: true, autoFallback: true, ...store.get('cr.prefs', {}) },
   ui: { target: '', optsOpen: false, panel: null, panelId: null, whoOpen: false }, authed: false
 };
 const IDLE_MS = 10 * 60 * 1000, DONE_MS = 20 * 1000, FAIL_MS = 30 * 60 * 1000;
 const dismissed = new Set(store.get('cr.dismissed', []));
-let selectedAgent = null, officeHost = null, lastFocus = null;
+let selectedAgent = null, officeHost = null, lastFocus = null, nicoFlow = null, browserMgr = null;
+const tabId = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Math.random());
+const tabBus = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('code-room-ui:' + (location.port || '4780')) : null;
 
 // ---------- API ----------
 async function api(path, body) {
@@ -62,7 +67,7 @@ async function api(path, body) {
   return v;
 }
 function notify(msg, bad) { const n = $('notice'); n.textContent = msg; n.className = bad ? 'bad' : ''; n.hidden = false; clearTimeout(notify.t); notify.t = setTimeout(() => n.hidden = true, 9000); }
-function logout(msg) { key = ''; ctx.authed = false; sessionStorage.removeItem('code-room-key'); try { localStorage.removeItem(DEVICE_KEY); } catch {} ctx.ui.loginError = msg || ''; $('shell').hidden = true; $('login').hidden = false; renderLogin(); }
+function logout(msg) { key = ''; ctx.authed = false; sessionStorage.removeItem('code-room-key'); try { localStorage.removeItem(DEVICE_KEY); } catch {} ctx.ui.loginError = msg || ''; $('shell').hidden = true; $('login').hidden = false; nicoFlow?.render(); browserMgr?.render(); renderLogin(); }
 
 // ---------- Derivações do estado real ----------
 ctx.projectName = () => ctx.state.projects.find(p => p.id === ctx.project)?.name || '';
@@ -72,7 +77,7 @@ ctx.supervisorAgent = () => { const a = ctx.state.agents.find(x => x.id === stor
 // As 3 estações da cena mostram quem está mais "vivo": executando, decisão, aguardando, falha, concluído, disponível, inativo.
 const PRIORITY = { running: 0, decision: 1, waiting: 2, queued: 2, failed: 3, done: 4, available: 5, idle: 6, disconnected: 7 };
 // A antiga “Lista” e o modo “Terminais” viraram o Canvas com os terminais ligados (um lugar só para ver os agentes trabalhando).
-ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return m === 'canvas' ? 'canvas' : 'scene'; };   // 'live' (cenário vivo) saiu na 0.3.7: volta ao Cenário
+ctx.viewMode = () => { const m = ctx.prefs.mode || (ctx.prefs.list ? 'term' : 'scene'); if (m === 'list' || m === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; try { savePrefs(); } catch {} return 'canvas'; } return m === 'canvas' || m === 'browser' ? m : 'scene'; };   // 'live' (cenário vivo) saiu na 0.3.7: volta ao Cenário
 // Equipes e agentes só entram no projeto por vínculo explícito ou por trabalho que já executaram nele.
 ctx.projectTeamIdsFor = projectId => {
   const pj = ctx.state.projects.find(p => p.id === projectId); if (!pj) return new Set();
@@ -236,11 +241,15 @@ async function stream() {
     setConnection('lost'); await new Promise(r => setTimeout(r, wait)); wait = Math.min(wait * 2, 10000);
   }
 }
+let asstSseTimer = null;
 function handleSse(block) {
   const id = block.match(/^id: (\d+)/m)?.[1]; if (id) lastSeq = Math.max(lastSeq, Number(id));
   if (!/^event: change/m.test(block)) return;
   const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] || '{}');
+  if (data.type === 'voice_hotkey') { nicoFlow?.toggle(); return; }
+  if (data.type === 'task' && data.to === 'completed') browserMgr?.notifyProjectUpdated(ctx.project);
   scheduleRefresh(); if (ctx.detail && data.taskId === ctx.detail.id) scheduleRefresh(150);
+  if (ctx.asst?.pending || ctx.asst?.briefing) { clearTimeout(asstSseTimer); asstSseTimer = setTimeout(loadAsst, 250); }
 }
 
 // ---------- Renderização ----------
@@ -286,7 +295,7 @@ function render() {
   if (selectedAgent) { const a = ctx.state.agents.find(x => x.id === selectedAgent); if (a) $('drawer').innerHTML = V.drawer(ctx, a); }
   $('onb-root').innerHTML = O.onboardingHtml(ctx); O.applyTourHighlight(document, ctx);
   $('update-bar').innerHTML = U.updateBarHtml(ctx) + noticesBarHtml(ctx); if (ctx.ui.updOpen) $('update-body').innerHTML = U.updateDialogHtml(ctx);
-  applyPrefs(); renderAsst(); renderMinis(); renderBubble();
+  applyPrefs(); renderAsst(); renderMinis(); renderBubble(); nicoFlow?.render(); browserMgr?.render();
 }
 function drawOffice() {
   const model = a => { const s = ctx.agentStatus(a); return { agent: a, status: s.status === 'queued' ? 'waiting' : s.status, label: `${a.name}, ${a.role}. ${s.label}${s.task ? '. Tarefa: ' + s.task.prompt.slice(0, 60) : ''}` }; };
@@ -348,7 +357,11 @@ async function loadAudit() { try { ctx.audit = await api('audit'); } catch { ctx
 async function loadNotify() { try { ctx.notify = await api('notify'); } catch { ctx.notify = null; } if (ctx.view === 'connections' || ctx.ui.panel === 'routine') render(); }
 async function loadMetrics(refresh = false) { try { ctx.metrics = await api(`metrics${refresh ? '?refresh=1' : ''}`); } catch (e) { ctx.metrics = { youtube: { connected: true, error: e.message }, posts: {} }; } if (ctx.view === 'connections') render(); }
 async function loadSocial() { try { ctx.social = await api('social'); } catch { ctx.social = null; } if (ctx.view === 'connections' || ctx.ui.asstOpen) render(); }
-async function loadEconomy() { try { ctx.economy = await api('economy'); } catch { ctx.economy = null; } if (ctx.view === 'usage') render(); }
+async function loadEconomy() {
+  const [eco, orch] = await Promise.all([api('economy').catch(() => null), api('orchestration').catch(() => null)]);
+  ctx.economy = eco; ctx.orchestration = orch;
+  if (ctx.view === 'usage') render();
+}
 async function loadOutbound() { try { ctx.outbound = await api('outbound'); } catch { ctx.outbound = null; } if (ctx.view === 'connections') render(); }
 async function loadSync() { try { ctx.sync = await api('sync-ias'); } catch { ctx.sync = null; } if (ctx.view === 'connections') render(); }
 async function loadApis() { try { ctx.apis = await api('apis'); } catch { ctx.apis = null; } if (ctx.view === 'connections') render(); }
@@ -363,9 +376,15 @@ async function testProv(payload, key) {
 }
 // ---------- Avisos do sistema (opcional): só quando a aba está em segundo plano ----------
 const seenNotify = new Set(store.get('cr.notified', []));
+tabBus?.addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.kind === 'notified' && d.id) seenNotify.add(d.id);
+  else if (d.kind === 'ping' && d.tabId !== tabId && ctx.authed) tabBus.postMessage({ kind: 'pong', to: d.tabId });
+  else if (d.kind === 'pong' && d.to === tabId && !ctx.ui.dupTabWarned) { ctx.ui.dupTabWarned = true; notify('Outra janela deste Code Room já está aberta: as duas compartilham a mesma sessão sem duplicar o serviço.'); }
+});
 function desktopNotify(id, title, body) {
   if (!ctx.prefs?.desktopNotify || typeof Notification === 'undefined' || Notification.permission !== 'granted' || seenNotify.has(id)) return;
-  seenNotify.add(id); store.set('cr.notified', [...seenNotify].slice(-100)); if (!document.hidden) return;
+  seenNotify.add(id); tabBus?.postMessage({ kind: 'notified', id }); store.set('cr.notified', [...seenNotify].slice(-100)); if (!document.hidden) return;
   try { const n = new Notification(title, { body, tag: id, icon: '/assets/favicon.png?v=marca2' }); n.onclick = () => { focus(); n.close(); }; } catch {}
 }
 function checkDesktopNotify() {
@@ -432,15 +451,22 @@ function speakNewReply() {
 // Skills favoritas e escondidas: só preferência de exibição deste navegador (não muda nada nos agentes nem nas skills).
 ctx.skillPrefs = store.get('cr.skillPrefs', { fav: [], hide: [] });
 function skillPref(kind, name) { const p = ctx.skillPrefs, other = kind === 'fav' ? 'hide' : 'fav', has = (p[kind] || []).includes(name); p[kind] = has ? p[kind].filter(x => x !== name) : [...(p[kind] || []), name]; if (!has && kind === 'hide') p.fav = (p.fav || []).filter(x => x !== name); store.set('cr.skillPrefs', p); render(); }
+const asstBase = () => ctx.whoami === 'device' ? 'mobile/assistant' : 'assistant';
 async function loadAsst() {
-  try { ctx.asst = await api('assistant'); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
+  try { ctx.asst = await api(asstBase()); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
   speakNewReply(); renderAsst(); checkDesktopNotify(); clearTimeout(asstTimer);
   if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500);
 }
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
 // Guarda (até 3 por destino) o que foi pedido a uma equipe ou agente pelo chat, para o chat mostrar o pedido e o andamento.
 function rememberSent(target, text, ref) { const all = ctx.ui.sent ?? (ctx.ui.sent = store.get('cr.sent', {})); all[target] = [{ text: String(text).slice(0, 400), at: new Date().toISOString(), ...ref }, ...(all[target] || [])].slice(0, 3); store.set('cr.sent', all); renderAsst(); }
-function showChatImage() { const el = $('asst-image-preview'); if (!el) return; el.hidden = !ctx.ui.asstImage; el.textContent = ctx.ui.asstImage ? `🖼️ ${ctx.ui.asstImage.name} · clique para remover` : ''; el.title = ctx.ui.asstImage ? 'Clique para remover o print' : ''; }
+function showChatImage() {
+  const el = $('asst-image-preview'); if (!el) return;
+  const img = ctx.ui.asstImage;
+  el.hidden = !img;
+  el.title = img ? 'Clique para remover o print' : '';
+  el.innerHTML = img ? `${/^data:image\/(png|jpeg|webp);base64,/.test(img.data || '') ? `<img src="${esc(img.data)}" alt="">` : ''}<span>🖼️ ${esc(img.name)} · clique para remover</span>` : '';
+}
 async function attachChatImage(file) {
   if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('Use um print PNG, JPG ou WebP.');
   if (file.size > 1024 * 1024) throw new Error('Print maior que 1 MB. Reduza a imagem e tente de novo.');
@@ -451,7 +477,7 @@ async function askAssistant(text, { includeContext = true, extraDir = null, imag
   if (!ctx.ui.asstOpen) setChatOpen(true);
   await loadAsst();
   if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
-  const local = /^\/(status|pendencias|pendências|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
+  const local = /^\/(status|pendencias|pendências|alethe|roteamento|aprender(?:\s+[\s\S]+)?|memorias|memórias|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
   const mentioned = mentionedFolder(text, { desktop: ctx.asst?.desktopPath, downloads: ctx.asst?.downloadsPath, documents: ctx.asst?.documentsPath });
   const focusedPath = ctx.state.projects.find(p => p.id === ctx.project)?.path || '';
@@ -476,7 +502,7 @@ async function askAssistant(text, { includeContext = true, extraDir = null, imag
   return ok;
 }
 async function applyAsst(id) {
-  const [m, i] = id.split(':'); const r = await api('assistant/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
+  const [m, i] = id.split(':'); const r = await api(asstBase() + '/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
   if (r.projectId) { await refresh(); setProject(r.projectId, true); } else await refresh();
   if (r.view) await go(r.view); renderAsst(); return r;
 }
@@ -486,7 +512,7 @@ async function loadAiModels(provider) {
   let info = { models: [], efforts: [] }; try { info = await api('models?provider=' + encodeURIComponent(provider)); } catch {}
   ctx.ui.aiModels = { ...(ctx.ui.aiModels || {}), [provider]: info }; if (ctx.ui.aiOpen) { const keep = { model: $('asst-ai-model')?.value }; renderAsst(); if (keep.model != null && $('asst-ai-model')) $('asst-ai-model').value = keep.model; }
 }
-async function asstCall(path, body) { let ok = true; asstCall.lastError = null; try { ctx.asst = (await api('assistant/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { ok = false; asstCall.lastError = e.message; if (path !== 'ask') notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); return ok; }
+async function asstCall(path, body) { let ok = true; asstCall.lastError = null; try { ctx.asst = (await api(asstBase() + '/' + path, body || {})) ; if (ctx.asst.status) ctx.asst = ctx.asst.status; } catch (e) { ok = false; asstCall.lastError = e.message; if (path !== 'ask') notify(e.message, true); } renderAsst(); clearTimeout(asstTimer); if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500); return ok; }
 async function loadUpdates() { try { ctx.updates = await api('updates'); render(); } catch {} }
 function watchDownload() {
   const t = setInterval(async () => { await loadUpdates(); if (ctx.updates?.download?.state !== 'downloading') clearInterval(t); }, 1000);
@@ -514,6 +540,7 @@ function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.
 // ---------- Navegação ----------
 async function go(view) {
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
+  if (window.innerWidth <= 900 && browserMgr?.isOpen()) browserMgr.toggleDock(false);
   if (view === 'skills') loadSkills(true);
   if (view === 'usage') loadEconomy();
   if (view === 'routines' || view === 'tasks') refresh();   // lotes e tarefas criados por fora (Assistente, outro aparelho) aparecem ao abrir a tela, sem esperar os 15 s do relógio
@@ -566,8 +593,8 @@ async function loadStorage() { try { ctx.storage = await api('storage'); render(
 async function openTask(id, tab) { ctx.execTab = tab || 'resumo'; ctx.detail = await api('tasks/' + id); await go('exec'); }
 async function selectDelivery(k, silent) {
   ctx.ui.delSel = k; ctx.ui.delText = null; const [id, path] = k.split('|');
-  try { ctx.ui.delDetail = await api('tasks/' + id); const f = ctx.ui.delDetail.deliverables.files.find(x => x.path === path); if (f?.url && ['md', 'txt', 'css', 'js', 'json', 'csv', 'mjs'].includes(path.split('.').pop().toLowerCase())) fetch(f.url).then(r => r.text()).then(t => { ctx.ui.delText = t.slice(0, 60000); render(); }).catch(() => {}); } catch {}
-  if (!silent) render(); else render();
+  try { ctx.ui.delDetail = await api('tasks/' + id); const f = ctx.ui.delDetail.deliverables.files.find(x => x.path === path); if (f?.url && W.TEXT_EXTS.includes(path.split('.').pop().toLowerCase())) fetch(f.url).then(r => r.text()).then(t => { ctx.ui.delText = t.slice(0, 60000); render(); }).catch(() => {}); } catch {}
+  render();
 }
 // Clicar em um agente (sem arrastar) abre um menu pequeno: mencionar no chat (@Nome) ou ver os detalhes.
 function closeAgentMenu() { const m = $('agent-menu'); if (m) m.remove(); ctx.ui.bubble = null; ctx.liveBubble = null; }
@@ -606,7 +633,7 @@ function mentionAgent(id) {
 function openDrawer(id) { closeAgentMenu(); lastFocus = document.activeElement; selectedAgent = id; const a = ctx.state.agents.find(x => x.id === id); if (!a) return; const d = $('drawer'); d.innerHTML = V.drawer(ctx, a); d.hidden = false; d.querySelector('button')?.focus(); }
 function closeDrawer() { const was = selectedAgent; selectedAgent = null; $('drawer').hidden = true; if (was && lastFocus?.isConnected) lastFocus.focus(); else if (was) document.querySelector(`[data-agent="${was}"]`)?.focus(); }
 const lines = v => String(v || '').split('\n').map(s => s.trim()).filter(Boolean);
-const concPost = async patch => { const c = ctx.state.runtime.concurrency || { global: 1, provider: {}, video: 1 }; await api('settings/concurrency', { global: c.global, provider: { codex: c.provider?.codex ?? 1, claude: c.provider?.claude ?? 1 }, video: c.video, ...patch }); };
+const concPost = async patch => { const c = ctx.state.runtime.concurrency || { global: 1, provider: {}, video: 1 }; await api('settings/concurrency', { global: c.global, provider: { ...c.provider, codex: c.provider?.codex ?? 1, claude: c.provider?.claude ?? 1, agy: c.provider?.agy ?? 1 }, video: c.video, ...patch }); };
 const limitsPost = async patch => { const l = ctx.state.limits || {}; await api('settings/limits', { timeoutMin: Math.round((l.timeoutMs || 1200000) / 60000), budgetUsd: l.budgetUsd ?? null, budgetEnabled: !!l.budgetEnabled, ...patch }); };
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -616,7 +643,75 @@ const actions = {
   'asst-task': (id, el) => openTask(id, el?.dataset.tab || 'arquivos'),
   'close-drawer': closeDrawer, dismiss: id => { dismissed.add(id); store.set('cr.dismissed', [...dismissed].slice(-200)); render(); }, who: () => { ctx.ui.whoOpen = !ctx.ui.whoOpen; render(); }, logout: () => logout(), 'show-key': () => { const v = $('access-key')?.value; ctx.ui.showKey = !ctx.ui.showKey; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; $('access-key')?.focus(); },
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
-  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas'].includes(id) ? id : 'scene'; savePrefs(); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas', 'browser'].includes(id) ? id : 'scene'; savePrefs(); if (id === 'browser') browserMgr?.refreshSources(true); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
+  'browser-toggle': () => browserMgr?.toggleDock(),
+  'project-preview': async id => {
+    if (id && id !== ctx.project) { setProject(id); render(); }
+    const info = await api('projects/' + encodeURIComponent(id || ctx.project) + '/preview-info');
+    if (info.financeiro) return notify('Projetos financeiros não abrem no navegador por segurança.', true);
+    if (info.pages?.length) {
+      const p0 = info.pages[0];
+      browserMgr?.openUrl(info.baseUrl + '/' + p0.path.split('/').map(encodeURIComponent).join('/'), { title: p0.path, viewport: p0.kind === 'hyperframes' ? 'vertical' : 'desktop' });
+    } else browserMgr?.toggleDock(true);
+  },
+  'open-in-browser': async (id, el) => {
+    const vp = el?.dataset.vp || 'desktop';
+    if (el?.dataset.url) { await browserMgr?.openUrl(el.dataset.url, { viewport: vp }); return; }
+    const pid = id || ctx.project, rel = el?.dataset.path || 'index.html';
+    const info = await api('projects/' + encodeURIComponent(pid) + '/preview-info');
+    if (info.baseUrl) await browserMgr?.openUrl(info.baseUrl + '/' + rel.split('/').map(encodeURIComponent).join('/'), { title: rel, viewport: vp });
+  },
+  'del-mode': id => { ctx.ui.delMode = ['storyboard', 'artifacts'].includes(id) ? id : 'files'; render(); },
+  'task-validate': async id => {
+    ctx.ui.qaBusy = id; render();
+    try {
+      const r = await api('tasks/' + id + '/validate', {});
+      ctx.ui.taskQa = { ...(ctx.ui.taskQa || {}), [id]: r.qa };
+      if (ctx.detail?.id === id) ctx.detail = r.task;
+      if (ctx.ui.delDetail?.id === id) ctx.ui.delDetail = r.task;
+      notify(r.qa.status === 'ok' ? `Qualidade validada (${r.qa.score}%): tudo certo!` : `Validação concluída (${r.qa.score}%): confira os pontos destacados.`);
+    } finally { ctx.ui.qaBusy = null; render(); }
+  },
+  'task-fix-qa': async id => {
+    const qa = ctx.ui.taskQa?.[id] || ctx.detail?.result?.qaGate || ctx.ui.delDetail?.result?.qaGate;
+    if (!qa?.fixPrompt) return;
+    const t = await api('tasks/' + id + '/followup', { message: qa.fixPrompt, requestId: crypto.randomUUID() });
+    notify('Correção automática dos pontos de qualidade enviada ao agente.');
+    await refresh(); await openTask(t.id);
+  },
+  'art-copy-code': async (_id, el) => {
+    const pre = document.querySelector(`pre[data-art-code="${el?.dataset.idx}"]`);
+    if (pre) { await navigator.clipboard.writeText(pre.textContent || ''); notify('Bloco copiado para a área de transferência.'); }
+  },
+  'art-copy-prose': async () => {
+    const box = document.getElementById('art-prose-box');
+    if (box) { await navigator.clipboard.writeText(box.innerText || ''); notify('Resumo copiado para a área de transferência.'); }
+  },
+  'art-copy-all-cues': async () => {
+    const cues = [...document.querySelectorAll('.art-cue')].map(e => e.innerText.replace(/\s+/g, ' ').trim()).join('\n');
+    if (cues) { await navigator.clipboard.writeText(cues); notify('Cue sheet copiada para a área de transferência.'); }
+  },
+  'scene-tweak': async (id, el) => {
+    const sc = el?.dataset.scene || '1', file = el?.dataset.file || '';
+    const note = prompt(`O que você quer ajustar apenas na Cena ${sc} (${file})?`);
+    if (!note?.trim()) return;
+    const t = await api('tasks/' + id + '/request-changes', { feedback: `Ajuste cirúrgico SOMENTE na Cena ${sc} (arquivo ${file}), mantendo as demais cenas intactas: ${note.trim()}`, requestId: crypto.randomUUID() });
+    notify(`Ajuste da Cena ${sc} enviado como tarefa.`);
+    await refresh(); await openTask(t.id);
+  },
+  'task-revert': async id => {
+    if (!confirm('Reverter no Git as alterações feitas por esta tarefa? Arquivos modificados voltam ao estado anterior e arquivos novos vão para .lixeira-coderoom.')) return;
+    const r = await api('tasks/' + id + '/revert', {});
+    if (ctx.detail?.id === id) ctx.detail = r.task;
+    if (ctx.ui.delDetail?.id === id) ctx.ui.delDetail = r.task;
+    await refresh(); notify(r.summary || 'Alterações revertidas.');
+  },
+  'net-ts-https': async id => {
+    notify(id === 'on' ? 'Configurando HTTPS no Tailscale…' : 'Desativando HTTPS no Tailscale…');
+    ctx.net = await api('network/tailscale-https', { enable: id === 'on' });
+    render();
+    notify(ctx.net.https?.active ? `HTTPS ativo em ${ctx.net.https.httpsUrl}` : 'HTTPS do Tailscale desativado.');
+  },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
   retry: id => {
@@ -633,7 +728,48 @@ const actions = {
   opts: async () => { ctx.ui.optsOpen = !ctx.ui.optsOpen; const tg = V.targetOf(ctx); if (ctx.ui.optsOpen && tg.startsWith('a:')) { const ag = ctx.state.agents.find(x => x.id === tg.slice(2)); if (ag && !ctx.models?.[tg]) { try { const info = await api('models?provider=' + encodeURIComponent(ag.provider)); ctx.models = { ...(ctx.models || {}), [tg]: info.models }; ctx.efforts = { ...(ctx.efforts || {}), [tg]: info.efforts }; } catch {} } } render(); }, 'full-out': () => { ctx.ui.fullOut = !ctx.ui.fullOut; render(); }, 'focus-composer': () => $('mission')?.focus(),
   'new-project': () => { ctx.ui.panel = 'new-project'; render(); $('panel').querySelector('input')?.focus(); },
   'home-pick-project': id => { setProject(id); render(); },
-  'home-prompt': id => { const text = { code: 'Quero desenvolver uma melhoria neste projeto. Primeiro entenda o contexto e proponha um plano curto para eu revisar.', review: 'Revise a entrega mais recente deste projeto. Aponte problemas e riscos antes de sugerir qualquer alteração.', research: 'Quero pesquisar um tema e organizar os achados em uma entrega clara, com fontes para eu conferir.', video: 'Quero criar um conteúdo em vídeo. Ajude a estruturar a ideia, o roteiro e as etapas para revisão.' }[id]; const ta = $('home-mission'); if (ta && text) { ta.value = text; ta.focus(); ta.setSelectionRange(text.length, text.length); } },
+  'home-prompt': id => {
+    const selProj = $('home-project')?.value ?? ctx.project, pName = ctx.projectNameOf(selProj);
+    ctx.ui.homeTpl = id; ctx.ui.homeListOpen = true;
+    const text = buildHomePrompt(id, { projectName: pName, items: ctx.ui.homeList || [] });
+    render();
+    const ta = $('home-mission');
+    if (ta) { ta.value = text; selectNextPlaceholder(ta, false); }
+  },
+  'home-next-slot': () => { const ta = $('home-mission'); if (ta) selectNextPlaceholder(ta, true); },
+  'home-list-toggle': () => {
+    const curVal = $('home-mission')?.value;
+    ctx.ui.homeListOpen = !ctx.ui.homeListOpen;
+    render();
+    if (curVal != null && $('home-mission')) $('home-mission').value = curVal;
+    if (ctx.ui.homeListOpen) $('home-list-input')?.focus();
+  },
+  'home-list-add': () => {
+    const inp = $('home-list-input'); if (!inp) return;
+    const raw = inp.value; if (!raw.trim()) { inp.focus(); return; }
+    const curPrompt = $('home-mission')?.value || '';
+    ctx.ui.homeList = parseListItems(raw, ctx.ui.homeList || []);
+    const nextPrompt = syncListIntoPrompt(curPrompt, ctx.ui.homeList);
+    inp.value = ''; render();
+    if ($('home-mission')) $('home-mission').value = nextPrompt;
+    $('home-list-input')?.focus();
+  },
+  'home-list-del': idxStr => {
+    const i = Number(idxStr), curPrompt = $('home-mission')?.value || '';
+    ctx.ui.homeList = (ctx.ui.homeList || []).filter((_, k) => k !== i);
+    const nextPrompt = syncListIntoPrompt(curPrompt, ctx.ui.homeList);
+    render();
+    if ($('home-mission')) $('home-mission').value = nextPrompt;
+  },
+  'home-preset-toggle': (_id, el) => {
+    const txt = el?.dataset.text; if (!txt) return;
+    const curPrompt = $('home-mission')?.value || '';
+    const cur = ctx.ui.homeList || [];
+    ctx.ui.homeList = cur.includes(txt) ? cur.filter(x => x !== txt) : [...cur, txt];
+    const nextPrompt = syncListIntoPrompt(curPrompt, ctx.ui.homeList);
+    render();
+    if ($('home-mission')) $('home-mission').value = nextPrompt;
+  },
   'project-team-suggest': async id => { const p = ctx.state.projects.find(x => x.id === id); if (!p) throw new Error('Projeto não encontrado.'); if (ctx.project !== p.id) setProject(p.id); ctx.ui.target = 'assistant'; ctx.ui.chatAll = false; await go('room'); setChatOpen(true); await askAssistant(`Monte uma equipe para o projeto “${p.name}”, que está em foco. Antes de propor, conheça o projeto em somente leitura: leia o README (se houver), o arquivo de dependências (package.json, requirements.txt ou equivalente) e a estrutura de pastas. Não abra arquivos de segredo (.env, chaves) e não altere nada. Diga em poucas linhas o que o projeto é e em que estado está. Se o material não bastar, faça até 3 perguntas objetivas antes de propor. Com base suficiente, proponha uma equipe pequena (2 a 5 agentes), reaproveitando agentes existentes e os especialistas da Biblioteca quando fizer sentido, e escolha a IA e o modelo de cada um conforme o guia de IAs instaladas (modelo mais forte para orquestrar e revisar). Proponha as ações criar_agente necessárias (somente leitura por padrão; edição só para quem precisa) e criar_equipe com o campo “projeto” igual ao nome exato “${p.name}”. Não inicie tarefas; aguarde minha aprovação de cada ação.`); },
   'pick-project': id => { setProject(id); go('room'); }, 'proj-filter': id => { ctx.ui.projFilter = id; render(); },
   'open-folder': async id => { await api(`projects/${id}/open`, {}); notify('Pasta aberta no Explorer.'); },
@@ -713,6 +849,8 @@ const actions = {
     if (id === 'pref-autoclean') { try { ctx.cleanup = await api('cleanup', { auto: !ctx.cleanup?.auto }); notify(ctx.cleanup.auto ? 'Limpeza automática ligada: uma vez por dia, só o que é seguro apagar.' : 'Limpeza automática desligada.'); } catch (e) { notify(e.message, true); } render(); return; }
     if (id === 'pref-keepawake') { try { ctx.power = await api('power', { keepAwake: !ctx.power?.keepAwake }); } catch (e) { notify(e.message, true); } render(); return; }
     if (id === 'pref-autosup') { p.autoSupervisor = !p.autoSupervisor; savePrefs(); }
+    else if (id === 'pref-mediaonly') { p.mediaOnlyReview = p.mediaOnlyReview === false; savePrefs(); notify(p.mediaOnlyReview ? 'Aprovação enxuta ligada: só mídia (imagens e vídeos), lotes e redes pedem aprovação.' : 'Todas as entregas concluídas voltaram a pedir aprovação.'); }
+    else if (id === 'pref-directexec') { p.directExec = p.directExec === false; savePrefs(); api('orchestration/policy', { directExec: p.directExec }).catch(() => {}); notify(p.directExec ? 'Execução sem travas ligada: planos validados e pedidos entre agentes rodam direto.' : 'Planos do Supervisor voltaram a esperar aceite manual.'); }
     else if (id === 'pref-anim') { p.anim = p.anim === false; savePrefs(); }
     else if (id === 'pref-reduce') { p.reduce = !p.reduce; savePrefs(); }
     else if (id === 'pref-pausehidden') { p.musicHidden = !p.musicHidden; savePrefs(); }
@@ -774,6 +912,7 @@ Os agentes dela continuam existindo; só a equipe (papéis e ordem) é apagada. 
   'skill-cat': id => { ctx.ui.skillCat = id || ''; ctx.ui.skillMore = false; render(); },
   'skill-library-install': async id => { await api('skills/library/install', { id }); await loadSkills(); notify('Skill inicial adicionada. Revise-a e escolha os agentes que poderão usá-la.'); },
   'asst-toggle': () => setChatOpen(!ctx.ui.asstOpen),
+  'nico-pip': () => nicoFlow?.openPip(),
   'chat-open': () => setChatOpen(true),
   'chat-min': () => setChatOpen(false),
   'asst-thread-rename': id => { ctx.ui.renameId = id; renderAsst(); const i = document.querySelector('.cw-rename'); if (i) { i.focus(); i.select(); } },
@@ -803,13 +942,19 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
   'asst-brief': () => asstCall('brief', { provider: $('asst-provider')?.value }),
   'asst-reset': () => asstCall('reset'),
   'asst-suggest': q => { const ta = $('mission'); if (!ta) return; ta.value = q; ta.focus(); ta.setSelectionRange(q.length, q.length); },
-  'asst-apply': async id => { try { await applyAsst(id); } catch (e) { notify(e.message, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); } },
+  'asst-apply': async id => { try { await applyAsst(id); } catch (e) { notify(e.message, true); try { ctx.asst = await api(asstBase()); } catch {} renderAsst(); } },
   'asst-team-help': async () => { await askAssistant('A equipe que acabei de criar ainda não está ligada a um projeto. Ajude-me a escolher o projeto atual ou pergunte qual devo usar, confira a equipe disponível e proponha um fluxo para eu aprovar. Não inicie tarefas nem aplique outras ações sem minha aprovação.'); },
   'asst-apply-all': async mid => {
     const msg = ctx.asst?.messages?.find(x => x.id === mid); const todo = (msg?.actions || []).filter(a => a.status === 'pending');
-    for (const a of todo) { if (!a.valid) { notify(`Parei antes de “${a.summary || 'uma proposta'}”: ${a.error || 'inválida'}.`, true); break; } try { await applyAsst(`${mid}:${a.idx}`); } catch (e) { notify(`Parei em “${a.summary}”: ${e.message}`, true); try { ctx.asst = await api('assistant'); } catch {} renderAsst(); break; } }
+    for (const a of todo) { if (!a.valid) { notify(`Parei antes de “${a.summary || 'uma proposta'}”: ${a.error || 'inválida'}.`, true); break; } try { await applyAsst(`${mid}:${a.idx}`); } catch (e) { notify(`Parei em “${a.summary}”: ${e.message}`, true); try { ctx.asst = await api(asstBase()); } catch {} renderAsst(); break; } }
   },
   'asst-dismiss': async id => { const [m, i] = id.split(':'); await asstCall('dismiss', { messageId: m, index: Number(i) }); },
+  'asst-cancel': async () => { if (await asstCall('cancel')) notify('Resposta cancelada.'); },
+  'asst-undo-folder': async id => {
+    if (!confirm('Desfazer a organização desta pasta? Os arquivos movidos voltam ao lugar original (arquivos alterados depois não são tocados).')) return;
+    const r = await api('assistant/undo-folder', { messageId: id });
+    ctx.asst = r.status; renderAsst(); await refresh(); notify(r.summary || 'Organização desfeita.');
+  },
   'upd-quick': async () => {   // botão do topo: baixa, instala ou verifica, conforme o estado
     const u = ctx.updates, st = u?.download?.state;
     if (st === 'downloading' || st === 'installing') return notify(st === 'downloading' ? 'Baixando a atualização…' : 'Instalando…');
@@ -888,6 +1033,13 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
   },
   'eco-apply': async () => { const ids = [...document.querySelectorAll('.eco-pick:checked')].map(x => x.value); if (!ids.length) return notify('Marque o que aplicar.', true); const r = await api('economy/apply', { ids }); notify(`Aplicado em ${r.applied} agente(s): ${r.agents.join(', ')}. Dá para desfazer.`); await Promise.all([refresh(), loadEconomy()]); },
   'eco-undo': async () => { const r = await api('economy/undo', {}); notify(`Desfeito em ${r.restored} agente(s).`); await Promise.all([refresh(), loadEconomy()]); },
+  'orch-goal': async id => { ctx.orchestration = await api('orchestration/policy', { goal: id }); render(); notify('Perfil de orquestração atualizado.'); },
+  'orch-playbook': async id => {
+    const pb = ctx.orchestration?.playbooks?.find(x => x.id === id); if (!pb) return;
+    const msg = `Quero aplicar o playbook “${pb.name}”:\n${pb.phases.map(p => `- ${p}`).join('\n')}\n\nObjetivo: [descreva o que vamos construir]`;
+    await go('home'); ctx.ui.homeTpl = ''; render();
+    const ta = $('home-mission'); if (ta) { ta.value = msg; selectNextPlaceholder(ta, false); }
+  },
   'outbound-clear': async () => { await api('outbound/clear', {}); await loadOutbound(); notify('Lista limpa.'); },
   'ap-nav': id => { ctx.ui.apIdx = Math.max(0, (Number(ctx.ui.apIdx) || 0) + Number(id)); ctx.ui.apChanges = null; renderAsst(); },
   'ap-toggle': () => { ctx.ui.apCollapsed = !ctx.ui.apCollapsed; renderAsst(); },
@@ -1006,7 +1158,8 @@ document.addEventListener('keydown', e => {
     if (ctx.ui.onb.mode === 'tour' && e.key === 'ArrowRight') { e.preventDefault(); return actions['onb-next'](); }
     if (ctx.ui.onb.mode === 'tour' && e.key === 'ArrowLeft') { e.preventDefault(); return actions['onb-back'](); }
   }
-  if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else if (ctx.ui.panel) { ctx.ui.panel = null; render(); } else if (ctx.ui.whoOpen) { ctx.ui.whoOpen = false; render(); } }
+  if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else if (ctx.ui.panel) { ctx.ui.panel = null; render(); } else if (ctx.ui.whoOpen) { ctx.ui.whoOpen = false; render(); } else if (browserMgr?.isOpen()) browserMgr.toggleDock(false); }
+  if (e.target.id === 'home-list-input' && e.key === 'Enter') { e.preventDefault(); actions['home-list-add'](); return; }
   if (e.target.id === 'mission' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('composer').requestSubmit(); }
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('.pcard[role=button]')) { e.preventDefault(); e.target.click(); }
 });
@@ -1027,6 +1180,8 @@ document.addEventListener('change', async e => {
     else if (t.id === 'pref-font') { ctx.prefs.font = t.value; savePrefs(); render(); }
     else if (t.id === 'target') { ctx.sim = null; ctx.ui.target = t.value; renderAsst(); const ms = $('mission'); if (ms) ms.placeholder = t.value === 'assistant' ? 'Conte o que você quer fazer…' : 'Digite a missão…  /skill  @agente'; $('send').disabled = !(t.value === 'assistant' || (ctx.project && ctx.state.agents.length)); }
     else if (t.dataset?.field && t.dataset.i != null) { ctx.teamDraft.members[Number(t.dataset.i)][t.dataset.field] = t.value; render(); }
+    else if (t.dataset?.act === 'orch-careful') { ctx.orchestration = await api('orchestration/policy', { careful: t.checked }); render(); notify(t.checked ? 'Modo cuidadoso ligado: leitura antes de editar e worktree isolado quando disponível.' : 'Modo cuidadoso desligado.'); }
+    else if (t.dataset?.act === 'orch-fallback') { ctx.prefs.autoFallback = t.checked; savePrefs(); ctx.orchestration = await api('orchestration/policy', { autoFallback: t.checked }); render(); notify(t.checked ? 'Auto-fallback ligado: se uma IA atingir a cota, a tarefa segue em outra IA conectada.' : 'Auto-fallback de cota desligado.'); }
     else if (t.dataset?.act === 'skill-agent') {
       const a = ctx.state.agents.find(x => x.id === t.dataset.agent); const ids = new Set(a.skillIds); if (t.checked) ids.add(t.dataset.id); else ids.delete(t.dataset.id);
       if (ids.size > 8) { t.checked = false; throw new Error('Máximo de 8 skills por agente.'); }
@@ -1035,11 +1190,16 @@ document.addEventListener('change', async e => {
   } catch (err) { notify(err.message, true); }
 });
 document.addEventListener('paste', e => {
+  if (e.target?.id === 'home-list-input') {
+    const txt = e.clipboardData?.getData('text/plain') || '';
+    if (txt.includes('\n')) { e.preventDefault(); e.target.value = (e.target.value ? e.target.value + '\n' : '') + txt; actions['home-list-add'](); }
+    return;
+  }
   if (e.target?.id !== 'mission' || V.targetOf(ctx) !== 'assistant') return;
   const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
   if (file) { e.preventDefault(); attachChatImage(file).catch(err => notify(err.message, true)); }
 });
-document.addEventListener('click', e => { if (e.target?.id === 'asst-image-preview') { ctx.ui.asstImage = null; showChatImage(); } });
+document.addEventListener('click', e => { if (e.target?.closest?.('#asst-image-preview')) { ctx.ui.asstImage = null; showChatImage(); } });
 document.addEventListener('input', e => {
   const t = e.target, m = { 'proj-q': 'projQuery', 'tool-q': 'toolQ', 'skill-q': 'skillQ', 'routine-q': 'routineQ', 'review-note': 'reviewNote' }[t.id];
   if (t.id === 'workspace-name') return;
@@ -1055,7 +1215,8 @@ document.addEventListener('submit', async e => {
     if (fid === 'home-composer') {
       const text = String(new FormData(f).get('prompt') || '').trim(), projectId = String(new FormData(f).get('projectId') || ''); if (!text) return;
       if (projectId !== ctx.project) { setProject(projectId); render(); }
-      ctx.ui.target = 'assistant'; if (await askAssistant(text)) { const ta = $('home-mission'); if (ta) ta.value = ''; }
+      ctx.ui.target = 'assistant';
+      if (await askAssistant(text)) { ctx.ui.homeList = []; ctx.ui.homeTpl = ''; ctx.ui.homeListOpen = false; render(); const ta = $('home-mission'); if (ta) ta.value = ''; }
       return;
     }
     if (fid === 'hermes-form') {   // servidor do Hermes: o servidor valida de novo tudo o que chega
@@ -1092,7 +1253,7 @@ document.addEventListener('submit', async e => {
         if (target === 's') throw new Error('Para usar o Supervisor, selecione o projeto desejado no topo antes de enviar.');
       }
       $('send').disabled = true;
-      if (target === 's') { await api('plans', { projectId: projId, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept: false }); notify('O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
+      if (target === 's') { const autoAccept = ctx.prefs.directExec !== false; await api('plans', { projectId: projId, supervisorId: ctx.supervisorAgent().id, request: text, requestId, autoAccept }); notify(autoAccept ? 'O Supervisor está planejando e já vai iniciar a execução.' : 'O supervisor está planejando. Revise e aceite o plano na Sala.'); await go('room'); }
       else if (target.startsWith('t:')) { const fl = await api('flows', { projectId: projId, teamId: target.slice(2), requestId, objective: text, criteria, maxReviewRounds: ctx.prefs.rounds || 1 }); rememberSent(target, text, { flowId: fl.id }); notify('Fluxo iniciado. O andamento aparece no chat.'); }
       else { if (px.project) notify(`Missão enviada ao projeto “${px.project.name}”.`); const t = await api('tasks', { projectId: projId, agentId: target.slice(2), requestId, objective: text, criteria, skillIds, extraDir: extraDir || undefined, isolate: $('isolate')?.checked === true, model: $('ov-model')?.value.trim() || undefined, effort: $('ov-effort')?.value || undefined }); ctx.ui.asstExtraDir = null; $('mission').value = ''; rememberSent(target, text, { taskId: t.id }); await refresh(); return openTask(t.id); }
       $('mission').value = ''; ctx.ui.optsOpen = false; await refresh();
@@ -1108,8 +1269,14 @@ document.addEventListener('submit', async e => {
       if (isNew && saved?.provider && saved.provider !== 'hermes') { const k = saved.provider + '|' + (saved.model || ''); ctx.ui.respSeen ??= new Set(); if (!ctx.ui.respSeen.has(k)) { ctx.ui.respSeen.add(k); api('connectors/test', { provider: saved.provider, model: saved.model || '' }).then(r => { ctx.ui.respTest = { ...(ctx.ui.respTest || {}), [saved.provider]: r }; notify(r.ok ? `“${saved.name}” está pronto: ${V.PROVIDER[saved.provider] || saved.provider} respondeu ao teste.` : `Atenção: a IA de “${saved.name}” não respondeu ao teste. ${r.error || ''} ${r.hint || 'Confira o login em Conexões.'}`, !r.ok); render(); }).catch(() => {}); } }
     }
     else if (fid === 'flow-form') { const d = Object.fromEntries(new FormData(f)); await api('flows', { projectId: ctx.project, teamId: d.team, requestId: crypto.randomUUID(), objective: d.objective, criteria: lines(d.criteria), maxReviewRounds: ctx.prefs.rounds || 1 }); f.reset(); notify('Fluxo iniciado.'); await refresh(); }
-    else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v); await api('settings/concurrency', { global: n(d.global), provider: { codex: n(d.codex), claude: n(d.claude) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
+    else if (fid === 'conc-form') { const d = Object.fromEntries(new FormData(f)), n = v => Number(v), curP = ctx.state.runtime.concurrency?.provider || {}; await api('settings/concurrency', { global: n(d.global), provider: { ...curP, codex: n(d.codex), claude: n(d.claude), agy: n(d.agy) }, video: n(d.video) }); notify('Limites salvos.'); await refresh(); }
     else if (fid === 'token-budget-form') { const fd = new FormData(f); await api('settings/token-budget', { limit: fd.get('limit'), enabled: fd.get('enabled') === 'on' }); await Promise.all([refresh(), loadEconomy()]); notify('Teto salvo.'); }
+    else if (fid === 'compare-form') {
+      const fd = new FormData(f), agentIds = fd.getAll('cmpAgent'), projectId = String(fd.get('projectId') || ''), objective = String(fd.get('objective') || '').trim();
+      const r = await api('tasks/compare', { projectId, agentIds, objective }); f.reset();
+      notify(`Comparação iniciada em ${r.tasks.length} agentes. Acompanhe lado a lado em Tarefas.`);
+      await refresh(); await go('tasks');
+    }
     else if (fid === 'api-form') { const fd = new FormData(f); await api('apis', { id: fd.get('id') || undefined, service: ctx.ui.apiForm?.service || fd.get('service'), name: fd.get('name'), key: fd.get('key'), note: fd.get('note') }); ctx.ui.apiForm = null; await loadApis(); notify('Chave guardada. Use “Testar e ver consumo”.'); }
     else if (fid === 'social-form') {
       const fd = new FormData(f), network = ctx.ui.socialForm?.network || fd.get('network'), fields = {}; for (const [k, v] of fd.entries()) if (k.startsWith('f_')) fields[k.slice(2)] = v;
@@ -1241,15 +1408,48 @@ document.addEventListener('dblclick', e => { const b = e.target.closest?.('.cw-d
 document.addEventListener('change', e => { if (e.target.id === 'asst-provider' && ctx.asst?.briefed) asstCall('provider', { provider: e.target.value }); if (e.target.id === 'asst-ai-prov') { ctx.ui.aiProv = e.target.value; renderAsst(); loadAiModels(e.target.value); } });
 $('update-dialog').addEventListener('cancel', e => { if (ctx.updates?.download?.state === 'installing') e.preventDefault(); });
 $('update-dialog').addEventListener('close', () => { ctx.ui.updOpen = false; });
+browserMgr = createBrowserManager({
+  api,
+  getCtx: () => { ctx.ui.browserOpen = browserMgr?.isOpen() || false; return ctx; },
+  notify,
+  onStateChange: () => { ctx.ui.browserOpen = browserMgr?.isOpen() || false; render(); },
+  onTweak: async ({ url, title, viewport, note }) => {
+    const vpLbl = { desktop: 'Desktop', mobile: 'Celular 390×844', vertical: 'Vertical 9:16 (HyperFrames/Reels)' }[viewport] || viewport;
+    const rel = url.startsWith('/live/') ? decodeURIComponent(url.split('/').slice(4).join('/')) : title;
+    const objective = `Ajuste visual na tela aberta no Navegador Interno (${rel} · modo ${vpLbl}): ${note}\nMantenha o restante intacto. Assim que salvar o arquivo, a aba ao vivo vai recarregar automaticamente.`;
+    const inP = ctx.project ? ctx.projectAgentIds() : new Set();
+    const lastWriterId = (ctx.state?.runs || []).find(r => r.project?.id === ctx.project && r.agent?.mode === 'write')?.agent?.id;
+    const writer = (ctx.state?.agents || []).find(a => a.id === lastWriterId && inP.has(a.id)) || (ctx.state?.agents || []).find(a => a.mode === 'write' && (!ctx.project || inP.has(a.id)));
+    if (ctx.project && writer) {
+      await api('tasks', { projectId: ctx.project, agentId: writer.id, requestId: crypto.randomUUID(), objective });
+      notify(`Ajuste enviado para ${writer.name}! A aba recarregará sozinha ao concluir.`);
+      await refresh();
+    } else {
+      setChatOpen(true);
+      await askAssistant(objective);
+    }
+  },
+});
+nicoFlow = initNicoFlow({
+  getName: () => ctx.asst?.name || 'Nico',
+  getCtx: () => ctx,
+  askFn: text => askAssistant(text),
+  isAuthed: () => ctx.authed,
+  notify,
+  polishFn: (text, format) => api('assistant/polish-voice', { text, format }),
+});
 let started = false;
 async function start() {
   try {
-    ctx.state = await api('state'); ctx.authed = true;
+    const [st, who] = await Promise.all([api('state'), api('whoami').catch(() => ({ level: 'master' }))]);
+    ctx.state = st; ctx.whoami = who.level; ctx.authed = true;
     sessionStorage.setItem('code-room-key', key); $('login').hidden = true; $('shell').hidden = false;
     if (!ctx.state.projects.some(p => p.id === ctx.project) && !(ctx.project === '' && store.get('cr.general', '') === '1' && ctx.state.projects.length)) setProject(ctx.state.projects[0]?.id || '', true);
-    loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); setInterval(() => { if (ctx.authed && !document.hidden === false) loadAsst(); else if (ctx.authed) loadAsst(); }, 60000); maybeStartOnboarding(); loadUpdates(); setInterval(() => { if (!document.hidden) loadUpdates(); }, 30 * 60000);
-    if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden) refresh(); }, 15000); stream(); }
-  } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; renderLogin(); }
+    loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); if (ctx.whoami !== 'device') loadUpdates();
+    if (ctx.whoami !== 'device') api('orchestration/policy', { directExec: ctx.prefs.directExec !== false, autoFallback: ctx.prefs.autoFallback !== false }).catch(() => {});
+    tabBus?.postMessage({ kind: 'ping', tabId });
+    if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
+  } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; nicoFlow?.render(true); browserMgr?.render(); renderLogin(); }
 }
 applyPrefs();
 if (pairFromHash) pairWith(pairFromHash).catch(e => { ctx.ui.loginError = e.message; $('login').hidden = false; renderLogin(); });

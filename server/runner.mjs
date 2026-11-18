@@ -8,6 +8,10 @@ import { configuredModel } from './connector-test.mjs';
 import { scanSkills } from './skills.mjs';
 import { transition, settleDependents } from './tasks.mjs';
 import { snapshot, diffSnapshots } from './deliverables.mjs';
+import { buildFolderUndo } from './folder-undo.mjs';
+import { captureTaskCheckpoint } from './task-checkpoint.mjs';
+import { pickFallbackProvider } from './alethe-playbook.mjs';
+import { validateTaskArtifacts } from './quality-gates.mjs';
 import { killTree, alive, processIdentity } from './procs.mjs';
 import { buildPrompt, emptyContext } from './context.mjs';
 import { blockFor as obsidianBlock } from './obsidian.mjs';
@@ -26,8 +30,8 @@ const fail = (failureKind, message) => Object.assign(new Error(message), { failu
 
 export class Runner {
   // hooks.handoffsFor(task) → mensagens de passagem; hooks.onFinal(task) → orquestração depois do estado final.
-  constructor(store, { launch = spawn, buildCommand = command, executorId = `exec-${randomUUID().slice(0, 8)}`, extraEnv = {}, heartbeatMs = 5000, staleMs = 30000, cancelDeadlineMs = 10000, hooks = {}, worktreeDir = null } = {}) {
-    Object.assign(this, { store, launch, buildCommand, executorId, extraEnv, heartbeatMs, staleMs, cancelDeadlineMs, hooks, worktreeDir });
+  constructor(store, { launch = spawn, buildCommand = command, executorId = `exec-${randomUUID().slice(0, 8)}`, extraEnv = {}, heartbeatMs = 5000, staleMs = 30000, cancelDeadlineMs = 10000, hooks = {}, worktreeDir = null, availableProviders = () => new Set() } = {}) {
+    Object.assign(this, { store, launch, buildCommand, executorId, extraEnv, heartbeatMs, staleMs, cancelDeadlineMs, hooks, worktreeDir, availableProviders });
     this.active = new Map(); this.pumping = false; this.again = false; this.timer = null;
   }
   async start() {
@@ -150,9 +154,13 @@ export class Runner {
     for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de contexto: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     if (agent.browser === 'isolado') entry.browserOutputDir = await mkdtemp(join(tmpdir(), 'code-room-browser-'));
-    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, timeoutMs: task.limits.timeoutMs });
+    if (task.extraDir && agent.mode === 'write') entry.opsLog = join(tmpdir(), `code-room-ops-${attempt.id}.jsonl`);
+    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, opsLog: entry.opsLog || null, timeoutMs: task.limits.timeoutMs });
     if (task.resume) this.event(attempt.id, { type: 'diagnostic', text: `Continuando a conversa: sessão ${task.resume.sessionId.slice(0, 8)}… da tarefa ${task.resume.fromTask.slice(0, 8)}… (mesmo provedor).` });
     const before = await snapshot(root);
+    if (agent.mode === 'write' && !task.isolate && task.project?.id !== 'assistant-internal') {
+      entry.checkpoint = await captureTaskCheckpoint(root);
+    }
     let externalBefore = task.extraDir ? await snapshot(task.extraDir, { strict: true }) : null;
     if (externalBefore && !externalBefore.complete) {   // pasta grande (ex.: Área de Trabalho): acompanha o primeiro nível em vez de recusar a tarefa
       const top = await snapshot(task.extraDir, { strict: true, shallow: true });
@@ -227,7 +235,7 @@ export class Runner {
     if (o.root && o.before) {
       try { deliverables = await diffSnapshots(o.root, o.before, await snapshot(o.root)); } catch (e) { deliverables = { available: false, reason: e.message, files: [] }; }
     }
-    let externalDeliverables = null;
+    let externalDeliverables = null, folderUndo = null;
     if (task.extraDir) {
       externalDeliverables = { available: false, files: [], reason: 'A execução terminou antes de registrar a pasta extra.' };
       if (o.externalBefore) try {
@@ -235,7 +243,15 @@ export class Runner {
         if (current !== task.extraDir) throw new Error('A pasta extra mudou de destino durante a execução. Confira-a manualmente.');
         externalDeliverables = await diffSnapshots(task.extraDir, o.externalBefore, await snapshot(task.extraDir, { strict: true, shallow: !!o.externalBefore.shallow }));
         if (o.externalBefore.shallow) externalDeliverables.shallow = true;
+        if (task.agent.mode === 'write') {
+          folderUndo = buildFolderUndo(task.extraDir, o.externalBefore, entry.opsLog || null);
+          if (folderUndo?.movedFiles?.length && externalDeliverables.available) {
+            const seen = new Set(externalDeliverables.files.map(f => f.path));
+            for (const mf of folderUndo.movedFiles) if (!seen.has(mf.path)) { externalDeliverables.files.push(mf); seen.add(mf.path); }
+          }
+        }
       } catch (e) { externalDeliverables = { available: false, files: [], reason: e.message }; }
+      if (entry.opsLog) await rm(entry.opsLog, { force: true }).catch(() => {});
     }
     const changed = [...deliverables.files.map(f => f.path), ...(externalDeliverables?.files || []).map(f => `Pasta extra: ${f.path}`)];
     const violation = task.agent.mode === 'read' && changed.length ? changed : null;
@@ -251,8 +267,39 @@ export class Runner {
     this.save(attempt); this.event(attempt.id, { type: 'status', text: status, failureKind });
     const fresh = this.store.get('tasks', task.id);
     const taskStatus = status === 'completed' && fresh.status === 'cancelling' ? 'cancelled' : status;
-    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, ...(task.extraDir ? { externalDeliverables } : {}), readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
+    const checkpoint = entry.checkpoint && deliverables.files?.length ? entry.checkpoint : null;
+    const qaGate = taskStatus === 'completed' && deliverables.files?.length && o.root && fresh.project?.id !== 'assistant-internal'
+      ? await validateTaskArtifacts(o.root, { project: fresh.project, result: { deliverables } }, { quick: true }).catch(() => null)
+      : null;
+    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, ...(checkpoint ? { checkpoint } : {}), ...(qaGate ? { qaGate } : {}), ...(task.extraDir ? { externalDeliverables } : {}), ...(folderUndo ? { folderUndo: { available: true, moves: folderUndo.moves, createdDirs: folderUndo.createdDirs, undoneAt: null } } : {}), readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
     this.store.release(task.id); this.active.delete(task.id);
+    if (taskStatus === 'failed' && failureKind === 'rate_limit' && !fresh.fallbackUsed && fresh.project?.area !== 'Financeiro' && fresh.project?.id !== 'assistant-internal' && this.store.get('settings', 'orchestrationPolicy')?.autoFallback === true) {
+      const alt = pickFallbackProvider(this.store, fresh.agent.provider, this.availableProviders(), { hasExtraDir: !!fresh.extraDir, isFinance: false });
+      if (alt) {
+        const oldProv = fresh.agent.provider;
+        this.event(fresh.id, { type: 'diagnostic', text: `Cota de ${oldProv} atingida: reencaminhando automaticamente para ${alt} para não parar a fila.` });
+        transition(this.store, fresh, 'queued', {
+          fallbackUsed: true,
+          fallbackFrom: oldProv,
+          reason: null,
+          error: null,
+          failureKind: null,
+          resume: null,
+          agent: {
+            ...fresh.agent,
+            provider: alt,
+            model: '',
+            effort: '',
+            commands: alt === 'claude' ? fresh.agent.commands : [],
+            mcpTools: alt === 'claude' ? fresh.agent.mcpTools : [],
+            browser: alt === 'agy' ? 'off' : (fresh.agent.browser === 'chrome' && alt !== 'claude' ? 'isolado' : fresh.agent.browser),
+            web: alt === 'claude' ? fresh.agent.web : false,
+          },
+        });
+        queueMicrotask(() => this.pump());
+        return;
+      }
+    }
     settleDependents(this.store, task.id);
     try { this.hooks.onFinal?.(this.store.get('tasks', task.id)); } catch (e) { this.event(task.id, { type: 'diagnostic', text: `Falha na orquestração: ${e.message}` }); }
     queueMicrotask(() => this.pump());

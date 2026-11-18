@@ -73,7 +73,9 @@ export const bestProvider = (id, connected) => { const on = connected instanceof
 // Equipes prontas: contrata os especialistas que faltam, monta a equipe e traz tudo para o projeto em foco.
 export const AGENT_PACKS = Object.freeze([
   { id: 'codigo', name: 'Equipe de código', description: 'Arquiteto planeja, Programador implementa, Revisor confere e Testador tenta quebrar.', agents: ['arquiteto', 'programador', 'revisor', 'testes'], team: [['desenvolvedor', 'programador'], ['revisor', 'revisor']] },
+  { id: 'site', name: 'Equipe de site e landing page', description: 'Designer avalia a experiência, Redator afia os textos, Programador monta o site responsivo e Revisor confere.', agents: ['designer', 'redator', 'programador', 'revisor'], team: [['desenvolvedor', 'programador'], ['revisor', 'revisor']] },
   { id: 'video', name: 'Equipe de vídeo', description: 'Pesquisador levanta os temas, Diretor de vídeo faz o roteiro e as cenas e Redator cuida de título e legenda.', agents: ['pesquisador', 'diretor-video', 'redator'], team: [['pesquisador', 'pesquisador'], ['editor', 'diretor-video']] },
+  { id: 'automacao', name: 'Equipe de automação', description: 'Arquiteto desenha o fluxo, Programador cria os scripts, DevOps confere o ambiente e Testador valida.', agents: ['arquiteto', 'programador', 'devops', 'testes'], team: [['desenvolvedor', 'programador'], ['revisor', 'testes']] },
   { id: 'seguranca', name: 'Revisão de segurança', description: 'Auditor de segurança procura brechas e o Revisor de código confirma os achados.', agents: ['seguranca', 'revisor'], team: [] },
 ]);
 export const listAgentPacks = () => AGENT_PACKS.map(p => ({ id: p.id, name: p.name, description: p.description, agents: p.agents.map(id => AGENT_LIBRARY.find(a => a.id === id)?.name).filter(Boolean) }));

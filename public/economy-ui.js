@@ -1,8 +1,41 @@
-// Consumo: onde os tokens foram, sugestões para gastar menos (você marca e aplica; dá para desfazer) e teto diário de tokens.
+// Consumo: orquestração inteligente ("planejar grande, executar enxuto"), comparação entre IAs, onde os tokens foram e teto diário.
 import { esc } from './views.js';
 
 const n = v => Number(v || 0).toLocaleString('pt-BR');
 const KIND = { model: 'modelo mais leve', effort: 'menos esforço', provider: 'outra IA', info: 'dica' };
+
+export function orchestrationCardHtml(ctx) {
+  const o = ctx.orchestration; if (!o) return '';
+  const pol = o.policy || { goal: 'balanced', careful: false, conserve: [], rules: [] };
+  const hr = o.headroom || {}, goals = o.goals || [], playbooks = o.playbooks || [];
+  const agents = ctx.state?.agents || [], projects = ctx.state?.projects || [];
+  const canCompare = projects.length > 0 && agents.length >= 2;
+  return `<section class="card orch-card" id="orchestration-card" style="margin-bottom:14px">
+    <div class="card-h">
+      <div><h2>Orquestração inteligente e economia</h2><small class="muted">Planejar e revisar com a IA mais forte; delegar execuções enxutas para poupar cota</small></div>
+      <span class="pill info">${esc(goals.find(g => g.id === pol.goal)?.label || 'Equilibrado')}</span>
+    </div>
+    <div class="orch-goals" role="group" aria-label="Perfil de orquestração">
+      ${goals.map(g => `<button type="button" class="orch-goal${pol.goal === g.id ? ' on' : ''}" data-act="orch-goal" data-id="${esc(g.id)}" aria-pressed="${pol.goal === g.id}"><b>${esc(g.label)}</b><small>${esc(g.desc)}</small></button>`).join('')}
+    </div>
+    <div class="orch-bar">
+      <label class="check small"><input type="checkbox" data-act="orch-careful" ${pol.careful ? 'checked' : ''}> <span><b>Modo cuidadoso:</b> ler antes de escrever e isolar edições em worktree sempre que possível</span></label>
+      <label class="check small"><input type="checkbox" data-act="orch-fallback" ${pol.autoFallback !== false ? 'checked' : ''}> <span><b>Auto-fallback de cota:</b> continuar em outra IA conectada se uma conta atingir o limite</span></label>
+      <span class="small muted">Rota sugerida agora: planejar/revisar <b>${esc(hr.bestLead || '—')}</b> · executar <b>${esc(hr.bestExec || '—')}</b></span>
+    </div>
+    <details class="orch-details"><summary class="small"><b>Playbooks prontos por área</b> (${playbooks.length})</summary>
+      <div class="orch-playbooks">${playbooks.map(pb => `<div class="orch-pb"><div><b>${esc(pb.name)}</b><ol class="small muted">${pb.phases.map(p => `<li>${esc(p.replace(/^\d+\.\s*/, ''))}</li>`).join('')}</ol></div><button type="button" class="btn outline sm" data-act="orch-playbook" data-id="${esc(pb.id)}">Usar com o Assistente</button></div>`).join('')}</div>
+    </details>
+    ${canCompare ? `<details class="orch-details"><summary class="small"><b>Comparar IAs lado a lado</b> (mesmo pedido em 2 ou 3 agentes)</summary>
+      <form id="compare-form" class="rt-form" style="margin-top:8px">
+        <label class="f small">Projeto<select name="projectId" required>${projects.map(p => `<option value="${esc(p.id)}" ${p.id === ctx.project ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <div class="f small"><span>Marque 2 ou 3 agentes (quem edita roda isolado em worktree)</span><div class="chips" style="margin-top:4px">${agents.map(a => `<label class="check chip"><input type="checkbox" name="cmpAgent" value="${esc(a.id)}"> ${esc(a.name)} <small class="muted">(${esc(a.provider)})</small></label>`).join('')}</div></div>
+        <label class="f small">Pedido para comparar<textarea name="objective" rows="2" maxlength="3000" required placeholder="Ex.: Proponha a arquitetura e a landing page deste produto…"></textarea></label>
+        <button class="btn sm">Comparar agentes</button>
+      </form>
+    </details>` : ''}
+  </section>`;
+}
 
 export function economyCardHtml(ctx) {
   const e = ctx.economy; if (!e) return '';
