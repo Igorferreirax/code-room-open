@@ -5,11 +5,20 @@ Leia primeiro `AGENTS.md`, este arquivo e a última seção de `C:\Users\Igor\Do
 ## Git e publicação
 
 - Pasta do app: `C:\Users\Igor\Desktop\Code Room Publico`, branch local `codex/035-public-release`, em dia com o `main` público de `Igorferreirax/code-room-open` (MIT).
-- Versão publicada: **0.3.9** (tag `v0.3.9`, commit `b560145`; Release com zip `50a129539d50e863a4e0c29aa80041e0056961ce9ccb3acd692e9b7be3c19caa` e Setup `47bbbac3f17197cb42039362bbcf231a3f35c70f3bfeebdb1364faf2d9181636` conferidos com `SHA256SUMS.txt`; `smoke-package` ok no zip baixado). Antes: 0.3.8 (`f6880dd`, feita com o Gemini).
+- Versão publicada: **0.3.10** (tag `v0.3.10`, commit `7795deb`; Release com zip `135cba4426bd860a707b487709acdf376cdfd467139596ea1cbd49604350a3a0` e Setup `4f486af9c1db0c6f16625a25f9143b558839de804983fba594eb50a17dafc8cf` conferidos; `smoke-package` ok). Antes: 0.3.9 (`b560145`) e 0.3.8 (`f6880dd`, Gemini).
 - Como publicar: `legacy-public` está sem push de propósito e `origin` aponta ao repositório privado vazio `code-room-app`. Envie pelo endereço: `git push https://github.com/Igorferreirax/code-room-open.git HEAD:refs/heads/main` e a tag do mesmo jeito. A tag dispara `release.yml`; não suba arquivos à mão junto. Depois baixe a Release e confira os hashes.
-- Landing: `C:\Users\Igor\Desktop\Code Room Landing`, publicada em `94df5af` com a 0.3.9 em `https://code-room-coral.vercel.app`. O checkout local tem mudanças do Igor sem publicar (`mascot.js`, CSS, `main.js`, README, `.gitignore`): publique sempre a partir de uma cópia limpa (`git worktree add --detach <pasta> origin/main`, copie `.vercel/`, mude só `js/config.js`/`index.html`, `npx vercel@65.12.1 deploy --prod --yes`).
+- Landing: `C:\Users\Igor\Desktop\Code Room Landing`, publicada em `af9d2b4` com a 0.3.10 em `https://code-room-coral.vercel.app`. O checkout local tem mudanças do Igor sem publicar (`mascot.js`, CSS, `main.js`, README, `.gitignore`): publique sempre a partir de uma cópia limpa (`git worktree add --detach <pasta> origin/main`, copie `.vercel/`, mude só `js/config.js`/`index.html`, `npx vercel@65.12.1 deploy --prod --yes`).
 - Só publicar com pedido explícito do Igor. Não mudar licença, visibilidade nem remotos por conta própria.
 - Fora do Git de propósito: `docs/HANDOFF-CLAUDE-035-2026-11-11.md` (obsoleto) e `scripts/__pycache__/`.
+
+## O que entrou na 0.3.10 (Claude, 18/11)
+
+- **Terminais dentro do app, estilo Alethe**: `server/pty-host.cs` (ConPTY; filho precisa de STARTF_USESTDHANDLES com handles nulos), compilado na 1ª vez em `.data/bin`; `server/pty.mjs`; `public/term-dock.js` + xterm.js 5.5 em `public/vendor/xterm` (servido por exceção em `main.mjs`; CSP com style-src 'unsafe-inline').
+- **Interligado com o Nico**: estado “Terminais abertos” com últimas linhas; ações `abrir_terminal` (no painel) e `enviar_terminal`. “Assumir no terminal” retoma a sessão da tarefa (`POST /api/term {resumeTask}`).
+- **Pastas liberadas por projeto** (`server/workdirs.mjs`, `/api/projects/:id/workdirs`, tela no painel do projeto). **Lixeira** (`mover_para_lixeira`).
+- **Nico flutuante nativo** (`scripts/nico-flutuante.ps1`) e **esfera de partículas** na voz; voz dentro do chat.
+- Testes reais: pastas liberadas com Claude (3/3), assumir conversa no terminal (Claude lembrou a palavra), Lixeira, terminal embutido com PowerShell e Codex. Não testado: voz com microfone real.
+- Próximos: mesa de terminais em grade (vários lado a lado), cartão de aprovação no Codex/Gemini, aprovar pelo celular (Telegram ou WhatsApp, Igor escolhe).
 
 ## O que entrou na 0.3.9 (Claude, 18/11)
 
