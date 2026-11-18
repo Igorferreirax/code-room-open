@@ -105,7 +105,15 @@ export class Orchestrator {
     if (!task.flowId) return this.forwardLinks(task);
     const flow = this.store.get('flows', task.flowId); if (!flow) return;
     if (task.status === 'completed') {
-      for (const next of this.store.list('tasks').filter(t => t.handoffFrom === task.id || t.handoffFromAll?.includes(task.id))) {
+      // Revisor só quando há o que revisar: pedido que não gerou arquivo (abrir algo, responder, conferir) termina no desenvolvedor.
+      const changed = (task.result?.deliverables?.files || []).filter(x => x.change !== 'deleted').length + (task.result?.externalDeliverables?.files?.length || 0);
+      if (flow.kind === 'sequential' && task.step !== 'review' && !changed) {
+        for (const rv of this.store.list('tasks').filter(t => t.handoffFrom === task.id && t.step === 'review' && ['waiting_dependency', 'queued'].includes(t.status))) {
+          flow.taskIds = flow.taskIds.filter(id => id !== rv.id); flow.reviewSkipped = true; this.store.put('flows', flow);
+          transition(this.store, rv, 'cancelled', { reason: 'Sem arquivos para revisar: o Revisor não precisou rodar.' });
+        }
+      }
+      for (const next of this.store.list('tasks').filter(t => (t.handoffFrom === task.id || t.handoffFromAll?.includes(task.id)) && t.status !== 'cancelled')) {
         const handoff = this.createHandoff({ from: task, to: next, type: task.step === 'review' ? 'revisao' : 'entrega', summary: task.step === 'review' ? this.attemptAnswer(task) : task.result.summary, files: (task.result.deliverables.files || []).filter(f => f.change !== 'deleted') });
         if (handoff.blocked) transition(this.store, next, 'blocked', { reason: handoff.blocked });
       }

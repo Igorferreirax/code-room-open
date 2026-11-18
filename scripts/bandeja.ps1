@@ -85,16 +85,43 @@ function Update-StatusBandeja {
   } catch {}
 }
 
+# Voz em qualquer programa (Ctrl+Shift+Espaço): 1º toque começa a ouvir, 2º toque cola o texto no campo com foco.
+# Não traz o Code Room para a frente: o cursor continua no programa que a pessoa escolheu. Quem ouve e transcreve é a
+# tela do Code Room (ou a mini-janela do Nico); aqui só ligamos/desligamos e colamos o resultado.
+$script:vozId = $null; $script:vozEsperando = $null; $script:vozAte = [DateTime]::MinValue
+function Get-Chave { $kf = Join-Path $env:CODE_ROOM_DATA 'access.key'; if (Test-Path -LiteralPath $kf) { (Get-Content -LiteralPath $kf -Raw).Trim() } else { $null } }
+function Send-TextoNoFoco([string]$t) {
+  if (-not $t) { return }
+  $antes = $null; try { if ([System.Windows.Forms.Clipboard]::ContainsText()) { $antes = [System.Windows.Forms.Clipboard]::GetText() } } catch {}
+  [System.Windows.Forms.Clipboard]::SetText($t)
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 300
+  if ($null -ne $antes) { try { [System.Windows.Forms.Clipboard]::SetText($antes) } catch {} }
+}
 function Invoke-NicoVoz {
-  $kf = Join-Path $env:CODE_ROOM_DATA 'access.key'
-  if (-not (Test-Path -LiteralPath $kf)) { return }
+  $k = Get-Chave; if (-not $k) { return }
   try {
-    $k = (Get-Content -LiteralPath $kf -Raw).Trim()
-    [void](Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/voice-hotkey" -Headers @{ 'X-Code-Room-Key' = $k } -ContentType 'application/json' -Body '{}' -TimeoutSec 2)
-    $ws = New-Object -ComObject WScript.Shell
-    if (-not $ws.AppActivate('Nico · Code Room')) { [void]$ws.AppActivate('Code Room') }
+    $r = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/voice/global" -Headers @{ 'X-Code-Room-Key' = $k } -ContentType 'application/json' -Body '{"action":"toggle"}' -TimeoutSec 3
+    if ($r.listening) { $script:vozId = $r.id; return }
+    if ($r.id) { $script:vozEsperando = $r.id; $script:vozAte = (Get-Date).AddSeconds(12); $vozTimer.Start() }
   } catch {}
 }
+$vozTimer = New-Object System.Windows.Forms.Timer
+$vozTimer.Interval = 300
+$vozTimer.add_Tick({
+  if (-not $script:vozEsperando) { $vozTimer.Stop(); return }
+  if ((Get-Date) -gt $script:vozAte) {
+    $vozTimer.Stop(); $script:vozEsperando = $null
+    $ni.ShowBalloonTip(4000, 'Nico', 'Não recebi o texto. Deixe o Code Room (ou a mini-janela do Nico) aberto no Chrome ou no Edge, com o microfone liberado.', [System.Windows.Forms.ToolTipIcon]::Info)
+    return
+  }
+  if ([System.Windows.Forms.Control]::ModifierKeys -ne [System.Windows.Forms.Keys]::None) { return }   # espera soltar Ctrl/Shift do atalho
+  try {
+    $k = Get-Chave
+    $res = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/voice/result?id=$($script:vozEsperando)" -Headers @{ 'X-Code-Room-Key' = $k } -TimeoutSec 2
+    if ($res.ready) { $vozTimer.Stop(); $script:vozEsperando = $null; Send-TextoNoFoco ([string]$res.text) }
+  } catch {}
+})
 
 Add-Type -ReferencedAssemblies 'System.Windows.Forms' -TypeDefinition @"
 using System;

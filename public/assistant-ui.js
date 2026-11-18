@@ -22,7 +22,7 @@ export function mdLite(src) {
   }).join('');
 }
 
-const actVerb = type => type === 'abrir_tela' ? 'Abrir'
+const actVerb = type => type === 'abrir_tela' || type === 'abrir' ? 'Abrir'
   : type === 'vincular_agente' ? 'Trazer agente'
   : type === 'contratar_biblioteca' ? 'Contratar'
   : type === 'cancelar_tarefa' ? 'Cancelar tarefa'

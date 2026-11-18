@@ -20,6 +20,7 @@ import { mentionedFolder } from './chat-paths.js';
 import { buildHomePrompt, syncListIntoPrompt, parseListItems, selectNextPlaceholder } from './home-prompts.js';
 import { initNicoFlow } from './nico-flow.js';
 import { createBrowserManager } from './browser-dock.js';
+import { startRunApprovals } from './run-approvals.js';
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
 addEventListener('pointermove', e => { if (ctx.prefs?.anim === false) return; const r = document.documentElement.style; r.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(2)); r.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(2)); }, { passive: true });
 import { folderJobDialogHtml, noticesBarHtml, emptyJobForm, formFromJob, payloadFromJobForm } from './folderjobs-ui.js';
@@ -247,6 +248,7 @@ function handleSse(block) {
   if (!/^event: change/m.test(block)) return;
   const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] || '{}');
   if (data.type === 'voice_hotkey') { nicoFlow?.toggle(); return; }
+  if (data.type === 'voice_global') { const gvo = nicoFlow?.globalVoice; if (data.action === 'start') gvo?.start(data.voiceId); else if (data.action === 'stop') gvo?.stop(data.voiceId); else gvo?.cancel(); return; }
   if (data.type === 'task' && data.to === 'completed') browserMgr?.notifyProjectUpdated(ctx.project);
   scheduleRefresh(); if (ctx.detail && data.taskId === ctx.detail.id) scheduleRefresh(150);
   if (ctx.asst?.pending || ctx.asst?.briefing) { clearTimeout(asstSseTimer); asstSseTimer = setTimeout(loadAsst, 250); }
@@ -454,7 +456,7 @@ function skillPref(kind, name) { const p = ctx.skillPrefs, other = kind === 'fav
 const asstBase = () => ctx.whoami === 'device' ? 'mobile/assistant' : 'assistant';
 async function loadAsst() {
   try { ctx.asst = await api(asstBase()); ctx.asstOk = true; } catch (e) { ctx.asstOk = false; ctx.asst = { connected: [], manual: { available: true }, messages: [], threads: [], error: e.message }; if (ctx.ui.target === 'assistant') ctx.ui.target = ''; render(); }
-  speakNewReply(); renderAsst(); checkDesktopNotify(); clearTimeout(asstTimer);
+  speakNewReply(); renderAsst(); openAutoBrowserActs(); checkDesktopNotify(); clearTimeout(asstTimer);
   if (ctx.asst?.pending || ctx.asst?.briefing) asstTimer = setTimeout(loadAsst, 1500);
 }
 // Envia o texto da barra do chat ao Assistente. Devolve true se foi enviado (a barra só esvazia nesse caso).
@@ -504,7 +506,12 @@ async function askAssistant(text, { includeContext = true, extraDir = null, imag
 async function applyAsst(id) {
   const [m, i] = id.split(':'); const r = await api(asstBase() + '/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
   if (r.projectId) { await refresh(); setProject(r.projectId, true); } else await refresh();
-  if (r.view) await go(r.view); renderAsst(); return r;
+  if (r.view) await go(r.view); if (r.browserUrl) browserMgr?.openUrl(r.browserUrl, { newTab: true }); renderAsst(); return r;
+}
+// Ações "abrir no navegador do Code Room" aplicadas sozinhas no Piloto: a tela abre a aba uma vez.
+const openedBrowserActs = new Set();
+function openAutoBrowserActs() {
+  for (const m of ctx.asst?.messages || []) for (const a of m.actions || []) { const k = `${m.id}:${a.idx}`; if (a.browserUrl && a.status === 'applied' && !openedBrowserActs.has(k)) { openedBrowserActs.add(k); if (Date.now() - Date.parse(m.at || 0) < 120000) browserMgr?.openUrl(a.browserUrl, { newTab: true }); } }
 }
 // Lista de modelos e níveis de esforço de uma IA (a mesma usada nos agentes), guardada para o seletor do chat.
 async function loadAiModels(provider) {
@@ -645,6 +652,12 @@ const actions = {
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
   'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas', 'browser'].includes(id) ? id : 'scene'; savePrefs(); if (id === 'browser') browserMgr?.refreshSources(true); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'browser-toggle': () => browserMgr?.toggleDock(),
+  'term-menu': () => { ctx.ui.termMenu = !ctx.ui.termMenu; render(); },
+  'term-open': async id => {
+    const free = !!document.getElementById('term-free')?.checked; ctx.ui.termFree = free;
+    if (free && id !== 'shell' && !confirm('Modo irrestrito: a IA vai rodar comandos, apagar e alterar arquivos SEM pedir confirmação nesta janela. Use só em projetos de confiança. Abrir assim?')) return;
+    try { const r = await api('terminal', { projectId: ctx.project || null, cli: id, irrestrito: free }); notify(r.result); ctx.ui.termMenu = false; render(); } catch (e) { notify(e.message, true); }
+  },
   'project-preview': async id => {
     if (id && id !== ctx.project) { setProject(id); render(); }
     const info = await api('projects/' + encodeURIComponent(id || ctx.project) + '/preview-info');
@@ -799,7 +812,9 @@ const actions = {
   'asst-ai': () => { ctx.ui.aiOpen = !ctx.ui.aiOpen; ctx.ui.aiProv = ctx.asst?.provider; ctx.ui.cwMenu = false; renderAsst(); if (ctx.ui.aiOpen) loadAiModels(ctx.ui.aiProv); },
   'asst-ai-save': async () => {
     const provider = $('asst-ai-prov')?.value || ctx.asst?.provider, model = ($('asst-ai-model')?.value || '').trim(), effort = $('asst-ai-effort')?.value || '';
-    if (await asstCall('provider', { provider, model, effort })) { ctx.ui.aiOpen = false; renderAsst(); notify(`Pronto: ${ctx.asst?.name || 'o Assistente'} responde com ${provider}${ctx.asst?.model ? ' · ' + ctx.asst.model : ' (modelo padrão)'} a partir da próxima mensagem.`); }
+    const unrestricted = !!$('asst-ai-free')?.checked;
+    if (unrestricted && !ctx.asst?.unrestricted && !confirm('Modo irrestrito: o Nico vai rodar comandos e alterar arquivos SEM pedir confirmação. Use só se confia nos projetos abertos. Ligar?')) return;
+    if (await asstCall('provider', { provider, model, effort, unrestricted })) { ctx.ui.aiOpen = false; renderAsst(); notify(`Pronto: ${ctx.asst?.name || 'o Assistente'} responde com ${provider}${ctx.asst?.model ? ' · ' + ctx.asst.model : ' (modelo padrão)'} a partir da próxima mensagem.`); }
   },
   'asst-pilot-note-dismiss': () => { store.set('cr.pilot-note-dismissed', true); renderAsst(); },
   'asst-clear-errors': async () => { try { const r = await api('assistant/errors/clear', {}); ctx.asst = r.status; renderAsst(); notify(r.removed ? 'Mensagens de erro removidas.' : 'Não havia erros.'); } catch (e) { notify(e.message, true); } },
@@ -1264,7 +1279,7 @@ document.addEventListener('submit', async e => {
       notify(t.resumed ? 'Continuando a mesma sessão.' : 'Nova missão iniciada com o resumo e os arquivos da anterior.'); await refresh(); return openTask(t.id);
     } else if (fid === 'login-form') { key = $('access-key').value.trim(); ctx.ui.loginError = ''; start(); }
     else if (fid === 'project-form') { const d = Object.fromEntries(new FormData(f)); const p = await api('projects', { name: d.name, path: d.path, area: d.area, createSub: d.createSub === '1' }); if (d.team) await api('projects/members', { projectId: p.id, addTeams: [d.team] }); ctx.ui.panel = null; setProject(p.id); await refresh(); notify(d.team ? 'Projeto criado com a equipe inicial ligada.' : 'Projeto criado.'); if (!d.team && d.area !== 'Financeiro' && ctx.asstOk !== false && confirm(`Projeto “${p.name}” criado.\n\nQuer que o Assistente leia a pasta (README, dependências e estrutura) e sugira uma equipe para tocar este projeto? Nada é criado sem a sua aprovação.`)) await actions['project-team-suggest'](p.id); }
-    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.web = f.elements.web.checked; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; const isNew = !d.id; if (isNew) delete d.id; const saved = await api('agents', d); const joined = isNew && ctx.project && saved?.id; if (joined) await api('projects/members', { projectId: ctx.project, add: [saved.id] }); $('agent-dialog').close(); await refresh(); notify((joined ? `Agente salvo e trazido para o projeto “${ctx.projectNameOf(ctx.project)}”.` : 'Agente salvo.') + (isNew && saved?.provider !== 'hermes' ? ' Testando a resposta da IA em segundo plano…' : ''));
+    else if (fid === 'agent-form') { const d = Object.fromEntries(new FormData(f)); d.browser = f.elements.browser.value; d.web = f.elements.web.checked; d.unrestricted = f.elements.unrestricted.checked; d.skillIds = [...pickedSkills]; d.commands = String(d.commands || '').split(/[,\s]+/).filter(Boolean); d.mcpTools = String(d.mcpTools || '').split(/[,\s]+/).filter(Boolean); d.capabilities = [...f.querySelectorAll('[name=cap]:checked')].map(x => x.value); delete d.cap; const isNew = !d.id; if (isNew) delete d.id; const saved = await api('agents', d); const joined = isNew && ctx.project && saved?.id; if (joined) await api('projects/members', { projectId: ctx.project, add: [saved.id] }); $('agent-dialog').close(); await refresh(); notify((joined ? `Agente salvo e trazido para o projeto “${ctx.projectNameOf(ctx.project)}”.` : 'Agente salvo.') + (isNew && saved?.provider !== 'hermes' ? ' Testando a resposta da IA em segundo plano…' : ''));
       // Agente novo: confere logo se a IA dele responde, para o erro não aparecer só na primeira tarefa. Uma vez por IA e modelo nesta sessão.
       if (isNew && saved?.provider && saved.provider !== 'hermes') { const k = saved.provider + '|' + (saved.model || ''); ctx.ui.respSeen ??= new Set(); if (!ctx.ui.respSeen.has(k)) { ctx.ui.respSeen.add(k); api('connectors/test', { provider: saved.provider, model: saved.model || '' }).then(r => { ctx.ui.respTest = { ...(ctx.ui.respTest || {}), [saved.provider]: r }; notify(r.ok ? `“${saved.name}” está pronto: ${V.PROVIDER[saved.provider] || saved.provider} respondeu ao teste.` : `Atenção: a IA de “${saved.name}” não respondeu ao teste. ${r.error || ''} ${r.hint || 'Confira o login em Conexões.'}`, !r.ok); render(); }).catch(() => {}); } }
     }
@@ -1336,7 +1351,7 @@ function editAgent(id) {
   const f = $('agent-form'); f.reset();
   const sel = f.elements.provider; [...sel.querySelectorAll('[data-custom]')].forEach(o => o.remove()); for (const c of ctx.state.connectors || []) if (c.custom) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + (c.available ? '' : ' (não encontrada)'); o.dataset.custom = '1'; sel.append(o); } const a = ctx.state.agents.find(x => x.id === id);
   for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions', 'effort']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
-  f.elements.commands.value = (a?.commands || []).join(', '); f.elements.mcpTools.value = (a?.mcpTools || []).join(', '); f.elements.browser.value = a?.browser || 'off'; f.elements.web.checked = !!a?.web; fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' }); syncBrowserOptions();
+  f.elements.commands.value = (a?.commands || []).join(', '); f.elements.mcpTools.value = (a?.mcpTools || []).join(', '); f.elements.browser.value = a?.browser || 'off'; f.elements.web.checked = !!a?.web; f.elements.unrestricted.checked = !!a?.unrestricted; fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' }); syncBrowserOptions();
   f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));
   pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); $('agent-dialog').showModal();
   if (!ctx.skills.length) loadSkills().then(renderPicker);
@@ -1414,7 +1429,7 @@ browserMgr = createBrowserManager({
   notify,
   onStateChange: () => { ctx.ui.browserOpen = browserMgr?.isOpen() || false; render(); },
   onTweak: async ({ url, title, viewport, note }) => {
-    const vpLbl = { desktop: 'Desktop', mobile: 'Celular 390×844', vertical: 'Vertical 9:16 (HyperFrames/Reels)' }[viewport] || viewport;
+    const vpLbl = { desktop: 'Desktop', mobile: 'Celular 390×844', vertical: 'Vertical 9:16' }[viewport] || viewport;
     const rel = url.startsWith('/live/') ? decodeURIComponent(url.split('/').slice(4).join('/')) : title;
     const objective = `Ajuste visual na tela aberta no Navegador Interno (${rel} · modo ${vpLbl}): ${note}\nMantenha o restante intacto. Assim que salvar o arquivo, a aba ao vivo vai recarregar automaticamente.`;
     const inP = ctx.project ? ctx.projectAgentIds() : new Set();
@@ -1437,6 +1452,7 @@ nicoFlow = initNicoFlow({
   isAuthed: () => ctx.authed,
   notify,
   polishFn: (text, format) => api('assistant/polish-voice', { text, format }),
+  sendGlobalText: (id, text) => api('voice/result', { id, text }),
 });
 let started = false;
 async function start() {
@@ -1448,7 +1464,7 @@ async function start() {
     loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); if (ctx.whoami !== 'device') loadUpdates();
     if (ctx.whoami !== 'device') api('orchestration/policy', { directExec: ctx.prefs.directExec !== false, autoFallback: ctx.prefs.autoFallback !== false }).catch(() => {});
     tabBus?.postMessage({ kind: 'ping', tabId });
-    if (!started) { started = true; setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
+    if (!started) { started = true; startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; nicoFlow?.render(true); browserMgr?.render(); renderLogin(); }
 }
 applyPrefs();

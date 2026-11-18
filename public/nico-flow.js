@@ -3,6 +3,7 @@
 // 2) Botão ⧉ Destacar: abre mini-janela sempre no topo (Picture-in-Picture / popup) que continua visível mesmo com o Code Room minimizado, mostrando status dos projetos, alertas e recebendo comandos.
 import { mascot, moodOf } from './mascot.js';
 import { voiceSupport } from './voice.js';
+import { startNeural, voiceLevels } from './neural-viz.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -84,7 +85,7 @@ function labelForTarget(el) {
   return txt.replace(/[…:]+$/, '').slice(0, 32) || 'Caixa de texto';
 }
 
-export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askFn = null, polishFn = null, notify = () => {}, isAuthed = () => true } = {}) {
+export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askFn = null, polishFn = null, notify = () => {}, isAuthed = () => true, sendGlobalText = null } = {}) {
   let root = null, targetEl = null, sel = [null, null];
   let state = 'idle'; // idle | listening | polishing | done
   let format = 'text', useAi = false, finalParts = [], interim = '', errMsg = '';
@@ -236,6 +237,63 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
     startListening();
   }
 
+
+  // ---------- Voz em qualquer programa (atalho global Ctrl+Shift+Espaço da bandeja) ----------
+  // O atalho NÃO traz o Code Room para a frente: o foco continua no campo que a pessoa escolheu. O Code Room (ou a
+  // mini-janela flutuante, se aberta) ouve e transcreve com a animação neural; ao apertar de novo, o texto vai para a
+  // bandeja, que cola no campo onde o cursor está.
+  let gv = null;   // { id, win, rec, finals, interim, stream, ctx, stopViz, el }
+  function overlayHost(win) {
+    const doc = win.document; let el = doc.getElementById('nico-voice-overlay');
+    if (!el) {
+      el = doc.createElement('div'); el.id = 'nico-voice-overlay'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+      el.style.cssText = win === window ? 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9500;width:min(440px,calc(100vw - 32px));' : 'position:fixed;inset:auto 8px 8px 8px;z-index:50;';
+      doc.body.appendChild(el);
+    }
+    el.innerHTML = '<div style="background:#0b1426;border:1px solid #2b5bb5;border-radius:16px;padding:10px 12px;box-shadow:0 12px 34px rgba(0,0,0,.45);color:#e8eefc;font:13px/1.4 system-ui,Segoe UI,sans-serif">'
+      + '<canvas class="nv-canvas" style="display:block;width:100%;height:118px"></canvas>'
+      + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:4px"><b class="nv-title">' + esc(getName() || 'Nico') + ' está ouvindo…</b><small style="color:#8fa3c7">Ctrl+Shift+Espaço para colar</small></div>'
+      + '<div class="nv-text" style="margin-top:4px;max-height:66px;overflow:auto;color:#cfe0ff;white-space:pre-wrap"></div></div>';
+    return el;
+  }
+  async function globalStart(id) {
+    if (gv) globalCancel();
+    const win = pipWin && !pipWin.closed ? pipWin : window, SR = win.SpeechRecognition || win.webkitSpeechRecognition || window.SpeechRecognition || window.webkitSpeechRecognition;
+    const el = overlayHost(win), out = el.querySelector('.nv-text');
+    const g0 = gv = { id, win, rec: null, finals: [], interim: '', stream: null, ctx: null, an: null, stopViz: null, el };
+    let freq = null, time = null;
+    try {
+      const md = win.navigator.mediaDevices || navigator.mediaDevices;
+      g0.stream = await md.getUserMedia({ audio: true });
+      const AC = win.AudioContext || win.webkitAudioContext; g0.ctx = new AC(); g0.an = g0.ctx.createAnalyser(); g0.an.fftSize = 256;
+      g0.ctx.createMediaStreamSource(g0.stream).connect(g0.an); freq = new Uint8Array(gv.an.frequencyBinCount); time = new Uint8Array(gv.an.fftSize);
+    } catch {}
+    if (gv !== g0) { globalTeardown(g0); return; }   // cancelado enquanto pedia o microfone
+    g0.stopViz = startNeural(el.querySelector('canvas'), () => { if (!g0.an) return null; g0.an.getByteFrequencyData(freq); g0.an.getByteTimeDomainData(time); return voiceLevels(freq, time); });
+    if (!SR) { out.textContent = 'Este navegador não tem ditado. Use o Chrome ou o Edge.'; return; }
+    const r = new SR(); r.lang = 'pt-BR'; r.interimResults = true; r.continuous = true;
+    r.onresult = e => { const fin = []; let it = ''; for (let i = 0; i < e.results.length; i++) { const tr = e.results[i][0].transcript.trim(); if (e.results[i].isFinal) fin.push(tr); else it += (it ? ' ' : '') + tr; } g0.finals = fin; g0.interim = it; out.textContent = organizeSpeechText([...fin, it].join(' ')); };
+    r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') out.textContent = 'Microfone bloqueado: libere no cadeado do endereço do Code Room.'; };
+    r.onend = () => { if (gv === g0 && !g0.stopping) { try { r.start(); } catch {} } else g0.ended?.(); };
+    g0.rec = r; try { r.start(); } catch { out.textContent = 'Não consegui abrir o microfone agora.'; }
+  }
+  function globalTeardown(g) {
+    try { g.stopViz?.(); } catch {} try { g.stream?.getTracks().forEach(t => t.stop()); } catch {} try { g.ctx?.close(); } catch {}
+  }
+  function globalCancel() { if (!gv) return; const g = gv; gv = null; g.stopping = true; try { g.rec?.abort(); } catch {} globalTeardown(g); g.el?.remove(); }
+  async function globalStop(id) {
+    const g = gv; if (!g || (id && g.id !== id)) return;
+    g.stopping = true;
+    // Espera o reconhecimento entregar o último trecho (até 1,5 s).
+    await new Promise(res => { g.ended = res; try { g.rec?.stop(); } catch { res(); } setTimeout(res, 1500); });
+    const text = organizeSpeechText([...g.finals, g.interim].filter(Boolean).join(' '));
+    gv = null; globalTeardown(g);
+    const title = g.el.querySelector('.nv-title'); if (title) title.textContent = text ? '✔ Colando onde está o cursor…' : 'Não ouvi nada.';
+    setTimeout(() => g.el.remove(), 1400);
+    try { await sendGlobalText?.(g.id, text); } catch (e) { notify(e.message, true); }
+  }
+  const globalVoice = { start: globalStart, stop: globalStop, cancel: globalCancel, active: () => !!gv };
+
   // ---------- Mini-janela flutuante sempre no topo (funciona com o Code Room minimizado) ----------
   function paintPip() {
     if (!pipWin || pipWin.closed) { pipWin = null; return; }
@@ -372,7 +430,7 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
         <span class="nf-pill-face">${mascot('feliz', 26)}</span>
         <span class="nf-pill-mic" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3M8 22h8"/></svg></span>
         <span class="nf-pill-lbl">Voz</span>
-      </button>`;
+      </button><button type="button" class="nf-pip-btn" data-nf="pip-open" title="Deixar o ${name} sempre visível numa mini-janela por cima dos programas. Com ela aberta, Ctrl+Shift+Espaço ouve e cola em qualquer programa." aria-label="Abrir a mini-janela do ${name}">⧉</button>`;
       return;
     }
     if (state === 'done' && undoSnap) {
@@ -436,6 +494,7 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
     else if (act === 'format') { format = format === 'list' ? 'text' : 'list'; paint(); }
     else if (act === 'ai') { useAi = !useAi; paint(); }
     else if (act === 'pip') { cancel(); void openPip(); }
+    else if (act === 'pip-open') void openPip();
   });
 
   document.addEventListener('input', e => {
@@ -456,5 +515,5 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
     }
   }, true);
 
-  return { render: paint, toggle, cancel, openPip, hasPip: () => Boolean(pipWin && !pipWin.closed) };
+  return { render: paint, toggle, cancel, openPip, hasPip: () => Boolean(pipWin && !pipWin.closed), globalVoice };
 }

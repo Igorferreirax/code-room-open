@@ -53,6 +53,7 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
   async function openUrl(rawUrl, { title = '', newTab = false, viewport = null, openDock = true } = {}) {
     let url = adaptPreviewUrl(rawUrl);
     if (!url) { notify('Endereço inválido. Use http://localhost:PORTA, https://… ou uma página do projeto.', true); return; }
+    const orig = /^https?:///i.test(url) ? url : '';   // endereço real (antes do proxy local), para abrir também no Chrome
     // Se for porta local (localhost/127.0.0.1/IP local), usa o proxy local seguro /lp/:porta/:token/ para evitar X-Frame-Options: deny e funcionar no celular!
     if (!url.startsWith('/')) {
       try {
@@ -68,11 +69,11 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
     if (openDock) open = true;
     let t = activeTab();
     if (newTab && tabs.length < MAX_TABS && t?.url) {
-      t = { id: 'b' + (seq++), title: title || labelFromUrl(url), url, viewport: viewport || 'desktop', autoReload: true, reloadTick: 0 };
+      t = { id: 'b' + (seq++), title: title || labelFromUrl(url), url, orig, viewport: viewport || 'desktop', autoReload: true, reloadTick: 0 };
       tabs.push(t);
       activeId = t.id;
     } else {
-      t.url = url;
+      t.url = url; t.orig = orig;
       t.title = title || labelFromUrl(url);
       if (viewport) t.viewport = viewport;
     }
@@ -145,7 +146,7 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
     return `<div class="bd-start">
       <div class="bd-start-h">
         <b>Navegador interno · Preview ao vivo</b>
-        <p class="small muted">Visualize composições HyperFrames, landing pages, apps locais (Vite, Next, Remotion) ou páginas externas lado a lado enquanto os agentes editam.</p>
+        <p class="small muted">Abra o seu localhost ou qualquer site aqui dentro e acompanhe enquanto os agentes editam. Prefere o Chrome? Use “Abrir no Chrome”.</p>
       </div>
       ${pj ? `<div class="bd-sec">
         <div class="bd-sec-h"><b class="small">Projeto em foco: ${esc(pj.name)}</b><button type="button" class="btn ghost sm" data-bd="refresh-sources">${icon('refresh', 14)} Atualizar lista</button></div>
@@ -182,10 +183,11 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
           <div class="seg bd-vp" role="group" aria-label="Tamanho da tela">
             <button type="button" data-bd="vp" data-vp="desktop" title="Desktop (largura total)">🖥</button>
             <button type="button" data-bd="vp" data-vp="mobile" title="Celular (390×844)">📱</button>
-            <button type="button" data-bd="vp" data-vp="vertical" title="Vídeo vertical 9:16 (HyperFrames / Reels)">🎬 9:16</button>
+            <button type="button" data-bd="vp" data-vp="vertical" title="Tela vertical 9:16">9:16</button>
           </div>
           <button type="button" class="chip bd-auto" data-bd="auto" title="Recarregar automaticamente quando uma tarefa salvar arquivos">↻ Auto</button>
           <button type="button" class="btn outline sm bd-tweak-btn" data-bd="tweak" title="Pedir ajuste visual direto sobre a tela aberta agora">🎯 Ajustar</button>
+          <button type="button" class="btn outline sm bd-chrome" data-bd="chrome" title="Abrir este endereço no Chrome (ou no navegador padrão) fora do Code Room">Abrir no Chrome</button>
           <a class="iconbtn sm bd-ext" target="_blank" rel="noopener noreferrer" title="Abrir em guia externa do navegador" aria-label="Abrir em guia externa">${icon('external', 16)}</a>
         </form>
         <form class="bd-tweak" hidden>
@@ -220,12 +222,13 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
 
     const tweakBtn = host.querySelector('.bd-tweak-btn');
     if (tweakBtn) { tweakBtn.disabled = !cur?.url; tweakBtn.classList.toggle('on', !!(tweakOpen && cur?.url)); }
+    const chromeBtn = host.querySelector('.bd-chrome'); if (chromeBtn) chromeBtn.disabled = !cur?.url;
     const tweakBox = host.querySelector('.bd-tweak');
     if (tweakBox) tweakBox.hidden = !(tweakOpen && cur?.url);
 
     const extLink = host.querySelector('.bd-ext');
     if (extLink) {
-      if (cur?.url) { extLink.href = cur.url; extLink.hidden = false; }
+      if (cur?.url) { extLink.href = cur.orig || cur.url; extLink.hidden = false; }
       else extLink.hidden = true;
     }
 
@@ -296,6 +299,7 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
     else if (act === 'close-dock') toggleDock(false);
     else if (act === 'expand') { expanded = !expanded; mountAll(); }
     else if (act === 'vp') { const cur = activeTab(); if (cur) { cur.viewport = b.dataset.vp; mountAll(); } }
+    else if (act === 'chrome') { const cur = activeTab(); const target = cur?.orig || (cur?.url ? new URL(cur.url, location.href).href : ''); if (!target) return; api('open', { alvo: target, navegador: 'chrome' }).catch(() => api('open', { alvo: target })).then(r => r?.result && notify(r.result)).catch(e => notify(e.message, true)); }
     else if (act === 'auto') { const cur = activeTab(); if (cur) { cur.autoReload = !cur.autoReload; mountAll(); } }
     else if (act === 'tweak') { tweakOpen = !tweakOpen; mountAll(); if (tweakOpen) b.closest('.bd-shell')?.querySelector('.bd-tweak-in')?.focus(); }
     else if (act === 'refresh-sources') void refreshSources(true);

@@ -1,0 +1,97 @@
+"""Roteiro no navegador do que faz o Code Room EXECUTAR: voz em qualquer programa (atalho global, animação neural,
+texto devolvido para a bandeja colar), menu Terminal, cartão de aprovação durante a execução e a opção "irrestrito"
+do agente. Sobe um serviço temporário; nenhuma IA é chamada e nenhum terminal é aberto (a rota do terminal é simulada).
+O microfone é o de teste do Chrome e o reconhecimento de fala é simulado (devolve uma frase fixa).
+Uso: python scripts/ui_execucao.py"""
+import json, os, subprocess, sys, tempfile, time, urllib.request
+sys.stdout.reconfigure(encoding='utf-8')
+from playwright.sync_api import sync_playwright
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4795
+data = tempfile.mkdtemp(prefix='cr-exec-'); proj = tempfile.mkdtemp(prefix='cr-exec-p-')
+srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+fails, passes = [], 0
+def check(name, ok, extra=''):
+    global passes
+    if ok: passes += 1
+    else: fails.append(f'{name} {extra}')
+    print(('OK    ' if ok else 'FALHA ') + name + (f'  [{extra}]' if extra != '' and not ok else ''))
+
+# Reconhecimento de fala simulado: ao começar, devolve um trecho parcial e depois o final.
+FAKE_SR = """
+class FakeSR { constructor(){ this.lang=''; this.continuous=false; this.interimResults=false; }
+  start(){ window.__srStarts=(window.__srStarts||0)+1; const me=this; setTimeout(()=>me.onresult&&me.onresult({results:[Object.assign([{transcript:'olá nico'}],{isFinal:false})]}),150);
+           setTimeout(()=>me.onresult&&me.onresult({results:[Object.assign([{transcript:'olá nico abre o projeto vírgula por favor'}],{isFinal:true})]}),400); }
+  stop(){ setTimeout(()=>this.onend&&this.onend(),50); } abort(){ this.stop(); } }
+window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR;
+try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}
+"""
+
+try:
+    for _ in range(60):
+        if os.path.exists(os.path.join(data, 'access.key')): break
+        time.sleep(0.5)
+    time.sleep(1.5); key = open(os.path.join(data, 'access.key')).read().strip()
+    def api(p, b=None):
+        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{p}', data=None if b is None else json.dumps(b).encode(), method='GET' if b is None else 'POST', headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
+        return json.loads(urllib.request.urlopen(r).read())
+    P = api('projects', {'path': proj, 'name': 'Projeto Exec', 'area': 'Geral'})
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(channel='chrome', headless=True, args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'])
+        ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script(FAKE_SR)
+        pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
+        pg.goto(f'http://127.0.0.1:{PORT}/#{key}'); pg.wait_for_selector('.top-right', timeout=15000); pg.wait_for_timeout(1500)
+
+        # --- voz em qualquer programa: o que a bandeja faz (liga, desliga, busca o texto) ---
+        r = api('voice/global', {'action': 'toggle'}); check('atalho (1º toque): começa a ouvir e devolve um id', r.get('listening') is True and len(r.get('id', '')) == 36, r)
+        ok = pg.wait_for_selector('#nico-voice-overlay canvas', timeout=6000) is not None
+        check('a tela mostra o Nico ouvindo com a animação neural (sem trazer o Code Room para a frente)', ok)
+        pg.wait_for_timeout(1200)
+        lvl = pg.evaluate("Number(document.querySelector('#nico-voice-overlay canvas')?.dataset.level || -1)")
+        check('a animação reage ao som do microfone (nível medido)', lvl >= 0, lvl)
+        if os.environ.get('CR_SHOTS'): pg.locator('#nico-voice-overlay').screenshot(path=os.path.join(os.environ['CR_SHOTS'], 'voz-neural.png'))
+        check('o texto aparece organizado enquanto ouve', 'Olá nico abre o projeto, por favor' in pg.inner_text('#nico-voice-overlay') or 'abre o projeto' in pg.inner_text('#nico-voice-overlay'), pg.inner_text('#nico-voice-overlay'))
+        s = api('voice/global', {'action': 'toggle'}); check('atalho (2º toque): para de ouvir', s.get('listening') is False and s.get('id') == r['id'], s)
+        res = {}
+        for _ in range(30):
+            res = api(f"voice/result?id={r['id']}")
+            if res.get('ready'): break
+            time.sleep(0.2)
+        check('o texto final chega para a bandeja colar (organizado, com pontuação)', res.get('ready') and res.get('text', '').startswith('Olá nico abre o projeto, por favor'), res)
+        pg.wait_for_timeout(1800); check('a janela de escuta some depois de entregar', pg.locator('#nico-voice-overlay').count() == 0)
+        check('sem pedido aberto, o resultado responde "ainda não"', api('voice/result?id=00000000-0000-0000-0000-000000000000').get('ready') is False)
+
+        # --- menu Terminal (a rota é simulada para não abrir janelas de verdade) ---
+        sent = []
+        pg.route('**/api/terminal', lambda route: (sent.append(json.loads(route.request.post_data or '{}')), route.fulfill(status=200, content_type='application/json', body=json.dumps({'result': 'Abri PowerShell (teste).'})))[-1])
+        pg.click('[data-act=term-menu]'); pg.wait_for_selector('.term-menu')
+        items = pg.locator('.term-item').all_inner_texts()
+        check('Terminal: o menu oferece o shell puro e as CLIs instaladas', any('PowerShell' in x for x in items), items)
+        check('Terminal: há a opção de modo irrestrito', pg.locator('#term-free').count() == 1)
+        pg.click('.term-item[data-id=shell]'); pg.wait_for_timeout(600)
+        check('Terminal: escolher o shell pede para abrir na pasta do projeto em foco', sent and sent[-1].get('cli') == 'shell' and sent[-1].get('irrestrito') is False, sent)
+        check('Terminal: o menu fecha e mostra o resultado', pg.locator('.term-menu').count() == 0 and 'Abri PowerShell' in pg.inner_text('#notice'))
+
+        # --- cartão de aprovação (o pedido entra como a ferramenta de aprovação faria) ---
+        tok = None
+        # A chave de aprovação não sai do servidor; o cartão é testado pela rota da tela, com um pedido simulado.
+        pend = {'items': [{'id': '11111111-1111-1111-1111-111111111111', 'taskId': 't', 'title': 'Rodar um comando', 'detail': 'npm install', 'kind': 'comando', 'tool': 'PowerShell', 'agent': 'Executor', 'project': 'Projeto Exec', 'assistant': False, 'at': '2026-11-18T12:00:00Z', 'status': 'pending'}]}
+        decided = []
+        def appr(route):
+            if route.request.method == 'POST': decided.append(route.request.url.rsplit('/', 1)[-1]); pend['items'] = []; return route.fulfill(status=200, content_type='application/json', body='{}')
+            return route.fulfill(status=200, content_type='application/json', body=json.dumps(pend))
+        pg.route('**/api/approvals**', appr)
+        ok = pg.wait_for_selector('.run-appr', timeout=6000) is not None
+        check('aprovação: o cartão aparece em qualquer tela com o que o agente quer fazer', ok and 'npm install' in pg.inner_text('.run-appr') and 'Executor' in pg.inner_text('.run-appr'))
+        pg.click('.run-appr [data-appr=always]'); pg.wait_for_timeout(800)
+        check('aprovação: "Permitir sempre nesta tarefa" responde e o cartão some', decided == ['always'] and pg.locator('.run-appr').count() == 0, decided)
+
+        # --- opção irrestrito no agente ---
+        check('agente: o formulário tem a opção de modo irrestrito', pg.locator('input[name=unrestricted]').count() == 1)
+        check('sem erro de console', not [e for e in errs if 'favicon' not in e], errs[:3])
+        browser.close()
+finally:
+    srv.kill()
+print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
+for f in fails: print('  - ' + f)
+sys.exit(1 if fails else 0)

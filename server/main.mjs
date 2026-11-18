@@ -67,6 +67,9 @@ import { reviewerProblems } from './reviewnotes.mjs';
 import { addEntry, balances, suggestCategory, CATEGORIES } from './finance.mjs';
 import { Updates, readPackageVersion } from './updates.mjs';
 import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
+import { approvals } from './approvals.mjs';
+import { planOpen, runOpen } from './open-local.mjs';
+import { terminalPlan, openTerminal } from './terminal.mjs';
 import { warmKnownFolders } from './known-folders.mjs';
 void warmKnownFolders();   // caminho real da Área de Trabalho/Documentos/Downloads, em segundo plano
 import { createSkillFile } from './myskills.mjs';
@@ -125,7 +128,7 @@ autoClean.start();
 const updates = new Updates({ store, version: VERSION, dataDir: data, appDir: root, port, releasesUrl: process.env.CODE_ROOM_RELEASES_URL || '', countRunning: () => store.list('tasks').filter(t => ['running', 'cancelling'].includes(t.status)).length, fetchImpl: loggedFetch(store, (...a) => fetch(...a), 'Verificar atualização') });
 setCustom(store.get('settings', 'customProviders')?.list || []);   // IAs conectadas pela pessoa
 const orchestrator = new Orchestrator(store, { moduleAvailable: name => capabilityVerified(modules, name), agentAvailable: installed });
-const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees'), availableProviders: () => new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)) });
+const runner = new Runner(store, { hooks: orchestrator.hooks(), worktreeDir: join(data, 'worktrees'), backupDir: join(data, 'restauracao'), availableProviders: () => new Set(connectors().filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)) });
 let assistantSkillsCache = null;
 async function assistantSkills() {
   const roots = store.get('settings', 'skillRoots')?.roots || [], key = JSON.stringify(roots);
@@ -346,7 +349,7 @@ function saveAgent(b) {
           if (mcpTools.length && b.provider !== 'claude') throw new Error('A liberação de ferramentas MCP só vale para o Claude Code.');
           const caps = b.capabilities ?? prev?.capabilities ?? []; if (!Array.isArray(caps) || caps.some(c => !KNOWN_CAPABILITIES.includes(c))) throw new Error(`Capacidades válidas: ${KNOWN_CAPABILITIES.join(', ')}.`);
           const old = b.id ? store.get('agents', b.id) : null; if (b.id && !old) throw new Error('Agente inexistente');
-          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: agentModel(b.provider, b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, web: (b.web !== undefined ? b.web === true || b.web === '1' || b.web === 1 : !!old?.web) && b.provider === 'claude', browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, revision: (old?.revision || 0) + 1 });
+          return store.put('agents', { id: old?.id || randomUUID(), name: text(b.name), role: text(b.role), room: optional(b.room, 100) || 'Geral', provider: b.provider, model: agentModel(b.provider, b.model), effort: b.effort === undefined ? (effortsFor(b.provider).includes(old?.effort) ? old.effort : '') : cleanEffort(b.provider, b.effort), instructions: optional(b.instructions), mode: b.mode, skillIds: [...new Set(b.skillIds)], commands, mcpTools, web: (b.web !== undefined ? b.web === true || b.web === '1' || b.web === 1 : !!old?.web) && b.provider === 'claude', browser: b.browser !== undefined ? cleanBrowser(b.browser, b.provider) : (() => { try { return cleanBrowser(old?.browser, b.provider); } catch { return 'off'; } })(), capabilities: [...new Set(caps)], look: b.look !== undefined ? cleanLook(b.look) : old?.look ?? null, unrestricted: b.mode === 'write' && ['claude', 'codex', 'agy'].includes(b.provider) && (b.unrestricted !== undefined ? b.unrestricted === true || b.unrestricted === '1' : !!old?.unrestricted) && (optional(b.room, 100) || 'Geral') !== 'Financeiro', revision: (old?.revision || 0) + 1 });
 }
 // Nome aproximado ("Gemini Flash 3.8") vira o identificador que a IA aceita, quando a lista dela já foi lida.
 function agentModel(provider, raw) {
@@ -529,7 +532,13 @@ const handle = async (req, res) => {
     }
     if (url.pathname.startsWith('/api/')) {
       const get = req.method === 'GET', p = url.pathname;
-      // Pareamento de celular: único endpoint sem chave. Código de uso único + limite de tentativas por endereço.
+      // Pedidos de aprovação da ferramenta permission-mcp (a IA rodando neste computador). Chave própria, só no 127.0.0.1.
+      if (p === '/api/approvals/ask' || (get && /^\/api\/approvals\/[\w-]{36}$/.test(p) && req.headers['x-code-room-approval'])) {
+        if (!isLocal(ip) || !approvals.okToken(req.headers['x-code-room-approval'])) return send(res, 403, { error: 'Chave de aprovação inválida.' });
+        if (p === '/api/approvals/ask') { if (req.method !== 'POST') return send(res, 405, { error: 'Use POST.' }); return send(res, 200, approvals.ask(await body(req))); }
+        return send(res, 200, approvals.get(p.split('/').pop()));
+      }
+      // Pareamento de celular: endpoint sem a chave principal. Código de uso único + limite de tentativas por endereço.
       if (p === '/api/pair' && req.method === 'POST') {
         if (tBlocked(ip)) return send(res, 429, { error: 'Muitas tentativas. Aguarde alguns minutos.' });
         if (!req.headers['content-type']?.startsWith('application/json')) return send(res, 415, { error: 'Envie JSON' });
@@ -611,6 +620,11 @@ const handle = async (req, res) => {
       if (get && p === '/api/metrics') { masterOnly(auth); let yt; try { yt = await metrics.youtube({ refresh: url.searchParams.get('refresh') === '1' }); } catch (e) { yt = { connected: true, error: String(e.message || e).slice(0, 200) }; } return send(res, 200, { youtube: yt, posts: metrics.posts() }); }
       if (get && p === '/api/audit') { masterOnly(auth); return send(res, 200, { entries: store.events('_audit').filter(e => e.type === 'audit').reverse().slice(0, 200).map(({ seq, type, ...e }) => e) }); }
       if (get && p === '/api/obsidian') { masterOnly(auth); return send(res, 200, await obsStatus()); }
+      if (req.method === 'POST' && p === '/api/open') { masterOnly(auth); const b = await body(req); const pl = planOpen({ alvo: b.alvo, navegador: b.navegador }); if (pl.error) return send(res, 400, { error: pl.error }); return send(res, 200, await runOpen(pl)); }
+      if (req.method === 'POST' && p === '/api/terminal') { masterOnly(auth); const b = await body(req); const pr = b.projectId ? store.get('projects', String(b.projectId)) : null; if (b.projectId && (!pr || isInternal(pr))) return send(res, 404, { error: 'Projeto não encontrado.' }); const pl = terminalPlan({ dir: pr?.path, cli: String(b.cli || 'shell'), unrestricted: b.irrestrito === true, area: pr?.area || '' }, { catalog: connectors() }); if (pl.error) return send(res, 400, { error: pl.error }); store.event('_audit', { type: 'audit', who: 'Você', what: `abriu o terminal ${pl.label}${pl.unrestricted ? ' em modo irrestrito' : ''}`, project: pr?.name || null, at: new Date().toISOString() }); return send(res, 200, await openTerminal(pl)); }
+      if (get && p === '/api/voice/result') { masterOnly(auth); const r = voiceGlobal.results.get(String(url.searchParams.get('id') || '')); return send(res, 200, r ? { ready: true, text: r.text } : { ready: false, listening: !!voiceGlobal.id }); }
+      if (get && p === '/api/approvals') { masterOnly(auth); return send(res, 200, { items: approvals.pending(), freeLog: approvals.log.slice(-20) }); }
+      { const am = req.method === 'POST' ? p.match(/^\/api\/approvals\/([\w-]{36})\/(allow|always|deny)$/) : null; if (am) { masterOnly(auth); return send(res, 200, approvals.decide(am[1], { allow: am[2] !== 'deny', always: am[2] === 'always' })); } }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
       if (get && p === '/api/mobile/assistant') {
         const st = await assistant.status();
@@ -702,6 +716,15 @@ const handle = async (req, res) => {
           await setTailscaleHttps(port, b.enable !== false, ts.name);
           return send(res, 200, await networkView());
         }
+        // Voz em qualquer programa: a bandeja liga/desliga (atalho global); a tela ouve e devolve o texto; a bandeja cola no campo com foco.
+        if (p === '/api/voice/global') {
+          masterOnly(auth); const action = ['start', 'stop', 'toggle', 'cancel'].includes(b.action) ? b.action : 'toggle';
+          const go = action === 'start' || (action === 'toggle' && !voiceGlobal.id);
+          if (go) { voiceGlobal.id = randomUUID(); voiceGlobal.at = Date.now(); store.event('_hotkey', { type: 'voice_global', action: 'start', id: voiceGlobal.id, at: new Date().toISOString() }); return send(res, 200, { id: voiceGlobal.id, listening: true }); }
+          const id = voiceGlobal.id; voiceGlobal.id = null; if (id) store.event('_hotkey', { type: 'voice_global', action: action === 'cancel' ? 'cancel' : 'stop', id, at: new Date().toISOString() });
+          return send(res, 200, { id, listening: false });
+        }
+        if (p === '/api/voice/result') { masterOnly(auth); const id = String(b.id || ''); if (!/^[\w-]{36}$/.test(id)) throw new Error('Pedido de voz inválido.'); voiceGlobal.results.set(id, { text: String(b.text || '').slice(0, 8000), at: Date.now() }); for (const [k, v] of voiceGlobal.results) if (Date.now() - v.at > 120000) voiceGlobal.results.delete(k); return send(res, 200, { ok: true }); }
         if (p === '/api/voice-hotkey') {
           masterOnly(auth);
           store.event('_hotkey', { type: 'voice_hotkey', at: new Date().toISOString() });
@@ -814,7 +837,7 @@ const handle = async (req, res) => {
           if (a === 'alerts/dismiss') return send(res, 200, await assistant.dismissAlert(text(b.id, 100)));
           if (a === 'thread/rename') return send(res, 200, await assistant.renameThread(text(b.id, 40), text(b.title, 60)));
           if (a === 'thread/delete') return send(res, 200, await assistant.deleteThread(text(b.id, 40)));
-          if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider, { ...(typeof b.model === 'string' ? { model: b.model.trim() ? agentModel(b.provider, b.model) : '' } : {}), ...(typeof b.effort === 'string' ? { effort: b.effort } : {}) }));
+          if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider, { ...(typeof b.model === 'string' ? { model: b.model.trim() ? agentModel(b.provider, b.model) : '' } : {}), ...(typeof b.effort === 'string' ? { effort: b.effort } : {}), ...(typeof b.unrestricted === 'boolean' ? { unrestricted: b.unrestricted } : {}) }));
           if (a === 'autonomy') return send(res, 200, await assistant.setAutonomy(b.mode));
           if (a === 'name') return send(res, 200, await assistant.setName(b.name));
           if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
@@ -1088,6 +1111,9 @@ async function networkView() {
     note: 'O serviço nunca escuta em todas as interfaces: só no computador, e nos endereços do Tailscale e/ou da rede local que você liberar. Rede local usa HTTP sem criptografia; fora de casa use o Tailscale.' };
 }
 // O executor só assume o trabalho depois de ocupar a porta: assim, qualquer claim antigo pertence a um serviço morto.
+approvals.port = port;
+const voiceGlobal = { id: null, at: 0, results: new Map() };
+approvals.taskInfo = id => { const t = store.get('tasks', id); return t ? { unrestricted: !!t.agent?.unrestricted && t.agent?.mode === 'write' && t.project?.area !== 'Financeiro', agent: t.agent?.name || '', project: t.project?.id === ASSISTANT_PROJECT ? '' : t.project?.name || '', assistant: t.project?.id === ASSISTANT_PROJECT } : null; };
 server.listen(port, '127.0.0.1', async () => {
   updates.start();
   // Primeira abertura de uma versão nova: pede ao Windows para renovar o cache de ícones (o atalho mostra a logo nova sem reiniciar o PC).

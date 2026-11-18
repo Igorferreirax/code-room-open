@@ -9,7 +9,7 @@ import { scanSkills } from './skills.mjs';
 import { transition, settleDependents } from './tasks.mjs';
 import { snapshot, diffSnapshots } from './deliverables.mjs';
 import { buildFolderUndo } from './folder-undo.mjs';
-import { captureTaskCheckpoint } from './task-checkpoint.mjs';
+import { captureTaskCheckpoint, captureFileBackup } from './task-checkpoint.mjs';
 import { pickFallbackProvider } from './alethe-playbook.mjs';
 import { validateTaskArtifacts } from './quality-gates.mjs';
 import { killTree, alive, processIdentity } from './procs.mjs';
@@ -22,6 +22,7 @@ import { browserNote } from './browseruse.mjs';
 import { suggestUnblocks } from './unblock.mjs';
 import { tokenBudget } from './economy.mjs';
 import { getSpec, isCustom } from './providers.mjs';
+import { approvals } from './approvals.mjs';
 
 export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1, agy: 1, hermes: 1 }, video: 1 };
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
@@ -30,9 +31,14 @@ const fail = (failureKind, message) => Object.assign(new Error(message), { failu
 
 export class Runner {
   // hooks.handoffsFor(task) → mensagens de passagem; hooks.onFinal(task) → orquestração depois do estado final.
-  constructor(store, { launch = spawn, buildCommand = command, executorId = `exec-${randomUUID().slice(0, 8)}`, extraEnv = {}, heartbeatMs = 5000, staleMs = 30000, cancelDeadlineMs = 10000, hooks = {}, worktreeDir = null, availableProviders = () => new Set() } = {}) {
-    Object.assign(this, { store, launch, buildCommand, executorId, extraEnv, heartbeatMs, staleMs, cancelDeadlineMs, hooks, worktreeDir, availableProviders });
+  constructor(store, { launch = spawn, buildCommand = command, executorId = `exec-${randomUUID().slice(0, 8)}`, extraEnv = {}, heartbeatMs = 5000, staleMs = 30000, cancelDeadlineMs = 10000, hooks = {}, worktreeDir = null, backupDir = null, availableProviders = () => new Set() } = {}) {
+    Object.assign(this, { store, launch, buildCommand, executorId, extraEnv, heartbeatMs, staleMs, cancelDeadlineMs, hooks, worktreeDir, backupDir, availableProviders });
     this.active = new Map(); this.pumping = false; this.again = false; this.timer = null;
+  }
+  // Cópias de segurança do modo irrestrito: ficam 7 dias (depois disso, só o Git restaura).
+  async pruneBackups(days = 7) {
+    const { readdir, stat } = await import('node:fs/promises'); let names = []; try { names = await readdir(this.backupDir); } catch { return; }
+    for (const n of names) { const p = join(this.backupDir, n); try { if (Date.now() - (await stat(p)).mtimeMs > days * 86400000) await rm(p, { recursive: true, force: true }); } catch {} }
   }
   async start() {
     await this.recover({ force: true });
@@ -155,11 +161,18 @@ export class Runner {
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     if (agent.browser === 'isolado') entry.browserOutputDir = await mkdtemp(join(tmpdir(), 'code-room-browser-'));
     if (task.extraDir && agent.mode === 'write') entry.opsLog = join(tmpdir(), `code-room-ops-${attempt.id}.jsonl`);
-    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, opsLog: entry.opsLog || null, timeoutMs: task.limits.timeoutMs });
+    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, opsLog: entry.opsLog || null, timeoutMs: task.limits.timeoutMs, approvalTask: task.project?.area === 'Financeiro' ? null : task.id, unrestricted: !!agent.unrestricted && agent.mode === 'write' && task.project?.area !== 'Financeiro' });
     if (task.resume) this.event(attempt.id, { type: 'diagnostic', text: `Continuando a conversa: sessão ${task.resume.sessionId.slice(0, 8)}… da tarefa ${task.resume.fromTask.slice(0, 8)}… (mesmo provedor).` });
     const before = await snapshot(root);
     if (agent.mode === 'write' && !task.isolate && task.project?.id !== 'assistant-internal') {
       entry.checkpoint = await captureTaskCheckpoint(root);
+      // Modo irrestrito sem Git: cópia dos arquivos antes de começar, para "Reverter alterações" funcionar mesmo assim.
+      if (!entry.checkpoint && agent.unrestricted && task.project?.area !== 'Financeiro' && this.backupDir) {
+        await this.pruneBackups().catch(() => {});
+        entry.checkpoint = await captureFileBackup(root, join(this.backupDir, task.id)).catch(() => null);
+        if (entry.checkpoint && !entry.checkpoint.available) { this.event(attempt.id, { type: 'diagnostic', text: `Modo irrestrito sem ponto de restauração: ${entry.checkpoint.reason}.` }); entry.checkpoint = null; }
+        else if (entry.checkpoint) this.event(attempt.id, { type: 'diagnostic', text: `Modo irrestrito: cópia de segurança de ${entry.checkpoint.files} arquivo(s) feita antes de começar (Reverter alterações desfaz o que a IA mudar).` });
+      } else if (agent.unrestricted && entry.checkpoint) this.event(attempt.id, { type: 'diagnostic', text: 'Modo irrestrito: ponto de restauração do Git gravado antes de começar.' });
     }
     let externalBefore = task.extraDir ? await snapshot(task.extraDir, { strict: true }) : null;
     if (externalBefore && !externalBefore.complete) {   // pasta grande (ex.: Área de Trabalho): acompanha o primeiro nível em vez de recusar a tarefa
@@ -268,11 +281,14 @@ export class Runner {
     const fresh = this.store.get('tasks', task.id);
     const taskStatus = status === 'completed' && fresh.status === 'cancelling' ? 'cancelled' : status;
     const checkpoint = entry.checkpoint && deliverables.files?.length ? entry.checkpoint : null;
+    if (!checkpoint && entry.checkpoint?.kind === 'copy') await rm(entry.checkpoint.dir, { recursive: true, force: true }).catch(() => {});   // nada mudou: a cópia não serve mais
+    const freeActions = approvals.log.filter(x => x.taskId === task.id).map(({ title, detail, at }) => ({ title, detail, at }));   // o que o modo irrestrito liberou sem perguntar
     const qaGate = taskStatus === 'completed' && deliverables.files?.length && o.root && fresh.project?.id !== 'assistant-internal'
       ? await validateTaskArtifacts(o.root, { project: fresh.project, result: { deliverables } }, { quick: true }).catch(() => null)
       : null;
-    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, ...(checkpoint ? { checkpoint } : {}), ...(qaGate ? { qaGate } : {}), ...(task.extraDir ? { externalDeliverables } : {}), ...(folderUndo ? { folderUndo: { available: true, moves: folderUndo.moves, createdDirs: folderUndo.createdDirs, undoneAt: null } } : {}), readOnlyViolation: violation, attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
+    transition(this.store, fresh, taskStatus, { unblock: suggestUnblocks(attempt.denials), error, reason: error, failureKind, usage: attempt.usage, modelReported: attempt.modelReported || (status === 'completed' ? configuredModel(task.agent) : null) || undefined, result: { summary: attempt.answer.slice(-2000), deliverables, ...(checkpoint ? { checkpoint } : {}), ...(qaGate ? { qaGate } : {}), ...(task.extraDir ? { externalDeliverables } : {}), ...(folderUndo ? { folderUndo: { available: true, moves: folderUndo.moves, createdDirs: folderUndo.createdDirs, undoneAt: null } } : {}), readOnlyViolation: violation, ...(freeActions.length ? { freeActions } : {}), attemptId: attempt.id, ...(entry.isolation ? { isolation: entry.isolation } : {}) } });
     this.store.release(task.id); this.active.delete(task.id);
+    approvals.endTask(task.id);   // o que ficou pendente cai; "permitir sempre" vale só para esta tarefa
     if (taskStatus === 'failed' && failureKind === 'rate_limit' && !fresh.fallbackUsed && fresh.project?.area !== 'Financeiro' && fresh.project?.id !== 'assistant-internal' && this.store.get('settings', 'orchestrationPolicy')?.autoFallback === true) {
       const alt = pickFallbackProvider(this.store, fresh.agent.provider, this.availableProviders(), { hasExtraDir: !!fresh.extraDir, isFinance: false });
       if (alt) {

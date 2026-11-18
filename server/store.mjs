@@ -53,7 +53,8 @@ export class Store {
     return seq;
   }
   events(run) { return this.db.prepare('SELECT seq,body FROM events WHERE run=? ORDER BY seq DESC LIMIT 300').all(run).reverse().map(r => ({ seq: r.seq, ...JSON.parse(r.body) })); }
-  eventsSince(seq, limit = 500) { return this.db.prepare('SELECT seq,run,body FROM events WHERE seq>? ORDER BY seq LIMIT ?').all(seq, limit).map(r => ({ seq: r.seq, run: r.run, type: JSON.parse(r.body).type })); }
+  // Para a tela vai só o tipo; a voz global (_hotkey) também leva a ação e o id do pedido de voz.
+  eventsSince(seq, limit = 500) { return this.db.prepare('SELECT seq,run,body FROM events WHERE seq>? ORDER BY seq LIMIT ?').all(seq, limit).map(r => { const b = JSON.parse(r.body); return { seq: r.seq, run: r.run, type: b.type, ...(r.run === '_hotkey' && b.type === 'voice_global' ? { action: b.action, voiceId: b.id } : {}) }; }); }
   lastSeq() { return Number(this.db.prepare('SELECT COALESCE(MAX(seq),0) AS n FROM events').get().n); }
   // Claim atômico: a chave primária garante um único responsável por tarefa.
   claim(taskId, attemptId, executorId) {

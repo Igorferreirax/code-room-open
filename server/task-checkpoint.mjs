@@ -1,7 +1,7 @@
 // Ponto de restauração automático antes de tarefas que escrevem em projetos com Git ("Reverter alterações desta tarefa").
 // Usa um GIT_INDEX_FILE temporário para gravar um objeto tree no Git sem alterar o index real, commits nem stash da pessoa.
 import { execFile } from 'node:child_process';
-import { copyFile, mkdtemp, rename, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdtemp, rename, rm, stat, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
@@ -43,9 +43,32 @@ function safeRel(projectPath, rel) {
   return { rel: norm, full };
 }
 
+// Projeto SEM Git e agente em modo irrestrito: cópia dos arquivos antes da tarefa (sem node_modules, .git e afins), para
+// "Reverter alterações" funcionar mesmo assim. Projeto grande demais fica sem cópia (e a tarefa avisa).
+const SKIP_DIRS = new Set(['node_modules', '.git', '.lixeira-coderoom', '.venv', 'venv', '__pycache__', '.next', '.cache', 'dist', 'build', '.turbo']);
+export async function captureFileBackup(projectPath, backupDir, { maxBytes = 300 * 1024 * 1024, maxFiles = 20000 } = {}) {
+  if (!projectPath || !backupDir) return null;
+  const list = []; let bytes = 0;
+  const walk = async (dir, rel) => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (e.isSymbolicLink()) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name, full = join(dir, e.name);
+      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) await walk(full, r); continue; }
+      if (!e.isFile()) continue;
+      const st = await stat(full); bytes += st.size; list.push(r);
+      if (bytes > maxBytes || list.length > maxFiles) throw Object.assign(new Error('grande'), { tooBig: true });
+    }
+  };
+  try { await walk(projectPath, ''); } catch (e) { return e.tooBig ? { available: false, kind: 'copy', reason: `projeto grande demais para a cópia de segurança (mais de ${Math.round(maxBytes / 1048576)} MB ou ${maxFiles} arquivos); use Git para ter o ponto de restauração` } : null; }
+  await mkdir(backupDir, { recursive: true });
+  for (const r of list) { const dst = join(backupDir, ...r.split('/')); await mkdir(dirname(dst), { recursive: true }); await copyFile(join(projectPath, ...r.split('/')), dst); }
+  return { available: true, kind: 'copy', dir: backupDir, files: list.length, bytes, capturedAt: new Date().toISOString(), revertedAt: null };
+}
+
 export async function revertTaskChanges(projectPath, checkpoint, deliverables) {
-  if (!projectPath || !existsSync(join(projectPath, '.git'))) throw new Error('Este projeto não tem repositório Git para restaurar.');
-  if (!checkpoint?.available || !/^[0-9a-f]{40}$/i.test(checkpoint.tree || '')) throw new Error('Não há ponto de restauração registrado nesta tarefa.');
+  const copy = checkpoint?.kind === 'copy';
+  if (!copy && (!projectPath || !existsSync(join(projectPath, '.git')))) throw new Error('Este projeto não tem repositório Git para restaurar.');
+  if (!checkpoint?.available || (copy ? !checkpoint.dir || !existsSync(checkpoint.dir) : !/^[0-9a-f]{40}$/i.test(checkpoint.tree || ''))) throw new Error('Não há ponto de restauração registrado nesta tarefa.');
   if (checkpoint.revertedAt) throw new Error('As alterações desta tarefa já foram revertidas.');
   const files = deliverables?.files || [];
   if (!files.length) throw new Error('Esta tarefa não registrou arquivos alterados.');
@@ -68,6 +91,12 @@ export async function revertTaskChanges(projectPath, checkpoint, deliverables) {
         trashed++;
       } catch (e) { skipped.push(`${target.rel} (${e.message})`); }
     } else {
+      if (copy) {
+        const src = join(checkpoint.dir, ...target.rel.split(/[\/]/));
+        if (!existsSync(src)) { skipped.push(`${target.rel} (não estava na cópia)`); continue; }
+        try { await mkdir(dirname(target.full), { recursive: true }); await copyFile(src, target.full); restored++; } catch (e) { skipped.push(`${target.rel} (${e.message})`); }
+        continue;
+      }
       const co = await runGit(projectPath, ['-c', 'core.autocrlf=false', 'checkout', checkpoint.tree, '--', target.rel]);
       if (co.ok) restored++;
       else skipped.push(`${target.rel} (não constava na árvore anterior)`);

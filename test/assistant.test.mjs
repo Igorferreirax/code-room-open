@@ -14,7 +14,7 @@ const FENCE = '```';
 const block = j => FENCE + 'code-room-action\n' + JSON.stringify(j) + '\n' + FENCE;
 
 test('ações: extrai só blocos code-room-action válidos, limpa o texto, limita a 10 e ignora JSON quebrado ou grande demais', () => {
-  const t = `Vou criar.\n${block({ acao: 'abrir_tela', tela: 'equipes' })}\ntexto no meio\n${FENCE}code-room-action\n{ quebrado\n${FENCE}\n${block({ acao: 'criar_equipe', nome: 'X', membros: [] })}\n${FENCE}json\n{"acao":"abrir_tela"}\n${FENCE}`;
+  const t = `Vou criar.\n${block({ acao: 'abrir_tela', tela: 'equipes' })}\ntexto no meio\n${FENCE}code-room-action\n{ quebrado\n${FENCE}\n${block({ acao: 'criar_equipe', nome: 'X', membros: [] })}\n${FENCE}json\n{"versao":"1.0"}\n${FENCE}`;
   const r = parseActions(t); assert.equal(r.actions.length, 2, 'o quebrado e o bloco json comum ficam de fora'); assert.ok(!r.text.includes('code-room-action')); assert.match(r.text, /Vou criar\.[\s\S]*texto no meio/); assert.ok(r.text.includes(FENCE + 'json'), 'bloco que não é nosso fica no texto');
   const many = Array.from({ length: 13 }, (_, i) => block({ acao: 'abrir_tela', tela: 'sala', n: i })).join('\n'); assert.equal(parseActions(many).actions.length, 10);
   assert.equal(parseActions(block({ acao: 'x', lixo: 'a'.repeat(5000) })).actions.length, 0, 'bloco grande demais é descartado'); assert.equal(parseActions('\uFEFF' + block({ acao: 'abrir_tela', tela: 'sala' })).actions.length, 1);
@@ -128,6 +128,7 @@ async function rig() {
   const saveAgent = b => store.put('agents', { id: b.id || randomUUID(), ...b }), asst = new Assistant({ store, root, dataDir: data, world: w, pump: () => void runner.pump(), saveTeam: b => orchestrator.saveTeam(b), saveAgent });
   const say = text => writeFileSync(answers, text);
   const done = async () => waitFor(async () => { const s = await asst.status(); return !s.pending && !s.briefing ? s : null; }, 20000, 'resposta do assistente');
+  await asst.setAutonomy('ask');   // estes fluxos testam o modo consulta (cartões esperando o clique)
   return { store, asst, say, done, root, data, setManual, dev, rev };
 }
 const GOOD_BRIEF = 'RESUMO: o Code Room é uma sala local onde várias IAs trabalham juntas e nada sai sem a sua aprovação. '.repeat(3) + '\nREGRAS: eu rodo em somente leitura, não altero a ferramenta e só proponho ações que a pessoa aprova com um clique.\nEXEMPLOS: como criar uma equipe?\nBRIEFING: PRONTO';

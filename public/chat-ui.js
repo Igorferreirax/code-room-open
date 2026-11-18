@@ -37,6 +37,7 @@ export function aiPanel(ctx) {
     <label class="f small">Modelo<input id="asst-ai-model" list="asst-ai-models" value="${esc(curModel)}" placeholder="padrão da conta" autocomplete="off" spellcheck="false"><datalist id="asst-ai-models">${models.map(m => `<option value="${esc(m.id)}">${esc(m.label || m.id)}</option>`).join('')}</datalist></label>
     ${efforts.length ? `<label class="f small">Esforço<select id="asst-ai-effort"><option value="">padrão</option>${efforts.map(e => `<option value="${esc(e.id)}" ${e.id === curEffort ? 'selected' : ''}>${esc(e.label || e.id)}</option>`).join('')}</select></label>` : ''}
     <p class="small muted">${info ? (models.length ? 'Escolha da lista ou escreva o nome; vazio usa o padrão da sua conta.' : 'Não achei a lista de modelos desta IA; escreva o nome ou deixe vazio.') : 'Carregando os modelos…'} Vale a partir da próxima mensagem; esforço maior gasta mais cota.</p>
+    <label class="f check small cw-free"><input type="checkbox" id="asst-ai-free" ${a.unrestricted ? 'checked' : ''}> Executar sem perguntar (modo irrestrito, só no Piloto)</label>
     <div class="btn-row"><button type="button" class="btn sm" data-act="asst-ai-save">Usar</button><button type="button" class="btn ghost sm" data-act="asst-ai">Cancelar</button></div></div>`;
 }
 export function chatHeaderHtml(ctx) {

@@ -18,10 +18,10 @@ async function make() {
   return { asst, store, tasks };
 }
 
-test('modo piloto: desligado por padrão; ligado, o agente interno vira escrita com programas, MCP e Chrome; desligado de novo, volta a só leitura', async () => {
+test('modo piloto: ligado por padrão; em consulta, só leitura; ligado, o agente interno vira escrita com programas, MCP e Chrome; desligado de novo, volta a só leitura', async () => {
   const { asst, store, tasks } = await make();
-  assert.equal((await asst.status()).autonomy, 'ask');
-  await asst.ask('oi');
+  assert.equal((await asst.status()).autonomy, 'pilot', 'o Nico executa por padrão');
+  await asst.setAutonomy('ask'); await asst.ask('oi');
   let ag = store.get('agents', 'assistant-claude');
   assert.equal(ag.mode, 'read'); assert.deepEqual(ag.mcpTools, []); assert.equal(ag.browser, 'off');
   assert.equal(tasks[0].projectId, 'assistant-internal'); assert.match(tasks[0].objective, /SOMENTE LEITURA/);
@@ -69,11 +69,13 @@ test('chat geral: Modo Piloto aceita pasta externa por autorização pontual, se
   assert.equal(tasks[0].extraDir, dir);
 });
 
-test('modo piloto: recusa projeto financeiro em foco, valor inválido e troca com resposta em andamento', async () => {
+test('modo piloto: projeto financeiro em foco responde em consulta, valor inválido e troca com resposta em andamento', async () => {
   const { asst, store } = await make();
   await asst.setAutonomy('pilot');
   const local = await asst.ask('/status', { projectId: 'pjf' }); assert.equal(local.messages.at(-1).local, true, 'comandos locais continuam disponíveis em projeto financeiro');
-  await assert.rejects(() => asst.ask('x', { projectId: 'pjf' }), /financeiro/i);
+  store.put('settings', { ...store.get('settings', 'assistant'), pending: null });
+  await asst.ask('x', { projectId: 'pjf' }); assert.equal(store.get('agents', 'assistant-claude').mode, 'read', 'Financeiro em foco: responde em consulta, sem ferramentas externas');
+  store.put('settings', { ...store.get('settings', 'assistant'), pending: null });
   await assert.rejects(() => asst.setAutonomy('tudo'), /inválido/i);
   store.put('settings', { ...store.get('settings', 'assistant'), pending: { kind: 'ask', taskId: 'z' } });
   await assert.rejects(() => asst.setAutonomy('ask'), /Aguarde/);

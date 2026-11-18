@@ -1089,3 +1089,23 @@ html[data-motion=on] .nf-card.listening .nf-wave i{animation:nf-idle-wave 1.1s e
 .art-snip pre{border:0;border-radius:0;max-height:240px}
 .art-prose{display:grid;gap:6px;font-size:.9rem;line-height:1.5;overflow-wrap:anywhere}.art-prose ul{margin:2px 0;padding-left:1.25em}
 .art-files-compact{display:flex;flex-wrap:wrap;gap:6px}.art-files-compact .chip{cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+
+/* Pedidos de permissão durante a execução (cartão fixo, em qualquer tela) */
+.run-appr-stack { position: fixed; right: 16px; bottom: 16px; z-index: 9000; display: flex; flex-direction: column; gap: 10px; width: min(420px, calc(100vw - 32px)); }
+.run-appr { background: var(--panel); border: 1px solid var(--warn); border-radius: 12px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); color: var(--text); }
+.run-appr-head { margin-bottom: 6px; line-height: 1.35; }
+.run-appr-detail { margin: 0 0 10px; padding: 8px 10px; background: var(--panel2); border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
+.run-appr .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.run-appr.more { text-align: center; color: var(--muted); }
+
+/* Menu do Terminal (topo) */
+.term-wrap { position: relative; display: inline-block; }
+.term-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 4px; }
+.term-menu p { margin: 0 0 4px; }
+.term-item { text-align: left; background: transparent; border: 1px solid transparent; color: var(--text); padding: 7px 9px; border-radius: 8px; cursor: pointer; font: inherit; }
+.term-item:hover, .term-item:focus-visible { background: var(--panel2); border-color: var(--line); }
+.term-free { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--warn); }
+.warn-txt { color: var(--warn); }
+.nf-pip-btn{pointer-events:auto;position:fixed;right:20px;bottom:132px;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:color-mix(in srgb,var(--panel2) 90%,transparent);color:var(--text);cursor:pointer;font-size:.85rem;box-shadow:0 6px 16px rgba(0,0,0,.3)}
+.nf-pip-btn:hover,.nf-pip-btn:focus-visible{border-color:var(--accent-h)}
+body:has(#chat:not([hidden])) .nf-pip-btn{right:436px;bottom:62px}

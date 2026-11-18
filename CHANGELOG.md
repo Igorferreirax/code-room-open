@@ -9,6 +9,28 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.9] - 2026-11-18
+
+### Adicionado
+- **Aprovação durante a execução.** Quando um agente no Claude precisa de algo que não está liberado (rodar um comando, abrir um programa, usar uma ferramenta), aparece um cartão no canto da tela com **Permitir**, **Permitir sempre nesta tarefa** ou **Negar**, e o agente espera a resposta, como no terminal. Antes, tudo o que não estava na lista era negado em silêncio. Sem resposta em 10 minutos, vale Negar. Projetos Financeiro continuam sem isso.
+- **Ação “abrir”.** “Abre o bloco de notas”, “abre o localhost:3000 no Chrome” ou uma pasta: o próprio Code Room abre na hora, sem gastar cota de IA e sem criar tarefa. Só programas de uma lista segura (sem terminal), arquivos que não executam código, pastas e endereços http(s).
+- **Abrir no Chrome** no navegador interno: o endereço real (ex.: `http://localhost:3000`) abre no Chrome, ou no navegador padrão.
+- **Terminal** no topo: abre o Windows Terminal na pasta do projeto com PowerShell puro ou com Claude, Codex ou Gemini rodando na tela, interativos, como na Alethe. Opção **irrestrito** (a CLI não pede confirmação), com aviso. Projeto Financeiro: só o shell puro.
+- **Modo irrestrito por agente** (e para o Nico, no painel de IA): executa tudo sem perguntar. Codex roda sem caixa de areia; Gemini sem confirmação; no Claude cada liberação fica registrada. Desligado por padrão, nunca em Financeiro.
+- **Ponto de restauração garantido no modo irrestrito**: com Git, o do Git; sem Git, o Code Room copia os arquivos do projeto antes de começar (até 300 MB, sem `node_modules`), e **Reverter alterações** desfaz pela cópia. As cópias ficam 7 dias.
+- **O que o modo irrestrito fez** aparece no detalhe da tarefa (“N ações feitas sem perguntar”, com cada comando).
+- **Voz em qualquer programa**: Ctrl+Shift+Espaço começa a ouvir sem tirar o foco do campo em que você está; uma animação neural reage à sua voz (volume e tom); o segundo toque cola o texto organizado nesse campo e devolve o que estava na área de transferência. Botão ⧉ deixa o Nico numa mini-janela sempre visível.
+
+### Corrigido
+- O atalho global de voz trazia o Code Room para a frente e o texto nunca chegava ao programa em que você estava.
+
+### Mudado
+- O Nico já começa no **Modo Piloto** (executa em vez de só sugerir). Com um projeto Financeiro em foco, responde em consulta.
+- O **Revisor só roda quando há arquivos para revisar**: pedido que não gera arquivo termina no desenvolvedor.
+- Agentes recebem a regra de **executar** o pedido (não entregar plano ou relatório no lugar) e de responder em até 5 linhas.
+- Ações escritas num bloco JSON comum, com `tipo` ou só com agente e objetivo viram cartão (antes apareciam como texto cru e nada acontecia).
+- O navegador interno não traz mais HyperFrames fixo nos rótulos.
+
 ## [0.3.8] - 2026-11-18
 
 ### Adicionado

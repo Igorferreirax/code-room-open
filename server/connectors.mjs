@@ -4,6 +4,7 @@ import { join, delimiter, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { effortsFor } from './effort.mjs';
 import { filesServer, NAME as FILES_MCP } from './files-mcp.mjs';
+import { approvalServer, NAME as APPROVAL_MCP, PROMPT_TOOL } from './permission-mcp.mjs';
 const effortOf = agent => effortsFor(agent.provider).includes(agent.effort) ? agent.effort : '';   // só níveis conhecidos chegam à linha de comando
 import { customConnectors, buildCustomCommand, getSpec, isCustom, findProgram, launcher } from './providers.mjs';
 import { loadHermesFile, sshArgs, findSsh } from './hermes.mjs';
@@ -87,11 +88,12 @@ export function checkKiroLogin({ find = findProgram, spawnProcess = spawn, timeo
 }
 
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
-export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, opsLog = null, timeoutMs = 20 * 60 * 1000, catalog = null } = {}) {
+export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, opsLog = null, timeoutMs = 20 * 60 * 1000, catalog = null, approvalTask = null, unrestricted = false } = {}) {
   const provider = (catalog || connectors()).find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
   if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
-  const mode = agent.mode === 'write' ? 'workspace-write' : 'read-only';
+  // Irrestrito (opção do agente, nunca em Financeiro): o Codex roda sem a caixa de areia, como no terminal da pessoa.
+  const mode = agent.mode === 'write' ? (unrestricted ? 'danger-full-access' : 'workspace-write') : 'read-only';
   let args;
   if (agent.provider === 'codex') {
     if (extraDir && resumeId) throw new Error('Não é possível autorizar pasta extra ao continuar uma sessão do Codex. Inicie uma tarefa nova.');
@@ -106,9 +108,10 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
   } else if (agent.provider === 'agy') {
     // O Antigravity sem tela (a) em modo plano devolve só um plano pedindo aprovação e (b) nega qualquer ferramenta que peça permissão e termina sem resposta.
     // Não há quem aprove durante a execução, então o aviso vai no começo do pedido. Conferido com a CLI real em 10/11/2026.
-    prompt = agyHeadlessNote(agent.mode, extraDir) + prompt;
+    prompt = (unrestricted && agent.mode === 'write' ? agyFreeNote(extraDir) : agyHeadlessNote(agent.mode, extraDir)) + prompt;
     // NDJSON pela entrada padrão: prompts grandes não entram na linha de comando do Windows.
-    args = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--mode', agent.mode === 'write' ? 'accept-edits' : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
+    args = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--mode', agent.mode === 'write' ? (unrestricted ? 'auto' : 'accept-edits') : 'plan', '--print-timeout', `${Math.max(30, Math.ceil(timeoutMs / 1000))}s`];
+    if (unrestricted && agent.mode === 'write') args.push('--dangerously-skip-permissions');   // irrestrito: a pessoa ligou no agente, ciente
     if (cwd) args.push('--add-dir', cwd);
     if (extraDir) args.push('--add-dir', extraDir);
     if (imagePath) args.push('--add-dir', dirname(imagePath));
@@ -125,7 +128,10 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     // No modo de planejamento (agente somente leitura) o Claude nega toda ferramenta MCP, mesmo liberada. Com MCP liberado, o agente de leitura roda em acceptEdits e as ferramentas de editar arquivo ficam proibidas.
     const browserOn = agent.browser === 'isolado' || agent.browser === 'chrome';
     const mcpOn = browserOn || (agent.mcpTools || []).some(s => /^[\w-]{1,40}$/.test(s));
-    args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' || mcpOn ? 'acceptEdits' : 'plan', '--permission-prompts', 'none'];
+    // Agente que edita: o que não estiver liberado vira um pedido de aprovação na tela do Code Room (Permitir / Negar), como no terminal.
+    const ask = agent.mode === 'write' && !!approvalTask;
+    args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' || mcpOn ? 'acceptEdits' : 'plan', '--permission-prompts', ask ? 'host' : 'none'];
+    if (ask) args.push('--permission-prompt-tool', PROMPT_TOOL);
     if (extraDir) args.push('--add-dir', extraDir);
     if (imagePath) args.push('--add-dir', dirname(imagePath));
     if (mcpOn && agent.mode !== 'write') args.push('--disallowedTools', browserOn ? 'Edit,Write,NotebookEdit,Bash,PowerShell' : 'Edit,Write,NotebookEdit');
@@ -134,7 +140,10 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     // Ferramentas MCP liberadas por servidor (ex.: flow-studio). Sem isso o Claude, sem ninguém para aprovar, nega toda ferramenta MCP.
     for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
     // Criar pasta e mover/renomear sem terminal (o Claude não tem "mover"): ferramenta própria, presa às pastas desta tarefa, sem apagar nem sobrescrever.
-    if (agent.mode === 'write' && (cwd || extraDir)) args.push('--mcp-config', JSON.stringify({ mcpServers: { [FILES_MCP]: filesServer([cwd, extraDir], { opsLog }) } }), '--allowedTools', `mcp__${FILES_MCP}`);
+    { const servers = {};
+      if (agent.mode === 'write' && (cwd || extraDir)) { servers[FILES_MCP] = filesServer([cwd, extraDir], { opsLog }); args.push('--allowedTools', `mcp__${FILES_MCP}`); }
+      if (ask) servers[APPROVAL_MCP] = approvalServer(approvalTask);
+      if (Object.keys(servers).length) args.push('--mcp-config', JSON.stringify({ mcpServers: servers })); }
     if (agent.skillTool) args.push('--allowedTools', 'Skill');   // o Assistente em modo piloto usa as skills instaladas (a ferramenta Skill só carrega instruções)
     if (agent.web) args.push('--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch');   // pesquisa na internet (só leitura)
     args.push(...claudeBrowserArgs(agent.browser, agent.browser === 'isolado' ? playwrightServer(findLocalPlaywright, browserOutputDir) : undefined));
@@ -146,6 +155,9 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
 }
 
 // Distingue falha de autenticação e de limite do restante, para o usuário saber o que corrigir.
+export const agyFreeNote = (extraDir = null) => `[Execução automática pelo Code Room em MODO IRRESTRITO, ligado pela pessoa neste agente] Você pode rodar comandos e programas e criar, editar ou mover arquivos na pasta do projeto${extraDir ? ' e na pasta extra autorizada' : ''} sem pedir confirmação. Faça o pedido direto nesta resposta, sem plano para aprovação. Nunca publique, pague, envie mensagens nem apague o que não foi pedido.
+
+`;
 export const agyHeadlessNote = (mode, extraDir = null) => `[Execução automática pelo Code Room: não há pessoa para aprovar nada durante esta execução] Responda ao pedido diretamente nesta mesma resposta; não crie plano para aprovação nem peça confirmação antes de começar. Não rode programas nem comandos de terminal: nesta execução eles são negados e a tarefa termina sem resposta. Use leitura de arquivos e a sua pesquisa na web.${mode === 'write' ? ` Você pode criar e editar arquivos dentro da pasta do projeto${extraDir ? ' e da pasta extra autorizada nas regras da tarefa' : ''}.` : ' Você está em somente leitura: não crie nem altere arquivos; entregue o resultado no texto da resposta.'}
 
 `;
