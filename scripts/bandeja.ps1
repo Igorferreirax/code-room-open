@@ -145,6 +145,9 @@ try {
   [void][CrHotKeyWin]::RegisterHotKey($hk.Handle, 1, 0x4006, 0x20) # Ctrl+Shift+Espaço
 } catch {}
 
+# Nico flutuante do Windows (aparece quando o Code Room é minimizado).
+try { . (Join-Path $PSScriptRoot 'nico-flutuante.ps1') } catch {}
+
 $falhas = 0
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = [Math]::Max(1, $IntervaloSeg) * 1000

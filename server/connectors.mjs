@@ -88,7 +88,10 @@ export function checkKiroLogin({ find = findProgram, spawnProcess = spawn, timeo
 }
 
 // resumeId: id da sessão anterior do MESMO provedor. Codex: `exec resume <id>` (não aceita --sandbox, então o modo vai por -c). Claude: --resume <id>.
-export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, opsLog = null, timeoutMs = 20 * 60 * 1000, catalog = null, approvalTask = null, unrestricted = false } = {}) {
+export function command(agent, prompt, { resumeId = null, cwd = null, extraDir = null, imagePath = null, browserOutputDir = null, opsLog = null, timeoutMs = 20 * 60 * 1000, catalog = null, approvalTask = null, unrestricted = false, workDirs = [] } = {}) {
+  // Pastas liberadas do projeto (como no terminal, o agente usa o original). Codex: só as de editar viram pasta gravável;
+  // ler fora da pasta do projeto o Codex já consegue. Claude e Gemini recebem todas como pastas de trabalho.
+  const wd = (Array.isArray(workDirs) ? workDirs : []).filter(d => d && typeof d.path === 'string'), wdWrite = wd.filter(d => d.write !== false).map(d => d.path);
   const provider = (catalog || connectors()).find(c => c.id === agent.provider);
   if (!provider?.path) throw Object.assign(new Error('CLI indisponível. Instale e autentique o provedor no terminal.'), { failureKind: 'executable_missing' });
   if (isCustom(agent.provider)) { const spec = getSpec(agent.provider); if (!spec) throw Object.assign(new Error('Esta IA foi removida de Conexões.'), { failureKind: 'executable_missing' }); return buildCustomCommand(spec, agent, prompt); }
@@ -99,6 +102,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     if (extraDir && resumeId) throw new Error('Não é possível autorizar pasta extra ao continuar uma sessão do Codex. Inicie uma tarefa nova.');
     args = resumeId ? ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode="${mode}"`] : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', mode];
     if (extraDir) args.push('--add-dir', extraDir);
+    if (!resumeId && agent.mode === 'write') for (const p of wdWrite) args.push('--add-dir', p);
     if (imagePath) args.push('--image', imagePath);
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('-c', `model_reasoning_effort="${e}"`); }
@@ -114,6 +118,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     if (unrestricted && agent.mode === 'write') args.push('--dangerously-skip-permissions');   // irrestrito: a pessoa ligou no agente, ciente
     if (cwd) args.push('--add-dir', cwd);
     if (extraDir) args.push('--add-dir', extraDir);
+    for (const d of wd) args.push('--add-dir', d.path);
     if (imagePath) args.push('--add-dir', dirname(imagePath));
     if (agent.model) args.push('--model', agent.model);
     { const e = effortOf(agent); if (e) args.push('--effort', e); }
@@ -133,6 +138,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     args = ['--print', '--verbose', '--output-format', 'stream-json', '--permission-mode', agent.mode === 'write' || mcpOn ? 'acceptEdits' : 'plan', '--permission-prompts', ask ? 'host' : 'none'];
     if (ask) args.push('--permission-prompt-tool', PROMPT_TOOL);
     if (extraDir) args.push('--add-dir', extraDir);
+    for (const d of wd) args.push('--add-dir', d.path);
     if (imagePath) args.push('--add-dir', dirname(imagePath));
     if (mcpOn && agent.mode !== 'write') args.push('--disallowedTools', browserOn ? 'Edit,Write,NotebookEdit,Bash,PowerShell' : 'Edit,Write,NotebookEdit');
     // Programas liberados para este agente (lista curta definida por quem cria o agente). Só o prefixo exato, sem encadear comandos.
@@ -141,7 +147,7 @@ export function command(agent, prompt, { resumeId = null, cwd = null, extraDir =
     for (const srv of agent.mcpTools || []) if (/^[\w-]{1,40}$/.test(srv)) args.push('--allowedTools', `mcp__${srv}`);
     // Criar pasta e mover/renomear sem terminal (o Claude não tem "mover"): ferramenta própria, presa às pastas desta tarefa, sem apagar nem sobrescrever.
     { const servers = {};
-      if (agent.mode === 'write' && (cwd || extraDir)) { servers[FILES_MCP] = filesServer([cwd, extraDir], { opsLog }); args.push('--allowedTools', `mcp__${FILES_MCP}`); }
+      if (agent.mode === 'write' && (cwd || extraDir)) { servers[FILES_MCP] = filesServer([cwd, extraDir, ...wdWrite], { opsLog }); args.push('--allowedTools', `mcp__${FILES_MCP}`); }
       if (ask) servers[APPROVAL_MCP] = approvalServer(approvalTask);
       if (Object.keys(servers).length) args.push('--mcp-config', JSON.stringify({ mcpServers: servers })); }
     if (agent.skillTool) args.push('--allowedTools', 'Skill');   // o Assistente em modo piloto usa as skills instaladas (a ferramenta Skill só carrega instruções)

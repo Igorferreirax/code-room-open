@@ -71,6 +71,7 @@ ${agent.provider === 'hermes' ? '- Você roda em um servidor remoto e NÃO enxer
 - EXECUTE o pedido como faria no terminal da pessoa: use as ferramentas desta execução e entregue a ação feita, não um plano, relatório ou tutorial no lugar dela.${agent.provider === 'claude' && agent.mode === 'write' && task.project.area !== 'Financeiro' ? ' Se precisar de um programa ou comando que não está liberado, tente usá-lo: a pessoa recebe o pedido na tela do Code Room e aprova ou nega na hora.' : ''}
 - Faça só o que cabe ao seu papel (abaixo). Não revise o próprio trabalho em forma de relatório, a não ser que o seu papel seja revisar.
 - Resposta final curta: o que foi feito, onde estão os arquivos e o que ficou pendente (no máximo 5 linhas, sem repetir o pedido).
+- Para apagar, excluir ou deletar arquivos: mande para a Lixeira do Windows (ferramenta mover_para_lixeira do servidor "arquivos", quando disponível), nunca apague de vez.
 - Se precisar da ajuda de OUTRO agente, NÃO tente chamá-lo: termine a resposta com um bloco de código cercado por três crases e marcado como code-room-subtask, contendo {"agente": "nome exato", "objetivo": "o que ele deve fazer"}. A pessoa decide se o pedido vira tarefa.
 - Ordem de precedência: regras do provedor → estas regras → contexto do projeto → papel do agente → tarefa → skills.`,
     task.project.id !== 'assistant-internal' && projectSection(projectContext, agent.room, task.project.area) && `# Contexto do projeto "${task.project.name}"\n${projectSection(projectContext, agent.room, task.project.area)}`,

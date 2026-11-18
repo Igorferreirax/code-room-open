@@ -9,6 +9,25 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.3.10] - 2026-11-18
+
+### Adicionado
+- **Terminais dentro do Code Room** (como na Alethe): painel com abas, PowerShell puro ou Claude, Codex e Gemini interativos na pasta do projeto, pelo pseudo-console do Windows (`server/pty-host.cs`, compilado na primeira vez) e xterm.js 5.5 (MIT, em `public/vendor/xterm`). Continua dando para abrir fora, no Windows Terminal.
+- **Terminais interligados com o Nico**: ele vê os terminais abertos e as últimas linhas, abre terminais no painel e digita pedidos neles (ação `enviar_terminal`).
+- **Assumir no terminal**: no detalhe da tarefa, continua a mesma conversa do agente (Claude `--resume`, Codex `resume`, Gemini `--conversation`) num terminal interativo do painel.
+- **Pastas liberadas por projeto**: pastas de fora que toda a equipe usa diretamente (editar ou só ler), entregues às CLIs como pastas de trabalho.
+- **Lixeira**: pedidos de apagar mandam para a Lixeira do Windows (ferramenta `mover_para_lixeira`), nunca apagam de vez.
+- **Nico flutuante do Windows** (`scripts/nico-flutuante.ps1`): aparece no topo quando o Code Room é minimizado, com microfone e estado.
+- **Esfera de partículas** na voz, reagindo ao volume e ao tom; a voz fica dentro do chat (Ctrl+Espaço) e no atalho global.
+
+### Corrigido
+- A mini-janela flutuante abria sem estilos (a política de segurança bloqueava os estilos dentro dela).
+- IAs que recebem o pedido por argumento (Kiro e outras) passavam do limite do Windows no chat do Nico.
+
+### Mudado
+- A pílula “Voz” solta saiu: a voz vive no chat do Nico.
+- Estilos inline liberados na política de segurança (o xterm.js precisa); scripts inline continuam bloqueados.
+
 ## [0.3.9] - 2026-11-18
 
 ### Adicionado

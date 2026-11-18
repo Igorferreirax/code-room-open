@@ -70,6 +70,8 @@ import { Assistant, isInternal, ASSISTANT_PROJECT } from './assistant.mjs';
 import { approvals } from './approvals.mjs';
 import { planOpen, runOpen } from './open-local.mjs';
 import { terminalPlan, openTerminal } from './terminal.mjs';
+import { Terminals } from './pty.mjs';
+import { cleanWorkDirs } from './workdirs.mjs';
 import { warmKnownFolders } from './known-folders.mjs';
 void warmKnownFolders();   // caminho real da Área de Trabalho/Documentos/Downloads, em segundo plano
 import { createSkillFile } from './myskills.mjs';
@@ -160,7 +162,7 @@ const assistantWorld = async () => {
   // Modelos conhecidos de cada IA (do cache; a primeira consulta aquece em segundo plano) para o Assistente escolher o modelo por atividade.
   const models = {}; for (const pid of ['claude', 'codex', 'agy']) { const hit = modelCache.get(pid); if (hit) models[pid] = hit.models.map(m => m.id); else if (Date.now() - (modelWarmAt.get(pid) || 0) > 10 * 60000) { modelWarmAt.set(pid, Date.now()); modelSuggestions(pid).catch(() => {}); } }   // uma tentativa a cada 10 min por IA: consultar os modelos abre a CLI
   const allConn = connectors(), connSet = new Set(allConn.filter(c => c.path && !REMOTE_PROVIDERS.includes(c.id)).map(c => c.id)), pol = getPolicy(store);
-  return { models, mediaOnlyReview: pol.careful !== true, providerNames: Object.fromEntries(allConn.map(c => [c.id, c.name])), policyLine: policyPromptLine(store, connSet), aletheReport: aletheCommandReport(store, { connected: connSet, runs }), focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: connSet, skills };
+  return { models, mediaOnlyReview: pol.careful !== true, providerNames: Object.fromEntries(allConn.map(c => [c.id, c.name])), policyLine: policyPromptLine(store, connSet), aletheReport: aletheCommandReport(store, { connected: connSet, runs }), focusInfo, runs, plansProposed: store.list('plans').filter(p => p.status === 'proposed').length, flows: store.list('flows').slice(-30).map(f => ({ id: f.id, teamId: f.teamId, status: f.status, verdict: f.verdict || null, objective: f.objective })), folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), agents: store.list('agents').filter(a => !isInternal(a)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels').map(c => ({ id: c.id, name: c.name, niche: c.niche, networks: ['youtube', 'instagram', 'tiktok'].filter(k => c.networks?.[k]).map(k => `${k} @${c.networks[k]}`).join(' '), postador: !!c.postadorId })), routines: store.list('routines').map(r => ({ id: r.id, name: r.name, status: r.status, when: r.trigger?.type === 'time' ? (r.trigger.freq === 'daily' ? `todo dia às ${r.trigger.time}` : `semanal às ${r.trigger.time}`) : r.trigger?.type === 'file' ? 'quando chega arquivo' : 'manual' })), projects: store.list('projects').filter(p => !isInternal(p)), connected: connSet, skills, terminals: terminals.list().filter(t => t.alive).map(t => ({ id: t.id, title: t.title, project: t.project, cwd: t.cwd, tail: (() => { try { return terminals.tail(t.id, 600); } catch { return ''; } })() })) };
 };
 // Projetos criados pelo Assistente nascem como pasta nova aqui (nunca em uma pasta existente do computador).
 const workspaceDir = () => process.env.CODE_ROOM_WORKSPACE || join(homedir(), 'Documents', 'CodeRoom', 'Projetos');
@@ -434,7 +436,7 @@ async function serveRange(req, res, file, type) {
 }
 const handle = async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'self' http: https: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'self' http: https: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   if (!hostAllowed(req.headers.host, port, bound)) return send(res, 403, { error: 'Host não permitido' });
   if (req.headers.origin && !originAllowed(req.headers.origin, port, bound)) return send(res, 403, { error: 'Origem não permitida' });
   const ip = req.socket.remoteAddress;
@@ -600,6 +602,8 @@ const handle = async (req, res) => {
         const rv = store.list('tasks').filter(x => x.step === 'review' && x.status === 'completed' && (x.dependsOn || []).includes(rnm[1])).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
         return send(res, 200, rv ? { reviewer: rv.agent?.name || null, ...reviewerProblems(rv.result?.summary) } : { reviewer: null, text: '', count: 0 });
       }
+      const wdGet = get ? p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/workdirs$/) : null;
+      if (wdGet) { masterOnly(auth); const pr = store.get('projects', wdGet[1]); if (!pr) throw new Error('Projeto não encontrado.'); return send(res, 200, { dirs: pr.workDirs || [] }); }
       const refGet = get ? p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/references$/) : null;
       if (refGet) {
         masterOnly(auth); const pr = store.get('projects', refGet[1]); if (!pr) throw new Error('Projeto não encontrado.');
@@ -622,7 +626,37 @@ const handle = async (req, res) => {
       if (get && p === '/api/obsidian') { masterOnly(auth); return send(res, 200, await obsStatus()); }
       if (req.method === 'POST' && p === '/api/open') { masterOnly(auth); const b = await body(req); const pl = planOpen({ alvo: b.alvo, navegador: b.navegador }); if (pl.error) return send(res, 400, { error: pl.error }); return send(res, 200, await runOpen(pl)); }
       if (req.method === 'POST' && p === '/api/terminal') { masterOnly(auth); const b = await body(req); const pr = b.projectId ? store.get('projects', String(b.projectId)) : null; if (b.projectId && (!pr || isInternal(pr))) return send(res, 404, { error: 'Projeto não encontrado.' }); const pl = terminalPlan({ dir: pr?.path, cli: String(b.cli || 'shell'), unrestricted: b.irrestrito === true, area: pr?.area || '' }, { catalog: connectors() }); if (pl.error) return send(res, 400, { error: pl.error }); store.event('_audit', { type: 'audit', who: 'Você', what: `abriu o terminal ${pl.label}${pl.unrestricted ? ' em modo irrestrito' : ''}`, project: pr?.name || null, at: new Date().toISOString() }); return send(res, 200, await openTerminal(pl)); }
+      // Resumo leve para o Nico flutuante do Windows (bandeja): o que roda, o que espera e se há pedido de permissão.
+      if (get && p === '/api/pulse') { masterOnly(auth); const ts = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT); const ap = approvals.pending(); return send(res, 200, { running: ts.filter(t => ['running', 'cancelling'].includes(t.status)).length, queued: ts.filter(t => ['queued', 'waiting_dependency'].includes(t.status)).length, approvals: ap.length, approval: ap[0] ? `${ap[0].agent || 'Nico'}: ${ap[0].title}` : '', listening: !!voiceGlobal.id, nico: assistant.s?.pending ? 'pensando' : '', name: assistant.s?.name || 'Nico' }); }
       if (get && p === '/api/voice/result') { masterOnly(auth); const r = voiceGlobal.results.get(String(url.searchParams.get('id') || '')); return send(res, 200, r ? { ready: true, text: r.text } : { ready: false, listening: !!voiceGlobal.id }); }
+      // Terminais DENTRO do Code Room (pseudo-console do Windows + xterm.js na tela).
+      if (p === '/api/term' || p.startsWith('/api/term/')) {
+        masterOnly(auth); const tm = p.match(/^\/api\/term\/([\w-]{36})\/(out|input|resize|close)$/);
+        if (get && p === '/api/term') return send(res, 200, { items: terminals.list() });
+        if (get && tm?.[2] === 'out') return terminals.attach(tm[1], res);
+        if (req.method === 'POST' && p === '/api/term') {
+          const b = await body(req);
+          // "Assumir no terminal": abre a mesma conversa da tarefa (mesma IA e sessão) num terminal interativo do painel.
+          if (b.resumeTask) {
+            const t = store.get('tasks', String(b.resumeTask)); if (!t) return send(res, 404, { error: 'Tarefa não encontrada.' });
+            if (['running', 'cancelling', 'queued', 'waiting_dependency'].includes(t.status)) return send(res, 400, { error: 'Aguarde a tarefa terminar (ou cancele) para assumir a conversa no terminal.' });
+            const run = [...(t.attempts || [])].reverse().map(id => store.get('runs', id)).find(r => r?.sessionId);
+            if (!run) return send(res, 400, { error: 'Esta tarefa não deixou uma conversa para continuar (a IA não informou a sessão).' });
+            const tp = store.get('projects', t.project?.id), dir = t.result?.isolation?.worktree || tp?.path;
+            const pl = terminalPlan({ dir, cli: t.agent.provider, area: tp?.area || '', resume: run.sessionId, unrestricted: !!t.agent.unrestricted }, { catalog: connectors() }); if (pl.error) return send(res, 400, { error: pl.error });
+            const v = await terminals.open(pl, { cols: Number(b.cols) || 100, rows: Number(b.rows) || 30, project: tp?.name || '' });
+            store.event('_audit', { type: 'audit', who: 'Você', what: `assumiu no terminal a conversa de ${t.agent.name}`, project: tp?.name || null, at: new Date().toISOString() });
+            return send(res, 200, v);
+          }
+          const pr = b.projectId ? store.get('projects', String(b.projectId)) : null; if (b.projectId && (!pr || isInternal(pr))) return send(res, 404, { error: 'Projeto não encontrado.' });
+          const pl = terminalPlan({ dir: pr?.path, cli: String(b.cli || 'shell'), unrestricted: b.irrestrito === true, area: pr?.area || '' }, { catalog: connectors() }); if (pl.error) return send(res, 400, { error: pl.error });
+          const v = await terminals.open(pl, { cols: Number(b.cols) || 100, rows: Number(b.rows) || 30, project: pr?.name || '' });
+          store.event('_audit', { type: 'audit', who: 'Você', what: `abriu um terminal no Code Room: ${pl.label}${pl.unrestricted ? ' em modo irrestrito' : ''}`, project: pr?.name || null, at: new Date().toISOString() });
+          return send(res, 200, v);
+        }
+        if (req.method === 'POST' && tm) { const b = await body(req); if (tm[2] === 'input') terminals.input(tm[1], b.data); else if (tm[2] === 'resize') terminals.resize(tm[1], Number(b.cols), Number(b.rows)); else if (tm[2] === 'close') terminals.close(tm[1]); return send(res, 200, { ok: true }); }
+        return send(res, 404, { error: 'Rota de terminal desconhecida.' });
+      }
       if (get && p === '/api/approvals') { masterOnly(auth); return send(res, 200, { items: approvals.pending(), freeLog: approvals.log.slice(-20) }); }
       { const am = req.method === 'POST' ? p.match(/^\/api\/approvals\/([\w-]{36})\/(allow|always|deny)$/) : null; if (am) { masterOnly(auth); return send(res, 200, approvals.decide(am[1], { allow: am[2] !== 'deny', always: am[2] === 'always' })); } }
       if (get && p === '/api/assistant') { masterOnly(auth); return send(res, 200, await assistant.status()); }
@@ -882,6 +916,10 @@ const handle = async (req, res) => {
           const t = store.get('tasks', text(b.taskId, 80)); if (!t || t.status !== 'completed' || t.project.id !== pr.id) throw new Error('Escolha uma entrega concluída deste projeto.');
           return send(res, 200, await gitCommitTask(t));
         }
+        if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/workdirs$/))) {   // pastas liberadas: a equipe usa o original, como no terminal
+          masterOnly(auth); const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
+          const dirs = await cleanWorkDirs(b.dirs, pr.path); store.put('projects', { ...pr, workDirs: dirs }); return send(res, 200, { dirs });
+        }
         if ((m = p.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/references$/))) {
           masterOnly(auth); const pr = store.get('projects', m[1]); if (!pr) throw new Error('Projeto não encontrado.');
           if (pr.area === 'Financeiro') throw new Error('Projetos financeiros não usam pastas de referência (os dados não podem ser misturados).');
@@ -1086,7 +1124,8 @@ Feedback do usuário: ${feedback}`, criteria: t.criteria, inputs: files.map(f =>
     if (req.method === 'GET' && url.pathname === '/manifest.webmanifest') { res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(await readFile(join(root, 'public', 'manifest.webmanifest'))); }
     if (req.method === 'GET' && /^\/assets\/[a-z0-9-]+\.(png|jpg|webp)$/.test(url.pathname)) { const ext = url.pathname.split('.').pop(); const brand = /^\/assets\/(?:favicon|icon-256|icon-512|logo-wide)\.png$/.test(url.pathname); res.writeHead(200, { 'Content-Type': ({ jpg: 'image/jpeg', webp: 'image/webp' }[ext] || 'image/png'), 'Cache-Control': brand ? 'no-store' : 'public, max-age=3600' }); return res.end(await readFile(join(root, 'public', url.pathname.slice(1)))); }
     // Só nomes simples de arquivo (sem barras nem pontos duplos) dentro de public/.
-    const name = url.pathname === '/' ? 'index.html' : /^\/[a-z0-9-]+\.(js|css)$/.test(url.pathname) ? url.pathname.slice(1) : null;
+    // Exceção conhecida: o xterm.js (terminal dentro do app) fica em public/vendor/xterm/.
+    const name = url.pathname === '/' ? 'index.html' : /^\/[a-z0-9-]+\.(js|css)$/.test(url.pathname) || /^\/vendor\/xterm\/(xterm|addon-fit)\.(js|css)$/.test(url.pathname) ? url.pathname.slice(1) : null;
     const files = { [url.pathname]: name };
     if (req.method !== 'GET' || !files[url.pathname]) return send(res, 404, { error: 'Não encontrado' });
     const file = files[url.pathname]; res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store'); res.end(await readFile(join(root, 'public', file)));
@@ -1112,6 +1151,10 @@ async function networkView() {
 }
 // O executor só assume o trabalho depois de ocupar a porta: assim, qualquer claim antigo pertence a um serviço morto.
 approvals.port = port;
+const terminals = new Terminals({ binDir: join(data, 'bin') });   // terminais dentro do Code Room
+// O Nico abre o terminal no painel do próprio Code Room (a tela recebe o aviso e mostra a aba nova).
+assistant.terminalSend = (id, text) => terminals.input(id, text);
+assistant.terminalFn = async pl => { const v = await terminals.open(pl, { project: '' }); store.event('_term', { type: 'terminal_opened', at: new Date().toISOString() }); return { result: `Abri ${v.title} no painel de terminais do Code Room (${pl.cwd}).` }; };
 const voiceGlobal = { id: null, at: 0, results: new Map() };
 approvals.taskInfo = id => { const t = store.get('tasks', id); return t ? { unrestricted: !!t.agent?.unrestricted && t.agent?.mode === 'write' && t.project?.area !== 'Financeiro', agent: t.agent?.name || '', project: t.project?.id === ASSISTANT_PROJECT ? '' : t.project?.name || '', assistant: t.project?.id === ASSISTANT_PROJECT } : null; };
 server.listen(port, '127.0.0.1', async () => {

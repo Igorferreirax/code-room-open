@@ -11,6 +11,7 @@ import { appendFileSync, readdirSync, mkdirSync, renameSync, lstatSync, realpath
 import { resolve, dirname, sep, relative, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { spawnSync } from 'node:child_process';
 
 export const NAME = 'arquivos';
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -18,14 +19,25 @@ export const TOOLS = [
   { name: 'listar_pasta', description: 'Lista arquivos e subpastas de uma pasta autorizada (nome, tipo e tamanho).', inputSchema: { type: 'object', properties: { caminho: { type: 'string', description: 'Caminho completo da pasta.' } }, required: ['caminho'] }, annotations: { readOnlyHint: true } },
   { name: 'criar_pasta', description: 'Cria uma pasta (e as pastas do meio) dentro de uma pasta autorizada. Não faz nada se ela já existe.', inputSchema: { type: 'object', properties: { caminho: { type: 'string', description: 'Caminho completo da pasta nova.' } }, required: ['caminho'] }, annotations: { destructiveHint: false } },
   { name: 'mover', description: 'Move ou renomeia um arquivo ou pasta dentro das pastas autorizadas. Cria a pasta de destino se faltar. Nunca sobrescreve: se o destino já existe, recusa. Nunca apaga nada.', inputSchema: { type: 'object', properties: { de: { type: 'string', description: 'Caminho completo de origem.' }, para: { type: 'string', description: 'Caminho completo de destino (incluindo o nome final).' } }, required: ['de', 'para'] }, annotations: { destructiveHint: false } },
+  { name: 'mover_para_lixeira', description: 'Para "apagar", "excluir" ou "deletar": manda um arquivo ou pasta de uma pasta autorizada para a Lixeira do Windows (dá para recuperar de lá). Nunca apaga de vez.', inputSchema: { type: 'object', properties: { caminho: { type: 'string', description: 'Caminho completo do arquivo ou pasta.' } }, required: ['caminho'] }, annotations: { destructiveHint: false } },
 ];
+
+// Lixeira do Windows pelo próprio .NET (sem diálogo): o arquivo some da pasta mas pode ser restaurado.
+export function toRecycleBin(path, { run = spawnSync } = {}) {
+  const ps = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const q = String(path).replace(/'/g, "''"), dir = statSync(path).isDirectory();
+  const cmd = `Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::${dir ? 'DeleteDirectory' : 'DeleteFile'}('${q}', 'OnlyErrorDialogs', 'SendToRecycleBin')`;
+  const r = run(ps, ['-NoProfile', '-NonInteractive', '-Command', cmd], { windowsHide: true, timeout: 60000, encoding: 'utf8' });
+  if (r.status !== 0 || existsSync(path)) throw new Error(`O Windows não mandou para a Lixeira: ${String(r.stderr || r.error?.message || 'erro desconhecido').trim().slice(0, 200)}`);
+  return dir;
+}
 
 const norm = p => resolve(p).toLowerCase();
 export function makeGuard(roots) {
   const real = roots.filter(r => typeof r === 'string' && isAbsolute(r) && existsSync(r)).map(r => realpathSync(r));
   if (!real.length) throw new Error('Nenhuma pasta autorizada.');
   const inside = p => { const n = norm(p); return real.some(r => n === norm(r) || n.startsWith(norm(r) + sep)); };
-  return (p, { mustExist = false } = {}) => {
+  const guard = (p, { mustExist = false } = {}) => {
     if (typeof p !== 'string' || !p.trim() || !isAbsolute(p.trim())) throw new Error('Use o caminho completo (ex.: C:\\Users\\voce\\Desktop\\Pasta).');
     const full = resolve(p.trim());
     if (!inside(full)) throw new Error(`Fora das pastas autorizadas nesta tarefa: ${full}`);
@@ -36,6 +48,8 @@ export function makeGuard(roots) {
     if (mustExist && !existsSync(full)) throw new Error(`Não existe: ${full}`);
     return full;
   };
+  guard.isRoot = p => real.some(r => norm(r) === norm(p));   // a própria pasta autorizada (não vai para a Lixeira inteira)
+  return guard;
 }
 
 function missingDirs(dir) {
@@ -44,7 +58,8 @@ function missingDirs(dir) {
   return out;
 }
 
-export function callTool(guard, name, args = {}, { onOp = null } = {}) {
+export function callTool(guard, name, args = {}, opts = {}) {
+  const { onOp = null } = opts;
   if (name === 'listar_pasta') {
     const dir = guard(args.caminho, { mustExist: true });
     if (!statSync(dir).isDirectory()) throw new Error('Isso não é uma pasta.');
@@ -68,6 +83,13 @@ export function callTool(guard, name, args = {}, { onOp = null } = {}) {
     for (const d of created) try { onOp?.({ op: 'mkdir', path: d }); } catch {}
     try { onOp?.({ op: 'move', from, to, size: st.isFile() ? st.size : null, isDir: st.isDirectory() }); } catch {}
     return `Movido: ${from} → ${to}`;
+  }
+  if (name === 'mover_para_lixeira') {
+    const target = guard(args.caminho, { mustExist: true });
+    if (norm(target) === norm(dirname(target)) || guard.isRoot?.(target)) throw new Error('Não mando a pasta autorizada inteira para a Lixeira; escolha os arquivos ou subpastas dentro dela.');
+    const isDir = (opts.recycle || toRecycleBin)(target);
+    try { onOp?.({ op: 'trash', path: target, isDir }); } catch {}
+    return `Enviado para a Lixeira do Windows (dá para restaurar de lá): ${target}`;
   }
   throw new Error(`Ferramenta desconhecida: ${name}`);
 }

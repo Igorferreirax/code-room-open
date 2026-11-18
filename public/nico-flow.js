@@ -85,7 +85,7 @@ function labelForTarget(el) {
   return txt.replace(/[…:]+$/, '').slice(0, 32) || 'Caixa de texto';
 }
 
-export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askFn = null, polishFn = null, notify = () => {}, isAuthed = () => true, sendGlobalText = null } = {}) {
+export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askFn = null, polishFn = null, notify = () => {}, isAuthed = () => true, sendGlobalText = null, onHotkey = null } = {}) {
   let root = null, targetEl = null, sel = [null, null];
   let state = 'idle'; // idle | listening | polishing | done
   let format = 'text', useAi = false, finalParts = [], interim = '', errMsg = '';
@@ -250,8 +250,8 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
       el.style.cssText = win === window ? 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9500;width:min(440px,calc(100vw - 32px));' : 'position:fixed;inset:auto 8px 8px 8px;z-index:50;';
       doc.body.appendChild(el);
     }
-    el.innerHTML = '<div style="background:#0b1426;border:1px solid #2b5bb5;border-radius:16px;padding:10px 12px;box-shadow:0 12px 34px rgba(0,0,0,.45);color:#e8eefc;font:13px/1.4 system-ui,Segoe UI,sans-serif">'
-      + '<canvas class="nv-canvas" style="display:block;width:100%;height:118px"></canvas>'
+    el.innerHTML = '<div style="background:#04060c;border:1px solid #1f3566;border-radius:18px;padding:10px 12px;box-shadow:0 12px 34px rgba(0,0,0,.45);color:#e8eefc;font:13px/1.4 system-ui,Segoe UI,sans-serif">'
+      + '<canvas class="nv-canvas" style="display:block;width:100%;height:130px"></canvas>'
       + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:4px"><b class="nv-title">' + esc(getName() || 'Nico') + ' está ouvindo…</b><small style="color:#8fa3c7">Ctrl+Shift+Espaço para colar</small></div>'
       + '<div class="nv-text" style="margin-top:4px;max-height:66px;overflow:auto;color:#cfe0ff;white-space:pre-wrap"></div></div>';
     return el;
@@ -338,25 +338,8 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
     pipWin = w; pipNote = '';
     const doc = w.document;
     doc.title = `${getName() || 'Nico'} · Code Room`;
-    doc.head.innerHTML = `<meta charset="utf-8"><style>
-      *{box-sizing:border-box}body{margin:0;padding:12px;font:13px/1.42 system-ui,-apple-system,Segoe UI,sans-serif;background:#0b1426;color:#e8eefc;display:flex;flex-direction:column;gap:8px;height:100vh;overflow:hidden}
-      #pip-status{display:flex;flex-direction:column;gap:7px;flex:1;overflow:auto;padding-right:2px}
-      .pip-head{display:flex;align-items:center;gap:9px}.pip-face{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,rgba(89,224,255,.24),transparent 70%);flex:none}
-      .pip-face.pulse{box-shadow:0 0 0 2px rgba(89,224,255,.5)}.pip-face svg{max-width:100%;max-height:100%}
-      .pip-who{flex:1;min-width:0;display:grid}.pip-who b{font-size:14px;display:flex;align-items:center;gap:6px}.pip-who small{color:#8fa3c7;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .pip-badge{font-size:10px;padding:1px 6px;border-radius:99px;background:rgba(43,123,255,.22);border:1px solid rgba(90,155,255,.45);color:#9ec5ff}
-      .pip-open{background:#132342;color:#cfe0ff;border:1px solid #243b67;border-radius:8px;padding:5px 8px;font-size:11.5px;cursor:pointer;white-space:nowrap}.pip-open:hover{border-color:#59e0ff}
-      .pip-live{padding:6px 8px;border-radius:9px;background:#101e38;border:1px solid #1e355e;font-size:11.5px;display:grid;gap:3px}
-      .pip-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3ddc84;margin-right:5px}
-      .pip-msg{padding:8px 10px;border-radius:11px;background:#12213d;border:1px solid #1d3055;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere}
-      .pip-msg.muted{color:#8fa3c7}.pip-msg.wait{border-color:#f5b73b;color:#ffe2a4}.pip-msg small{display:block;color:#8fa3c7;margin-top:3px}
-      .pip-alert{padding:6px 8px;border-radius:9px;background:rgba(245,183,59,.12);border:1px solid rgba(245,183,59,.42);color:#ffd98a;font-size:11.5px}
-      .pip-note{font-size:11.5px;color:#5fe3b0}
-      form{display:grid;gap:6px;border-top:1px solid #1d3055;padding-top:8px}
-      textarea{width:100%;resize:none;border-radius:10px;border:1px solid #243b67;background:#101d36;color:#e8eefc;padding:7px 9px;font:inherit}textarea:focus{outline:1px solid #59e0ff}
-      .pip-btns{display:flex;gap:6px;justify-content:space-between}.btn{border:1px solid #2b7bff;background:#2b7bff;color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer}
-      .btn.ghost{background:#132342;border-color:#243b67;color:#cfe0ff}.btn.on{background:#d94848;border-color:#ff6b6b}
-    </style>`;
+    // Estilos num arquivo do próprio Code Room: <style> dentro da mini-janela é bloqueado pela política de segurança.
+    doc.head.innerHTML = `<meta charset="utf-8"><link rel="stylesheet" href="${location.origin}/pip.css?v=2">`;
     doc.body.innerHTML = `<div id="pip-status" aria-live="polite"></div>
       <form id="pip-form">
         <textarea id="pip-input" rows="2" maxlength="2000" placeholder="Fale com o Nico ou mande executar… (Enter envia)"></textarea>
@@ -423,7 +406,8 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
     if (!root) return;
     if (!isAuthed()) { root.innerHTML = ''; return; }
     const name = esc(getName() || 'Nico'), dest = esc(labelForTarget(targetEl));
-    if (state === 'idle') {
+    if (state === 'idle') { root.innerHTML = ''; return; }
+    if (false) {
       const existingPill = root.querySelector('#nico-voice-pill');
       if (existingPill && !force) return;
       root.innerHTML = `<button type="button" id="nico-voice-pill" class="nf-pill" data-nf="toggle" aria-label="${name} por voz (Ctrl+Espaço)" title="Falar e digitar organizado onde o cursor estiver (Ctrl+Espaço)">
@@ -506,6 +490,7 @@ export function initNicoFlow({ getName = () => 'Nico', getCtx = () => null, askF
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.altKey) && !e.shiftKey && e.code === 'Space') {
       e.preventDefault(); e.stopPropagation();
+      if (onHotkey) { onHotkey(); return; }   // a voz vive no chat do Nico
       toggle();
       return;
     }

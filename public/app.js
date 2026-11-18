@@ -21,6 +21,10 @@ import { buildHomePrompt, syncListIntoPrompt, parseListItems, selectNextPlacehol
 import { initNicoFlow } from './nico-flow.js';
 import { createBrowserManager } from './browser-dock.js';
 import { startRunApprovals } from './run-approvals.js';
+import { showVoiceStrip } from './neural-viz.js';
+import { createTermDock } from './term-dock.js';
+let termDock = null;
+let stopVoiceStrip = null;
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
 addEventListener('pointermove', e => { if (ctx.prefs?.anim === false) return; const r = document.documentElement.style; r.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(2)); r.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(2)); }, { passive: true });
 import { folderJobDialogHtml, noticesBarHtml, emptyJobForm, formFromJob, payloadFromJobForm } from './folderjobs-ui.js';
@@ -247,7 +251,8 @@ function handleSse(block) {
   const id = block.match(/^id: (\d+)/m)?.[1]; if (id) lastSeq = Math.max(lastSeq, Number(id));
   if (!/^event: change/m.test(block)) return;
   const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] || '{}');
-  if (data.type === 'voice_hotkey') { nicoFlow?.toggle(); return; }
+  if (data.type === 'voice_hotkey') { if (!ctx.ui.asstOpen) setChatOpen(true); setTimeout(() => actions.mic(), 60); return; }
+  if (data.type === 'terminal_opened') { void termDock?.sync({ reveal: true }); return; }
   if (data.type === 'voice_global') { const gvo = nicoFlow?.globalVoice; if (data.action === 'start') gvo?.start(data.voiceId); else if (data.action === 'stop') gvo?.stop(data.voiceId); else gvo?.cancel(); return; }
   if (data.type === 'task' && data.to === 'completed') browserMgr?.notifyProjectUpdated(ctx.project);
   scheduleRefresh(); if (ctx.detail && data.taskId === ctx.detail.id) scheduleRefresh(150);
@@ -577,7 +582,7 @@ async function loadSkills(withAudit) {
     api('skills/library').then(library => { if (id === ctx.project) { ctx.skillLibrary = library; render(); } }).catch(() => {}),
   ]);
 }
-async function loadRefs(id) { try { ctx.refs = await api(`projects/${id}/references`); } catch { ctx.refs = null; } if (ctx.ui.panel === 'context') render(); }
+async function loadRefs(id) { try { ctx.workDirs = await api(`projects/${id}/workdirs`); } catch { ctx.workDirs = { dirs: [] }; } try { ctx.refs = await api(`projects/${id}/references`); } catch { ctx.refs = null; } if (ctx.ui.panel === 'context') render(); }
 async function loadContext(id) { ctx.refs = null; loadRefs(id); ctx.gitInfo = null; ctx.githubInfo = null; loadGit(id, true); try { ctx.projectContext = await api(`projects/${id}/context`); render(); } catch {} }
 // Git do projeto: carrega o estado do repositório (e, se o GitHub CLI estiver logado, PRs e verificações) ao abrir o painel do projeto ou as Entregas.
 async function loadGit(id, withHub) { if (!id) return; try { ctx.gitInfo = await api(`projects/${id}/git`); } catch { ctx.gitInfo = { available: false, repo: false }; } if (withHub && ctx.gitInfo?.repo) { try { ctx.githubInfo = await api(`projects/${id}/github`); } catch { ctx.githubInfo = null; } } else if (withHub) ctx.githubInfo = null; if (ctx.ui.panel === 'context' || ctx.view === 'deliveries') render(); }
@@ -652,7 +657,8 @@ const actions = {
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
   'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas', 'browser'].includes(id) ? id : 'scene'; savePrefs(); if (id === 'browser') browserMgr?.refreshSources(true); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'browser-toggle': () => browserMgr?.toggleDock(),
-  'term-menu': () => { ctx.ui.termMenu = !ctx.ui.termMenu; render(); },
+  'term-menu': () => { termDock?.toggle(); },
+  'task-term': async id => { try { await api('term', { resumeTask: id }); await termDock?.sync({ reveal: true }); notify('Conversa aberta no painel de terminais. Continue por lá.'); } catch (e) { notify(e.message, true); } },
   'term-open': async id => {
     const free = !!document.getElementById('term-free')?.checked; ctx.ui.termFree = free;
     if (free && id !== 'shell' && !confirm('Modo irrestrito: a IA vai rodar comandos, apagar e alterar arquivos SEM pedir confirmação nesta janela. Use só em projetos de confiança. Abrir assim?')) return;
@@ -1072,7 +1078,7 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
     if (dictation?.listening) { dictation.stop(); return; }
     const box = $('mission'); if (!box) return; cancelSpeech(window);
     const base = box.value.trim() ? box.value.trim() + ' ' : '';
-    dictation = createDictation(window, { onText: txt => { box.value = (base + txt).slice(0, 30000); box.dispatchEvent(new Event('input', { bubbles: true })); }, onState: on => { ctx.ui.listening = on; $('mic')?.classList.toggle('on', on); $('mic')?.setAttribute('aria-pressed', String(on)); if (!on) box.focus(); }, onError: msg => notify(msg, true) });
+    dictation = createDictation(window, { onText: txt => { box.value = (base + txt).slice(0, 30000); box.dispatchEvent(new Event('input', { bubbles: true })); }, onState: async on => { ctx.ui.listening = on; $('mic')?.classList.toggle('on', on); $('mic')?.setAttribute('aria-pressed', String(on)); try { stopVoiceStrip?.(); } catch {} stopVoiceStrip = null; if (on) stopVoiceStrip = await showVoiceStrip($('composer')); else box.focus(); }, onError: msg => notify(msg, true) });
     if (!dictation) return notify('Este navegador não tem ditado por voz.', true);
     if (!ctx.ui.micWarned) { ctx.ui.micWarned = true; notify('Ditado ligado. O áudio é tratado pelo serviço de voz do seu navegador; o Code Room só recebe o texto quando você apertar Enviar.'); }
     dictation.start();
@@ -1300,6 +1306,10 @@ document.addEventListener('submit', async e => {
     else if (fid === 'notify-tg-form') { const fd = new FormData(f); ctx.notify = await api('notify/telegram', { botToken: fd.get('botToken') }); notify('Telegram conectado. Use “Mandar teste” para conferir.'); render(); }
     else if (fid === 'notify-email-form') { const fd = new FormData(f); ctx.notify = await api('notify/email', { user: fd.get('user'), pass: fd.get('pass'), to: fd.get('to') }); notify('Gmail conectado. Use “Mandar teste” para conferir.'); render(); }
     else if (fid === 'social-post-form') { const fd = new FormData(f), w = fd.get('when'); await api('social/posts', { accountId: fd.get('accountId'), text: fd.get('text'), when: w ? new Date(w).toISOString() : undefined }); await Promise.all([refresh(), loadSocial()]); notify('Postagem criada. Aprove no chat (cartão “Aguardando você”).'); render(); }
+    else if (fid === 'workdirs-form') {   // pastas liberadas: o servidor valida de novo (existe, não é do sistema, não é o projeto)
+      const dirs = $('workdirs-list').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => { const m = l.match(/^(ler|editar)\s*:\s*(.+)$/i); return m ? { path: m[2].trim(), write: m[1].toLowerCase() !== 'ler' } : { path: l, write: true }; });
+      ctx.workDirs = await api(`projects/${ctx.ui.panelId}/workdirs`, { dirs }); notify(ctx.workDirs.dirs.length ? `Pronto: a equipe deste projeto pode usar ${ctx.workDirs.dirs.length} pasta(s) a mais.` : 'Pastas liberadas removidas.'); render();
+    }
     else if (fid === 'refs-form') {   // pastas de referência: o servidor valida de novo (caminho, sistema, o próprio projeto, rótulos)
       const dirs = $('refs-dirs').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => { const m = l.match(/^([^=\\/:]{1,40})=(.+)$/); return m ? { label: m[1].trim(), path: m[2].trim() } : { path: l }; });
       ctx.refs = await api(`projects/${ctx.ui.panelId}/references`, { dirs }); notify(ctx.refs.dirs.length ? 'Pastas de referência salvas. A cópia é refeita antes de cada tarefa.' : 'Pastas de referência removidas.'); loadRefs(ctx.ui.panelId);
@@ -1453,6 +1463,7 @@ nicoFlow = initNicoFlow({
   notify,
   polishFn: (text, format) => api('assistant/polish-voice', { text, format }),
   sendGlobalText: (id, text) => api('voice/result', { id, text }),
+  onHotkey: () => { if (!ctx.ui.asstOpen) setChatOpen(true); setTimeout(() => actions.mic(), 60); },   // Ctrl+Espaço: abre o chat do Nico e liga o microfone dele
 });
 let started = false;
 async function start() {
@@ -1464,7 +1475,7 @@ async function start() {
     loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); if (ctx.whoami !== 'device') loadUpdates();
     if (ctx.whoami !== 'device') api('orchestration/policy', { directExec: ctx.prefs.directExec !== false, autoFallback: ctx.prefs.autoFallback !== false }).catch(() => {});
     tabBus?.postMessage({ kind: 'ping', tabId });
-    if (!started) { started = true; startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
+    if (!started) { started = true; termDock = createTermDock({ api, getKey: () => key, getCtx: () => ctx, notify }); void termDock.sync(); startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; nicoFlow?.render(true); browserMgr?.render(); renderLogin(); }
 }
 applyPrefs();

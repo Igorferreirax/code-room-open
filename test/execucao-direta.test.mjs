@@ -154,3 +154,60 @@ test('irrestrito sem Git: cópia de segurança antes e "Reverter alterações" d
   const big = await captureFileBackup(proj, join(bk, '..', 'T2'), { maxBytes: 3 }); assert.equal(big.available, false); assert.match(big.reason, /grande demais/);
   await assert.rejects(revertTaskChanges(proj, { available: true, kind: 'copy', dir: join(bk, 'nao-existe') }, { files: [{ path: 'a', change: 'modified' }] }), /ponto de restauração/);
 });
+
+test('pastas liberadas: validação, entrega às CLIs (Claude/Gemini todas, Codex só as de editar) e texto do pedido', async () => {
+  const { cleanWorkDirs, liveWorkDirs, workDirsBlock } = await import('../server/workdirs.mjs');
+  const { mkdtempSync, mkdirSync } = await import('node:fs'); const { tmpdir } = await import('node:os');
+  const base = mkdtempSync(join(tmpdir(), 'cr-wd-')), proj = join(base, 'proj'), fora = join(base, 'fotos'), outra = join(base, 'docs'); mkdirSync(proj); mkdirSync(fora); mkdirSync(outra); mkdirSync(join(proj, 'sub'));
+  const ok = await cleanWorkDirs([{ path: fora, write: true }, { path: outra, write: false }, { path: fora }], proj);
+  assert.equal(ok.length, 2, 'repetida sai'); assert.equal(ok[1].write, false);
+  await assert.rejects(cleanWorkDirs([{ path: join(proj, 'sub') }], proj), /faz parte do projeto/);
+  await assert.rejects(cleanWorkDirs([{ path: process.env.SystemRoot || 'C:/Windows' }], proj), /protegida/);
+  await assert.rejects(cleanWorkDirs([{ path: join(base, 'nao') }], proj), /não existe/);
+  await assert.rejects(cleanWorkDirs([{ path: 'relativa' }], proj), /caminho completo/);
+  const live = await liveWorkDirs([...ok, { path: join(base, 'sumiu'), write: true }]); assert.equal(live.ok.length, 2); assert.equal(live.missing.length, 1);
+  assert.match(workDirsBlock(live.ok), /só ler, não altere nada/); assert.equal(workDirsBlock([]), '');
+  const catalog = [{ id: 'claude', path: 'c' }, { id: 'codex', path: 'x' }, { id: 'agy', path: 'a' }];
+  const dirsOf = (prov, mode = 'write') => { const a = command({ provider: prov, mode }, 'oi', { cwd: proj, catalog, workDirs: ok }).args; return a.flatMap((v, i) => v === '--add-dir' ? [a[i + 1]] : []); };
+  assert.deepEqual(dirsOf('claude'), [fora, outra]); assert.deepEqual(dirsOf('agy').slice(1), [fora, outra]); assert.deepEqual(dirsOf('codex'), [fora], 'Codex: só a de editar vira gravável');
+  assert.deepEqual(dirsOf('codex', 'read'), [], 'agente só leitura não ganha pasta gravável');
+  const cl = command({ provider: 'claude', mode: 'write' }, 'oi', { cwd: proj, catalog, workDirs: ok, approvalTask: 'T' }).args;
+  assert.deepEqual(JSON.parse(cl[cl.indexOf('--mcp-config') + 1]).mcpServers.arquivos.args.slice(1), [proj, fora], 'ferramenta de arquivos: projeto + pastas de editar');
+});
+
+test('Nico digita nos terminais abertos (enviar_terminal) e enxerga as últimas linhas', async () => {
+  const { buildPrompt } = await import('../server/assistant.mjs');
+  const world = { agents: [], teams: [], projects: [], connected: new Set(['claude']), skills: [], terminals: [{ id: 'a1', title: 'PowerShell', project: 'Loja', cwd: 'C:/l', tail: 'PS> ok' }, { id: 'b2', title: 'Claude Code', project: '', cwd: 'C:/l', tail: '> pronto' }] };
+  assert.equal(normalizeAction({ acao: 'enviar_terminal', texto: 'oi' }, world).payload.id, 'b2', 'sem terminal: o último');
+  assert.equal(normalizeAction({ acao: 'enviar_terminal', terminal: 'claude', texto: 'faça x' }, world).payload.id, 'b2');
+  assert.equal(normalizeAction({ acao: 'enviar_terminal', terminal: '1', texto: 'dir' }, world).payload.id, 'a1');
+  assert.equal(normalizeAction({ acao: 'enviar_terminal', texto: 'oi' }, { ...world, terminals: [] }).valid, false);
+  assert.equal(normalizeAction({ acao: 'enviar_terminal', terminal: 'nada', texto: 'oi' }, world).valid, false);
+  const { stateSummary } = await import('../server/assistant.mjs').catch(() => ({}));
+  if (stateSummary) assert.match(stateSummary(world, [], 'q'), /Terminais abertos no Code Room[\s\S]*Claude Code[\s\S]*pronto/);
+  const { Terminals } = await import('../server/pty.mjs'); const T = new Terminals({ helper: 'x' });
+  T.items.set('t', { id: 't', chunks: [Buffer.from('\x1b[32mPS C:\>\x1b[0m echo oi\r\noi\r\n\x1b]0;titulo\x07')], exited: false });
+  assert.equal(T.tail('t'), 'PS C:\> echo oi\noi\n');
+});
+
+test('Lixeira: só dentro das pastas autorizadas, nunca a pasta inteira, e registra a operação', async () => {
+  const { makeGuard, callTool, TOOLS } = await import('../server/files-mcp.mjs');
+  const { mkdtempSync, writeFileSync } = await import('node:fs'); const { tmpdir } = await import('node:os');
+  const d = mkdtempSync(join(tmpdir(), 'cr-lx-')); writeFileSync(join(d, 'a.txt'), 'x');
+  const g = makeGuard([d]), sent = [], ops = [];
+  const r = callTool(g, 'mover_para_lixeira', { caminho: join(d, 'a.txt') }, { recycle: p => { sent.push(p); return false; }, onOp: o => ops.push(o.op) });
+  assert.match(r, /Lixeira/); assert.equal(sent.length, 1); assert.deepEqual(ops, ['trash']);
+  assert.throws(() => callTool(g, 'mover_para_lixeira', { caminho: d }, { recycle: () => false }), /pasta autorizada inteira/);
+  assert.throws(() => callTool(g, 'mover_para_lixeira', { caminho: join(tmpdir(), 'fora.txt') }, { recycle: () => false }), /Fora das pastas/);
+  assert.ok(TOOLS.some(t => t.name === 'mover_para_lixeira'));
+});
+
+test('Assumir no terminal: cada CLI retoma a conversa do seu jeito; sessão inválida é recusada', async () => {
+  const { terminalPlan } = await import('../server/terminal.mjs');
+  const catalog = [{ id: 'claude', path: 'C:/c.exe' }, { id: 'codex', path: 'C:/x.exe' }, { id: 'agy', path: 'C:/a.exe' }], base = { catalog, exists: () => true, hasWt: () => false, env: { SystemRoot: 'C:\Windows' } };
+  assert.match(terminalPlan({ dir: 'C:/p', cli: 'claude', resume: 'abc-123456' }, base).inner.at(-1), /--resume abc-123456$/);
+  assert.match(terminalPlan({ dir: 'C:/p', cli: 'codex', resume: 'abc-123456' }, base).inner.at(-1), / resume abc-123456$/);
+  assert.match(terminalPlan({ dir: 'C:/p', cli: 'agy', resume: 'abc-123456' }, base).inner.at(-1), /--conversation abc-123456$/);
+  assert.match(terminalPlan({ cli: 'claude', resume: 'x; rm -rf' }, base).error, /Não dá para continuar/);
+  assert.match(terminalPlan({ cli: 'shell', resume: 'abc-123456' }, base).error, /Não dá para continuar/);
+});

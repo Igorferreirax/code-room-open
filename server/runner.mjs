@@ -23,6 +23,7 @@ import { suggestUnblocks } from './unblock.mjs';
 import { tokenBudget } from './economy.mjs';
 import { getSpec, isCustom } from './providers.mjs';
 import { approvals } from './approvals.mjs';
+import { liveWorkDirs, workDirsBlock } from './workdirs.mjs';
 
 export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1, agy: 1, hermes: 1 }, video: 1 };
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
@@ -154,14 +155,17 @@ export class Runner {
     if (selected.length !== wantIds.length) throw fail('skill_unavailable', 'Uma skill escolhida não está mais disponível. Edite o agente ou escolha outra.');
     const obs = await obsidianBlock(this.store, task, agent);   // notas do Obsidian da pessoa (só se ela ligou o vínculo)
     const refs = await prepareReferences(this.store, task, root);   // cópia somente leitura das pastas de referência do projeto (antes do snapshot: não conta como entrega)
+    // Pastas liberadas do projeto (uso direto, como no terminal). Hermes é remoto e não enxerga pastas daqui.
+    const wdl = agent.provider === 'hermes' ? { ok: [], missing: [] } : await liveWorkDirs(this.store.get('projects', task.project?.id)?.workDirs);
+    if (wdl.missing.length) this.event(attempt.id, { type: 'diagnostic', text: `Pasta liberada não encontrada (ignorada): ${wdl.missing.join(', ')}` });
     const maxChars = isCustom(agent.provider) && getSpec(agent.provider)?.promptVia === 'arg' ? 23000 : Infinity;
-    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: [obs.text, refs.text].filter(Boolean).join('\n\n'), maxChars });
+    const { prompt, warnings } = await buildPrompt({ task, agent, projectContext: this.store.get('contexts', task.project.id) || emptyContext(task.project.id), skills: selected, handoffs: this.hooks.handoffsFor?.(task) ?? [], workRoot: root, extra: [obs.text, refs.text, workDirsBlock(wdl.ok)].filter(Boolean).join('\n\n'), maxChars });
     this.event(attempt.id, { type: 'context', text: `Prompt de ${prompt.length} caracteres. Skills incluídas: ${selected.map(s => s.name).join(', ') || 'nenhuma'}. Contexto do projeto: ${prompt.includes('# Contexto do projeto') ? 'sim' : 'não'}. Material de outros agentes: ${prompt.includes('# Material recebido') ? 'sim' : 'não'}.${obs.n ? ` Obsidian: ${obs.n} nota(s) de referência.` : ''}${refs.n ? ` Pastas de referência: ${refs.n}.` : ''}${browserNote(task.agent?.browser)}` });
     for (const w of warnings) this.event(attempt.id, { type: 'diagnostic', text: `Aviso de contexto: ${w}` });
     if (entry.cancelled) throw fail('cancelled', 'Cancelada antes de iniciar o processo.');
     if (agent.browser === 'isolado') entry.browserOutputDir = await mkdtemp(join(tmpdir(), 'code-room-browser-'));
     if (task.extraDir && agent.mode === 'write') entry.opsLog = join(tmpdir(), `code-room-ops-${attempt.id}.jsonl`);
-    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, opsLog: entry.opsLog || null, timeoutMs: task.limits.timeoutMs, approvalTask: task.project?.area === 'Financeiro' ? null : task.id, unrestricted: !!agent.unrestricted && agent.mode === 'write' && task.project?.area !== 'Financeiro' });
+    const cmd = this.buildCommand(agent, prompt, { resumeId: task.resume?.sessionId || null, cwd: root, extraDir: task.extraDir, imagePath: task.imagePath || null, browserOutputDir: entry.browserOutputDir || null, opsLog: entry.opsLog || null, timeoutMs: task.limits.timeoutMs, approvalTask: task.project?.area === 'Financeiro' ? null : task.id, workDirs: wdl.ok, unrestricted: !!agent.unrestricted && agent.mode === 'write' && task.project?.area !== 'Financeiro' });
     if (task.resume) this.event(attempt.id, { type: 'diagnostic', text: `Continuando a conversa: sessão ${task.resume.sessionId.slice(0, 8)}… da tarefa ${task.resume.fromTask.slice(0, 8)}… (mesmo provedor).` });
     const before = await snapshot(root);
     if (agent.mode === 'write' && !task.isolate && task.project?.id !== 'assistant-internal') {

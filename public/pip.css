@@ -1,0 +1,32 @@
+/* Mini-janela flutuante do Nico (Picture-in-Picture). Arquivo próprio porque a política de segurança do
+   Code Room bloqueia <style> dentro da página, e a mini-janela herda essa política. */
+*{box-sizing:border-box}body{margin:0;padding:12px;font:13px/1.42 system-ui,-apple-system,Segoe UI,sans-serif;background:#0b1426;color:#e8eefc;display:flex;flex-direction:column;gap:8px;height:100vh;overflow:hidden}
+#pip-status{display:flex;flex-direction:column;gap:7px;flex:1;overflow:auto;padding-right:2px}
+.pip-head{display:flex;align-items:center;gap:9px}.pip-face{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,rgba(89,224,255,.24),transparent 70%);flex:none}
+.pip-face.pulse{box-shadow:0 0 0 2px rgba(89,224,255,.5)}.pip-face svg{max-width:100%;max-height:100%}
+.pip-who{flex:1;min-width:0;display:grid}.pip-who b{font-size:14px;display:flex;align-items:center;gap:6px}.pip-who small{color:#8fa3c7;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pip-badge{font-size:10px;padding:1px 6px;border-radius:99px;background:rgba(43,123,255,.22);border:1px solid rgba(90,155,255,.45);color:#9ec5ff}
+.pip-open{background:#132342;color:#cfe0ff;border:1px solid #243b67;border-radius:8px;padding:5px 8px;font-size:11.5px;cursor:pointer;white-space:nowrap}.pip-open:hover{border-color:#59e0ff}
+.pip-live{padding:6px 8px;border-radius:9px;background:#101e38;border:1px solid #1e355e;font-size:11.5px;display:grid;gap:3px}
+.pip-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3ddc84;margin-right:5px}
+.pip-msg{padding:8px 10px;border-radius:11px;background:#12213d;border:1px solid #1d3055;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.pip-msg.muted{color:#8fa3c7}.pip-msg.wait{border-color:#f5b73b;color:#ffe2a4}.pip-msg small{display:block;color:#8fa3c7;margin-top:3px}
+.pip-alert{padding:6px 8px;border-radius:9px;background:rgba(245,183,59,.12);border:1px solid rgba(245,183,59,.42);color:#ffd98a;font-size:11.5px}
+.pip-note{font-size:11.5px;color:#5fe3b0}
+form{display:grid;gap:6px;border-top:1px solid #1d3055;padding-top:8px}
+textarea{width:100%;resize:none;border-radius:10px;border:1px solid #243b67;background:#101d36;color:#e8eefc;padding:7px 9px;font:inherit}textarea:focus{outline:1px solid #59e0ff}
+.pip-btns{display:flex;gap:6px;justify-content:space-between}.btn{border:1px solid #2b7bff;background:#2b7bff;color:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer}
+.btn.ghost{background:#132342;border-color:#243b67;color:#cfe0ff}.btn.on{background:#d94848;border-color:#ff6b6b}
+/* Mascote (mesmas regras do style.css) */
+.mascot{display:block;width:100%;height:100%}.mc-body{transform-origin:50% 60%;animation:mc-float 3.4s ease-in-out infinite}
+.mc-eyes{filter:drop-shadow(0 0 2px rgba(89,224,255,.8));transform:translate(calc(var(--mx,0) * 2.2px),calc(var(--my,0) * 1.6px));transition:transform .18s ease-out}
+.mc-eye{transform-box:fill-box;transform-origin:center;animation:mc-blink 5.5s infinite}.mc-mouth{stroke-width:2.4}
+.mc-dots circle{fill:#59e0ff;stroke:none;animation:cw-pulse 1s infinite}.mc-dots circle:nth-child(2){animation-delay:.2s}.mc-dots circle:nth-child(3){animation-delay:.4s}
+.mc-z{font:700 9px system-ui,sans-serif;fill:#8fd8ff;stroke:none;animation:mc-zz 2.4s ease-in-out infinite}
+@keyframes mc-float{50%{transform:translateY(-1.6px)}}@keyframes mc-blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}@keyframes mc-zz{50%{transform:translateY(-3px);opacity:.5}}
+.mc-dormindo .mc-body,.mc-preocupado .mc-body{animation-duration:6s}.mc-pensando .mc-eyes{animation:mc-scan 1.6s ease-in-out infinite}@keyframes mc-scan{50%{transform:translateX(2px)}}
+@media (prefers-reduced-motion:reduce){.mc-body,.mc-eye,.mc-z,.mc-dots circle,.mc-pensando .mc-eyes{animation:none}.mc-eyes{transition:none}}
+.mascot{color:#59e0ff}.mascot .mc-ant{fill:var(--ant,#2dd4a0)}
+.mc-alerta{color:#f5b73b;--ant:#f5b73b}.mc-preocupado{color:#ef5b5b;--ant:#ef5b5b}.mc-surpreso{color:#2dd4a0;--ant:#2dd4a0}.mc-dormindo{color:#6b7fa6;--ant:#4a5b80}
+.mc-eyes{filter:drop-shadow(0 0 2px currentColor)}.mc-dots circle{fill:currentColor}.mc-z{fill:currentColor}
+@keyframes cw-pulse{50%{opacity:.35}}

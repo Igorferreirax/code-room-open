@@ -40,7 +40,7 @@ try:
         browser = pw.chromium.launch(channel='chrome', headless=True, args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'])
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script(FAKE_SR)
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
-        pg.goto(f'http://127.0.0.1:{PORT}/#{key}'); pg.wait_for_selector('.top-right', timeout=15000); pg.wait_for_timeout(1500)
+        pg.goto(f'http://127.0.0.1:{PORT}/#{key}'); pg.wait_for_selector('.top-right', timeout=15000); pg.wait_for_timeout(3500)   # espera o canal de eventos da tela conectar
 
         # --- voz em qualquer programa: o que a bandeja faz (liga, desliga, busca o texto) ---
         r = api('voice/global', {'action': 'toggle'}); check('atalho (1º toque): começa a ouvir e devolve um id', r.get('listening') is True and len(r.get('id', '')) == 36, r)
@@ -61,16 +61,24 @@ try:
         pg.wait_for_timeout(1800); check('a janela de escuta some depois de entregar', pg.locator('#nico-voice-overlay').count() == 0)
         check('sem pedido aberto, o resultado responde "ainda não"', api('voice/result?id=00000000-0000-0000-0000-000000000000').get('ready') is False)
 
-        # --- menu Terminal (a rota é simulada para não abrir janelas de verdade) ---
-        sent = []
-        pg.route('**/api/terminal', lambda route: (sent.append(json.loads(route.request.post_data or '{}')), route.fulfill(status=200, content_type='application/json', body=json.dumps({'result': 'Abri PowerShell (teste).'})))[-1])
-        pg.click('[data-act=term-menu]'); pg.wait_for_selector('.term-menu')
-        items = pg.locator('.term-item').all_inner_texts()
-        check('Terminal: o menu oferece o shell puro e as CLIs instaladas', any('PowerShell' in x for x in items), items)
-        check('Terminal: há a opção de modo irrestrito', pg.locator('#term-free').count() == 1)
-        pg.click('.term-item[data-id=shell]'); pg.wait_for_timeout(600)
-        check('Terminal: escolher o shell pede para abrir na pasta do projeto em foco', sent and sent[-1].get('cli') == 'shell' and sent[-1].get('irrestrito') is False, sent)
-        check('Terminal: o menu fecha e mostra o resultado', pg.locator('.term-menu').count() == 0 and 'Abri PowerShell' in pg.inner_text('#notice'))
+        # --- terminal DENTRO do Code Room (pseudo-console de verdade + xterm.js) ---
+        pg.click('[data-act=term-menu]')
+        ok = pg.wait_for_selector('#term-dock:not([hidden]) .xterm', timeout=30000) is not None
+        check('Terminal: o botão abre o painel dentro do Code Room com um PowerShell', ok and 'PowerShell' in pg.inner_text('.td-tabs'))
+        pg.wait_for_timeout(2500); pg.click('#term-dock .td-term:not([hidden]) .xterm'); pg.keyboard.type('Write-Output "cr-$((40+2))-ação"'); pg.keyboard.press('Enter')
+        ok = False
+        for _ in range(40):
+            if 'cr-42-ação' in pg.inner_text('#term-dock .xterm-rows'): ok = True; break
+            pg.wait_for_timeout(250)
+        check('Terminal: o que você digita roda no PowerShell e a resposta aparece (com acento)', ok, pg.inner_text('#term-dock .xterm-rows')[-300:])
+        if os.environ.get('CR_SHOTS'): pg.screenshot(path=os.path.join(os.environ['CR_SHOTS'], 'terminal-dentro.png'))
+        check('Terminal: o servidor lista a sessão aberta', len(api('term')['items']) == 1)
+        pg.click('[data-td=menu]'); pg.wait_for_selector('.td-menu')
+        items = pg.locator('.td-menu .term-item').all_inner_texts()
+        check('Terminal: "+ Novo terminal" oferece o shell puro, as CLIs e a opção de abrir fora', any('PowerShell' in x for x in items) and any('fora' in x for x in items) and pg.locator('#td-free').count() == 1, items)
+        pg.click('[data-td=menu]')
+        pg.click('.td-tab.on .td-x'); pg.wait_for_timeout(1500)
+        check('Terminal: fechar a aba encerra a sessão e esconde o painel', len(api('term')['items']) == 0 and pg.locator('#term-dock[hidden]').count() == 1)
 
         # --- cartão de aprovação (o pedido entra como a ferramenta de aprovação faria) ---
         tok = None

@@ -1,6 +1,5 @@
-// Animação "neural" do Nico enquanto ele ouve: nós e ligações que acendem com o volume da voz e mudam de cor
-// com o tom (grave = azul, agudo = violeta/ciano). Desenho em canvas, roda na janela onde o canvas está
-// (inclusive a mini-janela flutuante), sem bibliotecas.
+// Animação do Nico enquanto ele ouve: uma esfera de partículas que reage à voz (volume e tom). Desenho em canvas,
+// roda na janela onde o canvas está (inclusive a mini-janela flutuante), sem bibliotecas.
 
 // Volume (0..1) e tom (0..1) a partir do analisador de áudio.
 export function voiceLevels(freq, time) {
@@ -11,48 +10,70 @@ export function voiceLevels(freq, time) {
   return { rms, tone: centroid };
 }
 
-// Rede fixa (mesmas posições sempre): pseudo-aleatório com semente.
+// Pseudo-aleatório com semente (a esfera fica sempre igual).
 function seeded(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
-export function makeNetwork(n = 34, seed = 7) {
-  const rnd = seeded(seed), nodes = [];
-  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 + rnd() * 0.6, r = 0.08 + rnd() * 0.36; nodes.push({ x: 0.5 + Math.cos(a) * r, y: 0.5 + Math.sin(a) * r * 1.25, ph: rnd() * Math.PI * 2 }); }
-  nodes.push({ x: 0.5, y: 0.5, ph: 0, core: true });
-  const edges = [];
-  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) { const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y); if (d < 0.17 || (nodes[j].core && rnd() < 0.5)) edges.push([i, j, d]); }
-  return { nodes, edges };
-}
 
-// Começa a animar. getLevels() devolve { rms, tone } ou null (sem microfone: respira devagar).
+// Esfera de partículas (referência do Igor: "nucleus gif"): milhares de pontos numa esfera que gira devagar em 3D,
+// mais brilhante na borda. Com a voz, a esfera cresce e as partículas se afastam e tremem conforme o volume;
+// o tom puxa a cor do branco para o ciano. getLevels() devolve { rms, tone } ou null (sem microfone: só gira).
+export function makeSphere(n = 2200, seed = 11) {
+  const rnd = seeded(seed), pts = new Float32Array(n * 4);
+  // Pontos espalhados ao acaso na superfície (aspecto de "poeira"), com leve variação de raio.
+  for (let i = 0; i < n; i++) {
+    const y = rnd() * 2 - 1, r = Math.sqrt(1 - y * y), th = rnd() * Math.PI * 2, rad = 0.95 + rnd() * 0.08;
+    pts[i * 4] = Math.cos(th) * r * rad; pts[i * 4 + 1] = y * rad; pts[i * 4 + 2] = Math.sin(th) * r * rad; pts[i * 4 + 3] = rnd() * Math.PI * 2;
+  }
+  return pts;
+}
 export function startNeural(canvas, getLevels) {
-  const win = canvas.ownerDocument.defaultView, g = canvas.getContext('2d'), net = makeNetwork();
+  const win = canvas.ownerDocument.defaultView, g = canvas.getContext('2d'), pts = makeSphere(), n = pts.length / 4;
   const reduce = win.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   let raf = 0, level = 0, tone = 0.3, t0 = win.performance.now(), stopped = false;
   const frame = now => {
     if (stopped) return;
     const t = (now - t0) / 1000, L = getLevels?.() || null;
-    level += ((L ? Math.max(0.12, L.rms) : 0.14 + Math.sin(t * 1.6) * 0.05) - level) * 0.25;
+    level += ((L ? L.rms : 0) - level) * (L && L.rms > level ? 0.45 : 0.12);   // sobe rápido com a voz, desce suave
     tone += ((L ? L.tone : 0.3) - tone) * 0.08;
     const dpr = win.devicePixelRatio || 1, w = canvas.clientWidth || 220, h = canvas.clientHeight || 120;
-    if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    const hue = 205 + tone * 85, jitter = reduce ? 0 : 1;
-    const pos = net.nodes.map(n => ({ x: n.x * w + Math.sin(t * 1.3 + n.ph) * 3 * jitter * (0.4 + level), y: n.y * h + Math.cos(t * 1.1 + n.ph) * 3 * jitter * (0.4 + level) }));
-    for (const [i, j, d] of net.edges) {
-      const a = Math.min(0.9, 0.16 + level * 1.1 * (1 - d * 2.2) + (net.nodes[j].core ? 0.08 + level * 0.4 : 0));
-      g.strokeStyle = `hsla(${hue}, 95%, 65%, ${a.toFixed(3)})`; g.lineWidth = 0.6 + level * 1.6;
-      g.beginPath(); g.moveTo(pos[i].x, pos[i].y); g.lineTo(pos[j].x, pos[j].y); g.stroke();
-      if (!reduce && level > 0.15) { const k = (t * (0.6 + level * 2) + i * 0.13) % 1; g.fillStyle = `hsla(${hue + 30}, 100%, 75%, ${(level * 0.9).toFixed(3)})`; g.beginPath(); g.arc(pos[i].x + (pos[j].x - pos[i].x) * k, pos[i].y + (pos[j].y - pos[i].y) * k, 1.4 + level * 1.5, 0, Math.PI * 2); g.fill(); }
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.4 * (1 + level * 0.16);
+    const ry = reduce ? 0.6 : t * (0.35 + level * 0.9), rx = 0.35 + Math.sin(t * 0.3) * 0.12;
+    const cyR = Math.cos(ry), syR = Math.sin(ry), cxR = Math.cos(rx), sxR = Math.sin(rx);
+    const hue = 190 + tone * 25, sat = Math.round(tone * 70), light = 82 + level * 10;
+    for (let i = 0; i < n; i++) {
+      let x = pts[i * 4], y = pts[i * 4 + 1], z = pts[i * 4 + 2]; const ph = pts[i * 4 + 3];
+      // voz: cada partícula sai um pouco da superfície, com tremor próprio
+      const k = 1 + (reduce ? 0 : level * 0.13 * Math.sin(t * 9 + ph * 3) + level * 0.07 * Math.sin(ph * 7 + t * 2.2));
+      x *= k; y *= k; z *= k;
+      const x1 = x * cyR + z * syR, z1 = -x * syR + z * cyR, y1 = y * cxR - z1 * sxR, z2 = y * sxR + z1 * cxR;
+      const persp = 1 / (1.9 - z2 * 0.6), px = cx + x1 * R * persp * 1.25, py = cy + y1 * R * persp * 1.25;
+      const edge = 1 - Math.abs(z2) / Math.max(0.0001, k), front = (z2 + 1) / 2;   // borda e frente mais claras
+      const a = Math.min(1, 0.12 + edge * edge * 0.75 + front * 0.18 + level * 0.25);
+      g.fillStyle = 'hsla(' + hue + ',' + sat + '%,' + light + '%,' + a.toFixed(3) + ')';
+      const sz = (0.6 + front * 0.8) * (1 + level * 0.3);
+      g.fillRect(px - sz / 2, py - sz / 2, sz, sz);
     }
-    net.nodes.forEach((n, i) => {
-      const r = n.core ? 9 + level * 16 : 2.4 + level * 5 * (0.6 + 0.4 * Math.sin(t * 3 + n.ph));
-      const grd = g.createRadialGradient(pos[i].x, pos[i].y, 0, pos[i].x, pos[i].y, r * 3);
-      grd.addColorStop(0, `hsla(${hue}, 100%, ${n.core ? 80 : 72}%, ${Math.min(1, 0.55 + level).toFixed(3)})`); grd.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
-      g.fillStyle = grd; g.beginPath(); g.arc(pos[i].x, pos[i].y, r * 3, 0, Math.PI * 2); g.fill();
-      g.fillStyle = `hsla(${hue}, 100%, 88%, 0.95)`; g.beginPath(); g.arc(pos[i].x, pos[i].y, r * 0.55, 0, Math.PI * 2); g.fill();
-    });
     canvas.dataset.level = level.toFixed(2);
     raf = win.requestAnimationFrame(frame);
   };
   raf = win.requestAnimationFrame(frame);
   return () => { stopped = true; win.cancelAnimationFrame(raf); };
+}
+
+// Faixa de animação dentro do chat enquanto o microfone ouve (o ditado do chat mostra a mesma rede neural).
+// Insere um canvas antes de `anchor` e mede o microfone; devolve a função que para tudo e remove a faixa.
+export async function showVoiceStrip(anchor, { id = 'chat-neural' } = {}) {
+  if (!anchor?.parentNode) return () => {};
+  document.getElementById(id)?.remove();
+  const box = document.createElement('div'); box.id = id; box.className = 'chat-neural'; box.setAttribute('aria-hidden', 'true');
+  const canvas = document.createElement('canvas'); box.appendChild(canvas); anchor.parentNode.insertBefore(box, anchor);
+  let stream = null, ac = null, an = null, freq = null, time = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    ac = new (window.AudioContext || window.webkitAudioContext)(); an = ac.createAnalyser(); an.fftSize = 256;
+    ac.createMediaStreamSource(stream).connect(an); freq = new Uint8Array(an.frequencyBinCount); time = new Uint8Array(an.fftSize);
+  } catch {}
+  const stopViz = startNeural(canvas, () => { if (!an) return null; an.getByteFrequencyData(freq); an.getByteTimeDomainData(time); return voiceLevels(freq, time); });
+  return () => { stopViz(); try { stream?.getTracks().forEach(t => t.stop()); } catch {} try { ac?.close(); } catch {} box.remove(); };
 }

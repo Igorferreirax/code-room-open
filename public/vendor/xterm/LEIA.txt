@@ -1,0 +1,2 @@
+xterm.js 5.5.0 e @xterm/addon-fit 0.10.0 (MIT), copiados do registro do npm em 18/11/2026.
+Só arquivos estáticos; nenhum pacote é instalado.

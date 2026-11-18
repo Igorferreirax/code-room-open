@@ -23,21 +23,25 @@ const psq = s => `'${String(s).replace(/'/g, "''")}'`;
 // O wt.exe do Windows é um atalho de aplicativo (link especial): existsSync diz que não existe, lstat enxerga.
 const hasAlias = p => { try { lstatSync(p); return true; } catch { return false; } };
 
-export function terminalPlan({ dir, cli = 'shell', unrestricted = false, area = '', title = '' } = {}, { catalog = [], exists = existsSync, hasWt = hasAlias, env = process.env } = {}) {
+// Continuar a conversa de uma tarefa no terminal ("Assumir no terminal"): cada CLI tem o seu jeito de retomar.
+export const RESUME = { claude: id => ['--resume', id], codex: id => ['resume', id], agy: id => ['--conversation', id] };
+
+export function terminalPlan({ dir, cli = 'shell', unrestricted = false, area = '', title = '', resume = '' } = {}, { catalog = [], exists = existsSync, hasWt = hasAlias, env = process.env } = {}) {
+  if (resume && (!RESUME[cli] || !/^[\w-]{6,80}$/.test(resume))) return { error: 'Não dá para continuar esta conversa no terminal.' };
   const spec = CLIS[cli]; if (!spec) return { error: 'Escolha: PowerShell, Claude, Codex ou Gemini.' };
   if (area === 'Financeiro' && cli !== 'shell') return { error: 'Projeto Financeiro: só o terminal puro (sem IA).' };
   if (area === 'Financeiro' && unrestricted) return { error: 'Projeto Financeiro não abre em modo irrestrito.' };
   const cwd = dir && exists(dir) ? dir : homedir();
   let exe = null; if (cli !== 'shell') { exe = catalog.find(c => c.id === cli)?.path || null; if (!exe) return { error: `${spec.label} não está instalado neste computador.` }; }
   const sysRoot = env.SystemRoot || 'C:\\Windows', ps = join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const flags = [...spec.args, ...(unrestricted && cli !== 'shell' ? spec.free : [])];
+  const flags = [...(resume ? RESUME[cli](resume) : []), ...spec.args, ...(unrestricted && cli !== 'shell' ? spec.free : [])];
   // Sem ";" no comando: o Windows Terminal usa ";" para separar abas.
   const inner = exe ? ['-NoExit', '-NoLogo', '-Command', `& ${psq(exe)}${flags.length ? ' ' + flags.join(' ') : ''}`] : ['-NoExit', '-NoLogo'];
   const name = title || `Code Room · ${spec.label}${unrestricted && cli !== 'shell' ? ' (irrestrito)' : ''}`;
   const wt = env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'wt.exe') : '';
-  if (wt && hasWt(wt)) return { file: wt, args: ['-w', 'new', 'new-tab', '-d', cwd, '--title', name.replace(/;/g, ','), ps, ...inner], cwd, label: spec.label, via: 'Windows Terminal', unrestricted: !!(unrestricted && cli !== 'shell') };
+  if (wt && hasWt(wt)) return { file: wt, args: ['-w', 'new', 'new-tab', '-d', cwd, '--title', name.replace(/;/g, ','), ps, ...inner], cwd, label: spec.label, via: 'Windows Terminal', unrestricted: !!(unrestricted && cli !== 'shell'), ps, inner, cli };
   // Sem Windows Terminal: o conhost abre uma janela de console própria (o PowerShell direto, sem console, fecharia na hora).
-  return { file: join(sysRoot, 'System32', 'conhost.exe'), args: [ps, ...inner], cwd, label: spec.label, via: 'PowerShell', unrestricted: !!(unrestricted && cli !== 'shell') };
+  return { file: join(sysRoot, 'System32', 'conhost.exe'), args: [ps, ...inner], cwd, label: spec.label, via: 'PowerShell', unrestricted: !!(unrestricted && cli !== 'shell'), ps, inner, cli };
 }
 
 export function openTerminal(plan, { launch = null, platform = process.platform } = {}) {

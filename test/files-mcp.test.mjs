@@ -36,7 +36,7 @@ test('arquivos: fala MCP (initialize, tools/list, tools/call) e erro vira texto 
   try {
     const g = makeGuard([root]);
     assert.equal(handle(g, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }).result.serverInfo.name, 'arquivos');
-    assert.deepEqual(handle(g, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).result.tools.map(t => t.name), ['listar_pasta', 'criar_pasta', 'mover']);
+    assert.deepEqual(handle(g, { jsonrpc: '2.0', id: 2, method: 'tools/list' }).result.tools.map(t => t.name), ['listar_pasta', 'criar_pasta', 'mover', 'mover_para_lixeira']);
     const bad = handle(g, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'mover', arguments: { de: 'C:\\Windows\\win.ini', para: join(root, 'x') } } });
     assert.equal(bad.result.isError, true); assert.match(bad.result.content[0].text, /Não fiz/);
     assert.equal(handle(g, { jsonrpc: '2.0', method: 'notifications/initialized' }), null);

@@ -11,3 +11,13 @@ export function referencesSectionHtml(ctx) {
   return `${head}<p class="muted small">Os agentes só enxergam a pasta do projeto. Aqui você libera outras pastas (ex.: o repositório de onde as ofertas vêm) como uma <b>cópia somente leitura</b> em <code>.referencias/</code>, refeita antes de cada tarefa. O original nunca é alterado e segredos (<code>.env</code>, chaves, bancos de dados, <code>node_modules</code>) ficam de fora.</p>${list}
     <form id="refs-form"><label class="f">Uma pasta por linha (opcional: <code>rótulo=caminho</code>)<textarea id="refs-dirs" rows="3" placeholder="gerou=C:\\Projetos\\GerouPromo" spellcheck="false">${esc(r.dirs.map(d => `${d.label}=${d.path}`).join('\n'))}</textarea></label><div class="btn-row"><button class="btn ghost sm">Salvar pastas de referência</button></div></form>`;
 }
+
+// Pastas liberadas: a equipe do projeto usa estas pastas DIRETAMENTE (como no terminal), não uma cópia.
+// Uma por linha; "ler: C:\pasta" deixa só leitura; sem prefixo (ou "editar:") pode criar e alterar.
+export function workDirsSectionHtml(ctx) {
+  const w = ctx.workDirs, head = '<h3 style="margin-top:18px">Pastas liberadas (acesso direto)</h3>';
+  if (!w) return `${head}<p class="muted small">Carregando…</p>`;
+  const txt = w.dirs.map(d => `${d.write ? '' : 'ler: '}${d.path}`).join('\n');
+  return `${head}<p class="muted small">Como quando você chama o Claude, o Codex ou o Gemini no terminal: os agentes deste projeto podem usar estas pastas de verdade, além da pasta do projeto. Uma por linha. Comece com <code>ler:</code> para só consultar; sem prefixo, podem criar e alterar arquivos. Pastas do sistema ficam de fora.</p>
+    <form id="workdirs-form"><label class="f">Pastas<textarea id="workdirs-list" rows="3" placeholder="C:\Users\voce\Desktop&#10;ler: D:\Fotos" spellcheck="false">${esc(txt)}</textarea></label><div class="btn-row"><button class="btn ghost sm">Salvar pastas liberadas</button></div></form>`;
+}
