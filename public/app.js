@@ -10,7 +10,7 @@ import * as U from './updates-ui.js';
 import { assistantHtml } from './assistant-ui.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { screenContext } from './screen-context.js';
-import { voiceSupport, stripForSpeech, speak, cancelSpeech, createDictation } from './voice.js';
+import { voiceSupport, stripForSpeech, speak, cancelSpeech, createDictation, createRecorder } from './voice.js';
 import { approvalHtml, approvalItems, mediaKind } from './approval-cards.js';
 import { liveTaskOf } from './live-ui.js';
 import { cleanMini, addMini, miniShellHtml, miniBodyHtml, bubbleLiveHtml } from './minichat.js';
@@ -23,6 +23,10 @@ import { createBrowserManager } from './browser-dock.js';
 import { startRunApprovals } from './run-approvals.js';
 import { showVoiceStrip } from './neural-viz.js';
 import { createTermDock } from './term-dock.js';
+import { createPalette, paletteItems } from './palette.js';
+import * as G from './nico-guide.js';
+import * as CU from './contribute-ui.js';
+const contribDraft = () => ({ kind: ctx.ui.contrib?.kind || 'bug', title: $('contrib-title')?.value || '', what: $('contrib-what')?.value || '', steps: $('contrib-steps')?.value || '' });
 let termDock = null;
 let stopVoiceStrip = null;
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
@@ -177,7 +181,49 @@ function applyPrefs() {
 }
 const savePrefs = () => { store.set('cr.prefs', ctx.prefs); applyPrefs(); };
 ctx.voice = voiceSupport(window);
-let dictation = null;
+// Microfone do pedido: clicar liga/desliga; segurar grava e, ao soltar, transcreve. Com chave do Groq a transcrição é
+// rápida (o áudio vai ao Groq pelo Code Room); sem chave, usa o ditado do navegador.
+let dictation = null, recorder = null, micPointer = false, micDownAt = 0, micToggleOff = false, voiceCfg = null;
+const micActive = () => !!(dictation?.listening || recorder?.listening);
+async function loadVoiceCfg() { try { voiceCfg = await api('voice/config'); } catch { voiceCfg = { groq: false }; } return voiceCfg; }
+function micUi(on) { ctx.ui.listening = on; $('mic')?.classList.toggle('on', on); $('mic')?.setAttribute('aria-pressed', String(on)); }
+async function micStrip(on) { try { stopVoiceStrip?.(); } catch {} stopVoiceStrip = null; if (on) stopVoiceStrip = await showVoiceStrip($('composer')); }
+function micBrowser() {
+  const box = $('mission'); if (!box) return;
+  const base = box.value.trim() ? box.value.trim() + ' ' : '';
+  dictation = createDictation(window, { onText: txt => { box.value = (base + txt).slice(0, 30000); box.dispatchEvent(new Event('input', { bubbles: true })); }, onState: async on => { micUi(on); await micStrip(on); if (!on) box.focus(); }, onError: msg => notify(msg, true) });
+  if (!dictation) return notify('Este navegador não tem ditado por voz.', true);
+  if (!ctx.ui.micWarned) { ctx.ui.micWarned = true; notify('Ditado ligado. O áudio é tratado pelo serviço de voz do seu navegador; o Code Room só recebe o texto quando você apertar Enviar.'); }
+  dictation.start();
+}
+async function micStart() {
+  const box = $('mission'); if (!box) return; cancelSpeech(window);
+  const cfg = voiceCfg || await loadVoiceCfg();
+  if (!cfg.groq) return micBrowser();
+  recorder = createRecorder(window, { getKey: () => key, onState: async on => { micUi(on); await micStrip(on); }, onError: msg => notify(msg, true) });
+  if (!recorder) return micBrowser();
+  await recorder.start();
+}
+async function micStop() {
+  if (dictation?.listening) { dictation.stop(); return; }
+  const rec = recorder; if (!rec) return; recorder = null;
+  const box = $('mission'); $('mic')?.classList.add('busy');
+  try {
+    const r = await rec.stop();
+    if (r.fallback) { voiceCfg = { groq: false }; notify('Sem chave do Groq: aperte o microfone de novo para usar o ditado do navegador.', true); return; }
+    if (r.text && box) { box.value = ((box.value.trim() ? box.value.trim() + ' ' : '') + r.text).slice(0, 30000); box.dispatchEvent(new Event('input', { bubbles: true })); box.focus(); }
+  } catch (e) { notify(e.message, true); }
+  finally { $('mic')?.classList.remove('busy'); }
+}
+document.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !e.target?.closest?.('#mic')) return;
+  micPointer = true; micDownAt = Date.now(); micToggleOff = micActive();
+  if (micToggleOff) micStop(); else micStart();
+});
+document.addEventListener('pointerup', () => {
+  if (!micPointer || micToggleOff) { micToggleOff = false; return; }
+  if (Date.now() - micDownAt >= 350) micStop();   // segurou: soltar encerra e transcreve; clique curto continua ouvindo
+});
 
 // ---------- Dados e tempo real ----------
 let refreshTimer = null;
@@ -280,7 +326,7 @@ function render() {
   if (!ctx.authed) return;
   if (canvasBusy() || [...document.querySelectorAll('.ep-media video')].some(v => !v.paused && !v.ended)) { renderQueued = true; return; }   // não interrompe arrastar nem vídeo tocando   // não redesenha no meio de um arrastar
   const snap = snapshotForm();
-  $('topbar').innerHTML = V.topbarHtml(ctx); const pb = V.pendingBadges(ctx); $('rail').innerHTML = V.railHtml(ctx.view, pb); document.title = (pb.room ? `(${pb.room}) ` : '') + 'Code Room';
+  $('topbar').innerHTML = V.topbarHtml(ctx); const pb = V.pendingBadges(ctx); $('rail').innerHTML = V.railHtml(ctx.view, pb, ctx.ui.lastBySection || {}); $('sec-tabs').innerHTML = V.sectionTabsHtml(ctx.view, pb); document.title = (pb.room ? `(${pb.room}) ` : '') + 'Code Room';
   $('view').setAttribute('aria-label', TITLES[ctx.view]);
   $('view').innerHTML = VIEWS[ctx.view](ctx);
   $('composer-root').innerHTML = V.composerBar(ctx);
@@ -547,10 +593,65 @@ function finishOnboarding(completed) {
   notify(completed ? 'Tutorial concluído. Para rever: menu do usuário › Guia de boas-vindas.' : 'Tudo bem. Para rever o guia: menu do usuário › Guia de boas-vindas.');
 }
 // Só abre sozinho em instalação nova (sem projetos nem agentes) e uma única vez.
-function maybeStartOnboarding() { if (!onbFlags().setupDone && ctx.state.agents.length === 0 && ctx.state.projects.length === 0) openSetup(); }
+// Primeiro acesso ou volta depois de muitos dias: o Nico aparece no meio da tela. Sem isso, o guia antigo de configuração.
+function maybeStartOnboarding() {
+  const f = onbFlags(), fresh = ctx.state.agents.length === 0 && ctx.state.projects.length === 0, why = ctx.whoami === 'device' ? '' : G.shouldGreet(f, Date.now(), fresh); setOnb({ lastSeen: new Date().toISOString() });
+  if (why) { ctx.ui.guide = { mode: 'hello', reason: why }; renderGuide(); return; }
+  if (!f.setupDone && ctx.state.agents.length === 0 && ctx.state.projects.length === 0) openSetup();
+}
+function guideRoot() { let el = $('guide-root'); if (!el) { el = document.createElement('div'); el.id = 'guide-root'; document.body.appendChild(el); } return el; }
+function renderGuide() {
+  const g = ctx.ui.guide, root = guideRoot();
+  document.querySelectorAll('.ng-hl').forEach(e => e.classList.remove('ng-hl'));
+  if (!g) { root.innerHTML = ''; return; }
+  if (g.mode === 'hello') { root.innerHTML = G.helloHtml(g, { name: ctx.prefs.displayName, icon }); root.querySelector('.ng-path, [data-act=ng-go]')?.focus(); return; }
+  root.innerHTML = G.tourBubbleHtml(g.step);
+  const s = G.GUIDE_TOUR[g.step], target = [...document.querySelectorAll(s.target)].find(e => e.offsetParent), box = root.querySelector('.ng-float');
+  if (target) target.classList.add('ng-hl');
+  const r = target ? target.getBoundingClientRect() : { left: innerWidth / 2, right: innerWidth / 2, top: innerHeight / 3, bottom: innerHeight / 3, width: 0, height: 0 };
+  const pos = G.placeNear(r, box.getBoundingClientRect(), { width: innerWidth, height: innerHeight }); box.style.left = pos.x + 'px'; box.style.top = pos.y + 'px';
+  box.querySelector('[data-act=ng-next]')?.focus();
+}
+async function guideStep(i) { ctx.ui.guide = { mode: 'tour', step: i }; const v = G.GUIDE_TOUR[i].view; if (v) await go(v); else render(); renderGuide(); }
+function guideClose(skip = false) { setOnb({ helloSeen: true }); ctx.ui.guide = null; renderGuide(); if (skip && !onbFlags().setupDone && ctx.state.agents.length === 0 && ctx.state.projects.length === 0) openSetup(); }
+async function guideGo() {
+  const p = G.PATHS.find(x => x.id === ctx.ui.guide?.path); if (!p) return guideClose();
+  guideRoot().querySelector('.ng-stage')?.classList.add('leaving'); await new Promise(r => setTimeout(r, 650)); guideClose();
+  await go(p.view);
+  if (p.browser) browserMgr?.toggleDock(true);
+  if (p.terminal && !termDock?.isOpen()) termDock?.toggle();
+  setChatOpen(true); await new Promise(r => setTimeout(r, 250));
+  const tg = $('target'); if (tg && tg.value !== 'assistant' && tg.querySelector('[value=assistant]')) { tg.value = 'assistant'; tg.dispatchEvent(new Event('change', { bubbles: true })); await new Promise(r => setTimeout(r, 150)); }
+  const box = $('mission'); if (box) { box.value = p.ask; box.dispatchEvent(new Event('input', { bubbles: true })); box.focus(); }
+  notify('Deixei o pedido pronto no chat. Confira e aperte Enter quando quiser começar.');
+  if (!(ctx.state?.connectors || []).some(c => c.available)) openSetup();   // sem nenhuma IA: primeiro conectar uma
+}
+addEventListener('resize', () => { if (ctx.ui?.guide?.mode === 'tour') renderGuide(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctx.ui?.guide) { e.preventDefault(); guideClose(true); } });
 
 // ---------- Navegação ----------
+// Ctrl+K: paleta de comandos. Roda as mesmas ações dos botões.
+let palette = null;
+function startPalette() {
+  if (palette) return;
+  const TERMS = [['shell', 'PowerShell'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['agy', 'Gemini (Antigravity)']];
+  palette = createPalette({
+    getItems: () => { const have = new Set((ctx.state?.connectors || []).filter(c => c.available).map(c => c.id)), pr = (ctx.state?.projects || []).find(p => p.id === ctx.project);
+      return paletteItems({ projects: ctx.state?.projects || [], current: ctx.project, pages: V.NAV.map(([id, , label]) => [id, label]), terminals: TERMS.filter(([id]) => id === 'shell' || (have.has(id) && pr?.area !== 'Financeiro')) }); },
+    onRun: async r => {
+      try {
+        if (r.go) { await go(r.go); if (r.then) await actions[r.then]?.(); }
+        else if ('project' in r) { setProject(r.project); render(); }
+        else if (r.term) await termDock?.openNew(r.term);
+        else if (r.split) { if (!termDock?.isOpen()) termDock?.toggle(); await termDock?.split(); }
+        else if (r.act) await actions[r.act]?.();
+      } catch (e) { notify(e.message, true); }
+    },
+  });
+}
+window.crGo = v => go(v);   // usado pelos roteiros de interface para ir direto a uma página
 async function go(view) {
+  { const sec = V.sectionOf(view); if (sec) (ctx.ui.lastBySection ||= {})[sec[0]] = view === 'exec' ? 'tasks' : view; }
   ctx.view = view; closeDrawer(); ctx.ui.panel = null; ctx.ui.whoOpen = false; ctx.ui.routineMenu = null;
   if (window.innerWidth <= 900 && browserMgr?.isOpen()) browserMgr.toggleDock(false);
   if (view === 'skills') loadSkills(true);
@@ -816,6 +917,14 @@ const actions = {
   'asst-senderr-x': () => { ctx.ui.asstSendError = null; renderAsst(); },
   'folder-grant-x': () => { ctx.ui.folderGrant = null; renderAsst(); notify('Autorização da pasta retirada. Se precisar de novo, o Nico pergunta.'); },
   'asst-ai': () => { ctx.ui.aiOpen = !ctx.ui.aiOpen; ctx.ui.aiProv = ctx.asst?.provider; ctx.ui.cwMenu = false; renderAsst(); if (ctx.ui.aiOpen) loadAiModels(ctx.ui.aiProv); },
+  'asst-preset': async id => {
+    const a = ctx.asst || {}, conn = a.connected || [], claude = conn.includes('claude'), provider = claude ? 'claude' : a.provider;
+    const model = id => claude ? ({ fast: 'haiku', std: 'sonnet', pilot: 'sonnet' })[id] : (provider === a.provider ? a.model || '' : '');
+    if (id === 'pilot' && !(a.autonomy === 'pilot' && a.unrestricted) && !confirm('Piloto autônomo: o Nico vai rodar comandos e alterar arquivos do projeto SEM pedir confirmação. Antes de cada tarefa o Code Room guarda um ponto de restauração. Nada é postado, enviado ou pago sem o seu “sim”. Ligar?')) return;
+    const mode = id === 'fast' ? 'ask' : 'pilot';
+    if (a.autonomy !== mode && !(await asstCall('autonomy', { mode }))) return;
+    if (await asstCall('provider', { provider, model: model(id), effort: id === 'fast' ? 'low' : 'medium', unrestricted: id === 'pilot' })) { renderAsst(); notify(`${({ fast: 'Rápido', std: 'Padrão', pilot: 'Piloto autônomo' })[id]}: ${ctx.asst?.name || 'o Nico'} usa ${provider}${model(id) ? ' · ' + model(id) : ''} a partir da próxima mensagem.`); }
+  },
   'asst-ai-save': async () => {
     const provider = $('asst-ai-prov')?.value || ctx.asst?.provider, model = ($('asst-ai-model')?.value || '').trim(), effort = $('asst-ai-effort')?.value || '';
     const unrestricted = !!$('asst-ai-free')?.checked;
@@ -996,6 +1105,17 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
   },
   // ---- Primeiro uso: triagem das IAs e tutorial guiado (pode ser pulado; o guia reabre pelo menu do usuário) ----
   'onb-open': () => { ctx.ui.whoOpen = false; openSetup(); },
+  'contrib-kind': id => { ctx.ui.contrib = { ...contribDraft(), kind: id === 'idea' ? 'idea' : 'bug' }; render(); },
+  'contrib-open': () => { const d = contribDraft(); ctx.ui.contrib = d; if (!d.what.trim()) return notify('Descreva o que aconteceu (ou a ideia) antes de abrir no GitHub.', true); window.open(CU.issueUrl({ ...d, version: ctx.state?.runtime?.version }), '_blank', 'noopener'); notify('Abri o GitHub com o texto preenchido. Confira e envie por lá.'); },
+  'contrib-ask-nico': () => { const d = contribDraft(); ctx.ui.contrib = d; setChatOpen(true); setTimeout(() => { const box = $('mission'); if (box) { box.value = `Me ajude a escrever um relato ${d.kind === 'idea' ? 'de ideia' : 'de falha'} para o Code Room (para abrir no GitHub). Sem chaves nem caminhos pessoais. O que tenho até agora: ${d.title} ${d.what} ${d.steps}`.trim(); box.dispatchEvent(new Event('input', { bubbles: true })); box.focus(); } }, 250); },
+  'contrib-copy': async () => { try { await navigator.clipboard.writeText(CU.FIX_STEPS); notify('Comandos copiados.'); } catch { notify('Não consegui copiar; selecione o texto e copie.', true); } },
+  'ng-open': () => { ctx.ui.whoOpen = false; ctx.ui.guide = { mode: 'hello', reason: 'first' }; render(); renderGuide(); },
+  'ng-path': id => { ctx.ui.guide = { ...ctx.ui.guide, path: id }; renderGuide(); },
+  'ng-go': () => guideGo(),
+  'ng-tour': () => { setOnb({ helloSeen: true }); guideStep(0); },
+  'ng-next': () => { const g = ctx.ui.guide; if (g.step >= G.GUIDE_TOUR.length - 1) return guideClose(); guideStep(g.step + 1); },
+  'ng-back': () => guideStep(Math.max(0, ctx.ui.guide.step - 1)),
+  'ng-skip': () => guideClose(true),
   'onb-recheck': async () => { ctx.ui.onb = { ...ctx.ui.onb, msg: '' }; ctx.checks = null; render(); await loadChecks(true); },
   'onb-video-check': async () => { ctx.ui.onb = { ...ctx.ui.onb, videoBusy: true, videoCheck: null }; render(); try { ctx.ui.onb.videoCheck = await api('preflight?projectId=' + encodeURIComponent(ctx.project || '')); } catch (e) { ctx.ui.onb.videoCheck = { summary: 'falha', items: [{ label: 'Verificação', status: 'falha', detail: e.message }] }; } finally { ctx.ui.onb.videoBusy = false; render(); } },
   'onb-name-save': () => { ctx.prefs.displayName = String($('workspace-name')?.value || '').trim().slice(0, 40); savePrefs(); render(); notify(ctx.prefs.displayName ? `Prazer, ${ctx.prefs.displayName}!` : 'Nome removido.'); },
@@ -1074,15 +1194,7 @@ Diga a causa em uma ou duas frases. Se a causa tiver correção dentro do Code R
   'git-init': async () => { if (!confirm('Iniciar o Git nesta pasta? Cria só a pasta oculta .git; nada é enviado para lugar nenhum.')) return; ctx.gitInfo = await api(`projects/${ctx.ui.panelId}/git/init`, {}); notify('Git iniciado no projeto.'); render(); },
   'git-refresh': () => loadGit(ctx.ui.panelId, true),
   'git-commit': async id => { const r = await api(`projects/${ctx.project}/git/commit`, { taskId: id }); notify(`Commit ${r.hash} criado com ${r.files.length} arquivo(s). Nada foi enviado.`); loadGit(ctx.project, false); },
-  mic: () => {
-    if (dictation?.listening) { dictation.stop(); return; }
-    const box = $('mission'); if (!box) return; cancelSpeech(window);
-    const base = box.value.trim() ? box.value.trim() + ' ' : '';
-    dictation = createDictation(window, { onText: txt => { box.value = (base + txt).slice(0, 30000); box.dispatchEvent(new Event('input', { bubbles: true })); }, onState: async on => { ctx.ui.listening = on; $('mic')?.classList.toggle('on', on); $('mic')?.setAttribute('aria-pressed', String(on)); try { stopVoiceStrip?.(); } catch {} stopVoiceStrip = null; if (on) stopVoiceStrip = await showVoiceStrip($('composer')); else box.focus(); }, onError: msg => notify(msg, true) });
-    if (!dictation) return notify('Este navegador não tem ditado por voz.', true);
-    if (!ctx.ui.micWarned) { ctx.ui.micWarned = true; notify('Ditado ligado. O áudio é tratado pelo serviço de voz do seu navegador; o Code Room só recebe o texto quando você apertar Enviar.'); }
-    dictation.start();
-  },
+  mic: () => { if (micPointer) { micPointer = false; return; } micActive() ? micStop() : micStart(); },
   'voice-toggle': () => { ctx.prefs.voiceReply = !ctx.prefs.voiceReply; savePrefs(); if (ctx.prefs.voiceReply) speak(window, 'Voz ligada. Vou ler um resumo das respostas.', { rate: ctx.prefs.voiceRate || 1 }); else cancelSpeech(window); renderAsst(); },
   'ctx-prop-accept': async id => { const text = $('prop-' + id)?.value; ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context/proposals/${id}/accept`, { text }); notify('Decisão adicionada ao contexto do projeto.'); render(); },
   'ctx-prop-dismiss': async id => { ctx.projectContext = await api(`projects/${ctx.ui.panelId}/context/proposals/${id}/dismiss`, {}); render(); },
@@ -1363,9 +1475,21 @@ function editAgent(id) {
   for (const k of ['id', 'name', 'role', 'room', 'provider', 'model', 'mode', 'instructions', 'effort']) f.elements[k].value = a?.[k] ?? (k === 'provider' ? 'codex' : k === 'mode' ? 'read' : '');
   f.elements.commands.value = (a?.commands || []).join(', '); f.elements.mcpTools.value = (a?.mcpTools || []).join(', '); f.elements.browser.value = a?.browser || 'off'; f.elements.web.checked = !!a?.web; f.elements.unrestricted.checked = !!a?.unrestricted; fillModelOptions(f.elements.provider.value, { effort: a?.effort || '' }); syncBrowserOptions();
   f.querySelectorAll('[name=cap]').forEach(c => c.checked = !!a?.capabilities?.includes(c.value));
-  pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); $('agent-dialog').showModal();
+  pickedSkills = new Set(a?.skillIds || []); $('agent-skill-q').value = ''; $('agent-title').textContent = a ? 'Editar agente' : 'Novo agente'; renderPicker(); agentAdvSummary(true); $('agent-dialog').showModal();
   if (!ctx.skills.length) loadSkills().then(renderPicker);
 }
+// Formulário de agente em camadas: o essencial à vista; modelo, segurança e skills recolhidos, com um resumo no título.
+function agentAdvSummary(openActive = false) {
+  const f = $('agent-form'); if (!f) return; const e = f.elements;
+  const model = [e.model.value.trim(), e.effort.value && `esforço ${e.effort.options[e.effort.selectedIndex]?.text || e.effort.value}`, e.room.value.trim()].filter(Boolean);
+  const safe = [e.unrestricted.checked && 'irrestrito', e.web.checked && 'web', e.browser.value !== 'off' && 'navegador', e.mcpTools.value.trim() && 'MCP', e.commands.value.trim() && 'programas'].filter(Boolean);
+  $('adv-model-sum').textContent = model.length ? model.join(' · ') : 'padrão da sua conta';
+  $('adv-safe-sum').textContent = e.unrestricted.checked ? 'Perfil: piloto completo (irrestrito)' : safe.length ? `Perfil: liberado (${safe.join(', ')})` : 'Perfil: seguro (padrão)';
+  $('adv-safe-sum').classList.toggle('warn-text', e.unrestricted.checked);
+  $('adv-skills-sum').textContent = pickedSkills.size ? `${pickedSkills.size} de 8` : 'nenhuma';
+  if (openActive) { $('agent-adv-model').open = model.length > 0; $('agent-adv-safe').open = safe.length > 0; $('agent-adv-skills').open = false; }
+}
+$('agent-form').addEventListener('change', () => agentAdvSummary()); $('agent-form').addEventListener('input', () => agentAdvSummary());
 function renderPicker() {
   const q = $('agent-skill-q').value.toLowerCase(), list = ctx.skills.filter(s => s.recognized && s.preferred !== false && (pickedSkills.has(s.id) || s.name.toLowerCase().includes(q)));
   $('agent-skills').innerHTML = list.slice(0, 80).map(s => `<label class="check"><input type="checkbox" value="${esc(s.id)}" ${pickedSkills.has(s.id) ? 'checked' : ''}><span>${esc(s.name)} <small class="muted">${esc(s.source)}${s.missingDependencies.length ? ' · dependência ausente (bloqueia a execução)' : ''}</small></span></label>`).join('') || '<p class="muted small">Nenhuma skill reconhecida neste filtro.</p>';
@@ -1475,7 +1599,7 @@ async function start() {
     loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); if (ctx.whoami !== 'device') loadUpdates();
     if (ctx.whoami !== 'device') api('orchestration/policy', { directExec: ctx.prefs.directExec !== false, autoFallback: ctx.prefs.autoFallback !== false }).catch(() => {});
     tabBus?.postMessage({ kind: 'ping', tabId });
-    if (!started) { started = true; termDock = createTermDock({ api, getKey: () => key, getCtx: () => ctx, notify }); void termDock.sync(); startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
+    if (!started) { started = true; termDock = createTermDock({ api, getKey: () => key, getCtx: () => ctx, notify }); void termDock.sync(); startPalette(); startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; nicoFlow?.render(true); browserMgr?.render(); renderLogin(); }
 }
 applyPrefs();

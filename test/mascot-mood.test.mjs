@@ -5,13 +5,14 @@ import { mascot, MOODS } from '../public/mascot.js';
 
 const css = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
 
-test('mascote: a cor dos olhos vem do humor (currentColor), sem cor fixa no desenho, e a antena é estilizável', () => {
+test('mascote: bolinha de vidro do Nico; a borda de luz muda com o humor e cada desenho tem gradientes próprios', () => {
   for (const mood of Object.keys(MOODS)) {
     const svg = mascot(mood, 40);
-    assert.ok(svg.includes(`mc-${mood}`), `${mood}: classe do humor`); assert.ok(svg.includes('currentColor'), `${mood}: olhos usam currentColor`);
-    assert.ok(!svg.includes('#59e0ff'), `${mood}: sem ciano fixo no desenho`); assert.ok(svg.includes('class="mc-ant"'), `${mood}: antena com classe`);
+    assert.ok(svg.includes(`mc-${mood}`), `${mood}: classe do humor`); assert.ok(svg.includes('class="mc-eyes"'), `${mood}: olhos estilizáveis`);
     assert.match(svg, /aria-label="Assistente: /, `${mood}: continua acessível`);
   }
+  assert.ok(mascot('alerta').includes('#ffcd6e') && mascot('preocupado').includes('#ff7a7a') && mascot('feliz').includes('#78f0ff'), 'borda âmbar no aviso, vermelha na falha, ciano no normal');
+  const id = s => /radialGradient id="([^"]+)"/.exec(s)[1]; assert.notEqual(id(mascot('feliz')), id(mascot('feliz')), 'dois Nicos na tela não dividem o mesmo gradiente');
 });
 
 test('mascote: alerta fica amarelo, falha vermelha, novidade verde e dormindo apagado; o ícone do chat não tem mais círculo', () => {

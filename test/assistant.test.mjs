@@ -168,7 +168,7 @@ test('fluxo: sem apresentação não conversa; o briefing é gravado na máquina
   say('resposta curta sem a linha final'); await asst.brief({ provider: 'codex' }); let s = await done(); assert.equal(s.briefed, false); assert.match(s.error, /faltou a linha/, 'apresentação ruim não vale');
   say(GOOD_BRIEF); await asst.brief({ provider: 'codex' }); s = await done(); assert.equal(s.briefed, true); assert.equal(s.error, null); assert.equal(s.stale, false); assert.match(s.knowledge, /somente leitura/);
   const file = join(data, 'assistente', 'CONHECIMENTO.md'); assert.ok(existsSync(file), 'gravado na máquina da pessoa'); const md = readFileSync(file, 'utf8'); assert.match(md, /^---\nprovedor: codex\nmanual: [0-9a-f]{16}\n/); assert.match(md, /O que o Assistente entendeu/);
-  setManual('versão 2'); assert.equal((await asst.status()).stale, true, 'o manual mudou: precisa apresentar de novo');
+  setManual('versão 2'); const st2 = await asst.status(); assert.equal(st2.stale, false, 'o manual mudou: o Nico atualiza em silêncio, sem pedir para se apresentar de novo'); assert.equal(st2.briefed, true);
 });
 
 test('fluxo: pergunta → resposta com ação válida → aprovar cria a equipe de verdade; segunda vez, descartar e ação inválida', async () => {
@@ -213,13 +213,13 @@ test('manual real do projeto: existe, cabe no limite e documenta exatamente os p
   assert.equal(loadManual('C:/pasta/que/nao/existe').missing, true);
 });
 
-test('criar_projeto e iniciar_tarefa: nome seguro, projeto/equipe/agente reais, equipe com dev+revisor, nunca equipe e agente juntos', () => {
+test('criar_projeto e iniciar_tarefa: nome seguro, projeto/equipe/agente reais, equipe de 1 membro vale, revisão só se pedida, nunca equipe e agente juntos', () => {
   const w = world({ teams: [{ id: 't1', name: 'Completa', members: [{ role: 'desenvolvedor', agentId: 'a1' }, { role: 'revisor', agentId: 'a2' }] }, { id: 't2', name: 'Só dev', members: [{ role: 'desenvolvedor', agentId: 'a1' }] }] });
   assert.deepEqual(normalizeAction({ acao: 'criar_projeto', nome: ' Documentário ', ambiente: 'Vídeo' }, w).payload, { name: 'Documentário', area: 'Vídeo' });
   for (const n of ['', 'a/b', 'a\\b', 'a:b', 'canal']) assert.equal(normalizeAction({ acao: 'criar_projeto', nome: n }, w).valid, false, n);
   const t = o => normalizeAction({ acao: 'iniciar_tarefa', projeto: 'Canal', objetivo: 'Fazer X', ...o }, w);
   assert.deepEqual(t({ equipe: 'Completa' }).payload, { projectId: 'p1', objective: 'Fazer X', teamId: 't1' }); assert.deepEqual(t({ agente: 'Desenvolvedor' }).payload, { projectId: 'p1', objective: 'Fazer X', agentId: 'a1' });
-  assert.match(t({ equipe: 'Só dev' }).error, /desenvolvedor e um revisor/); assert.match(t({ equipe: 'Completa', agente: 'Revisor' }).error, /OU/); assert.match(t({}).error, /OU/);
+  assert.equal(t({ equipe: 'Só dev' }).payload.teamId, 't2', 'equipe de 1 membro executa direto'); assert.equal(t({ equipe: 'Completa', revisar: true }).payload.review, true); assert.match(t({ equipe: 'Completa', agente: 'Revisor' }).error, /OU/); assert.match(t({}).error, /OU/);
   assert.match(t({ projeto: 'Fantasma', agente: 'Revisor' }).error, /projeto/); assert.match(t({ objetivo: '', agente: 'Revisor' }).error, /objetivo/); assert.match(t({ objetivo: 'x'.repeat(3001), agente: 'Revisor' }).error, /3000/);
   assert.match(t({ agente: 'Gemini' }).summary, /cota/);
 });

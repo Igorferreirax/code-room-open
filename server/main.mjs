@@ -31,7 +31,7 @@ function scanSkills(projectPath, opts = {}) {
   if (skillCache.size > 12) skillCache.delete(skillCache.keys().next().value);
   return p;
 }
-import { createTask, retryTask } from './tasks.mjs';
+import { objectivePreview, createTask, retryTask } from './tasks.mjs';
 import { safeFile, contentType, mintToken, checkToken } from './deliverables.mjs';
 import { emptyContext, cleanContext } from './context.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
@@ -43,6 +43,7 @@ import { proposeDecision, resolveProposal } from './context.mjs';
 import { simulateFlow } from './simulate.mjs';
 import { approveSubtask, dismissSubtask } from './subtasks.mjs';
 import { ApiLibrary } from './apilib.mjs';
+import { transcribeGroq, rawBody, audioExt } from './voice-transcribe.mjs';
 import { applyUnblocks, NEVER } from './unblock.mjs';
 import { SyncIas } from './sync-ias.mjs';
 import { Outbox, loggedFetch } from './outbound.mjs';
@@ -181,9 +182,9 @@ async function createProjectFolder({ name, area, parent = null }) {
   await mkdir(dir); const canonical = await realpath(dir);
   return store.put('projects', { id: randomUUID(), name: text(name, 60), path: canonical, area: optional(area, 60) || 'Geral', createdAt: new Date().toISOString() });
 }
-async function startAssistantTask({ projectId, teamId, agentId, objective }) {
+async function startAssistantTask({ projectId, teamId, agentId, objective, review }) {
   const requestId = randomUUID();
-  if (teamId) { const r = orchestrator.startSequential({ projectId, teamId, requestId, objective, maxReviewRounds: 1 }); void runner.pump(); return r.flow; }
+  if (teamId) { const r = orchestrator.startSequential({ projectId, teamId, requestId, objective, maxReviewRounds: 1, review: review === true }); void runner.pump(); return r.flow; }
   const agent = store.get('agents', agentId); if (!agent || isInternal(agent)) throw new Error('Agente não encontrado.');
   if (!installed(agent)) throw new Error('A IA deste agente não está instalada.');
   const { task } = createTask(store, { projectId, agentId, requestId, objective }); void runner.pump(); return task;
@@ -288,6 +289,7 @@ const publisher = new Publisher(store, { dataDir: data, fetchFn: loggedFetch(sto
 const outbox = new Outbox(store);
 const social = new Social(store, { dataDir: data, publisher, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Redes sociais') });
 const apiLib = new ApiLibrary(store, { dataDir: data, fetchFn: loggedFetch(store, (...a) => fetch(...a), 'Biblioteca de APIs') });
+const groqFetch = loggedFetch(store, (...a) => fetch(...a), 'Voz (Groq)');
 const economyCtx = () => ({ connected: new Set(connectors().filter(c => c.path).map(c => c.id)), claudeWindows: store.get('settings', 'limits:claude')?.windows || [] });
 const syncIas = () => new SyncIas({ codexPath: connectors().find(c => c.id === 'codex')?.path || null });
 orchestrator.social = social;   // propostas de postagem dos agentes
@@ -406,8 +408,15 @@ function saveLink(b) {
 async function body(req, limit = 100000) { let size = 0, chunks = [], tooLarge = false; for await (const chunk of req) { size = Math.min(limit + 1, size + chunk.length); if (size > limit) { tooLarge = true; chunks = []; continue; } if (!tooLarge) chunks.push(chunk); } if (tooLarge) throw Object.assign(new Error('Requisição muito grande'), { status: 413 }); return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 function send(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 
-const brief = t => ({ hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
-  environment: t.environment, prompt: t.objective.slice(0, 200), usage: t.usage ?? null, actualModel: t.modelReported ?? null, fallbackFrom: t.fallbackFrom || null, qaScore: t.result?.qaGate?.score ?? null, qaStatus: t.result?.qaGate?.status ?? null, canRevert: !!(t.result?.checkpoint?.available && !t.result?.checkpoint?.revertedAt), revertedSummary: t.result?.checkpoint?.summary || null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), externalCount: t.result?.externalDeliverables?.files?.length || 0, flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
+// Linha do tempo e contexto das tarefas em execução: os últimos passos de ferramenta e o tamanho do contexto (Claude).
+function liveSteps(t) {
+  if (!['running', 'cancelling'].includes(t.status) || !t.currentAttemptId) return null;
+  const ev = store.events(t.currentAttemptId), steps = []; let ctx = null;
+  for (let i = ev.length - 1; i >= 0 && (steps.length < 6 || ctx == null); i--) { const e = ev[i]; if (e.type !== 'activity') continue; if (ctx == null && e.ctx) ctx = e.ctx; if (steps.length < 6 && /^(Ferramentas|Executando|Etapa):/.test(e.text || '')) steps.push({ at: e.at, text: String(e.text).split('\n')[0].replace(/^(Ferramentas|Executando|Etapa):\s*/, '').slice(0, 90), kind: /^Executando/.test(e.text) ? 'cmd' : /^Etapa: editando/.test(e.text) || /^Ferramentas: (Edit|Write|MultiEdit)/.test(e.text) ? 'edit' : 'tool' }); }
+  return { steps: steps.reverse(), ctx };
+}
+const brief = t => ({ live: liveSteps(t), hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
+  environment: t.environment, prompt: objectivePreview(t.objective), usage: t.usage ?? null, actualModel: t.modelReported ?? null, fallbackFrom: t.fallbackFrom || null, qaScore: t.result?.qaGate?.score ?? null, qaStatus: t.result?.qaGate?.status ?? null, canRevert: !!(t.result?.checkpoint?.available && !t.result?.checkpoint?.revertedAt), revertedSummary: t.result?.checkpoint?.summary || null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), externalCount: t.result?.externalDeliverables?.files?.length || 0, flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
 function detail(t) {
   const attempts = t.attempts.map(id => store.get('runs', id)).filter(Boolean);
   const last = attempts.at(-1);
@@ -627,7 +636,11 @@ const handle = async (req, res) => {
       if (req.method === 'POST' && p === '/api/open') { masterOnly(auth); const b = await body(req); const pl = planOpen({ alvo: b.alvo, navegador: b.navegador }); if (pl.error) return send(res, 400, { error: pl.error }); return send(res, 200, await runOpen(pl)); }
       if (req.method === 'POST' && p === '/api/terminal') { masterOnly(auth); const b = await body(req); const pr = b.projectId ? store.get('projects', String(b.projectId)) : null; if (b.projectId && (!pr || isInternal(pr))) return send(res, 404, { error: 'Projeto não encontrado.' }); const pl = terminalPlan({ dir: pr?.path, cli: String(b.cli || 'shell'), unrestricted: b.irrestrito === true, area: pr?.area || '' }, { catalog: connectors() }); if (pl.error) return send(res, 400, { error: pl.error }); store.event('_audit', { type: 'audit', who: 'Você', what: `abriu o terminal ${pl.label}${pl.unrestricted ? ' em modo irrestrito' : ''}`, project: pr?.name || null, at: new Date().toISOString() }); return send(res, 200, await openTerminal(pl)); }
       // Resumo leve para o Nico flutuante do Windows (bandeja): o que roda, o que espera e se há pedido de permissão.
-      if (get && p === '/api/pulse') { masterOnly(auth); const ts = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT); const ap = approvals.pending(); return send(res, 200, { running: ts.filter(t => ['running', 'cancelling'].includes(t.status)).length, queued: ts.filter(t => ['queued', 'waiting_dependency'].includes(t.status)).length, approvals: ap.length, approval: ap[0] ? `${ap[0].agent || 'Nico'}: ${ap[0].title}` : '', listening: !!voiceGlobal.id, nico: assistant.s?.pending ? 'pensando' : '', name: assistant.s?.name || 'Nico' }); }
+      // Voz segurando a tecla (Ctrl direito, ajudante nativo da bandeja) e no chat: transcrição pelo Groq quando há chave.
+      if (get && p === '/api/voice/config') { masterOnly(auth); return send(res, 200, { groq: !!apiLib.keyFor('groq'), holdKey: 'Ctrl direito' }); }
+      if (req.method === 'POST' && p === '/api/voice/transcribe') { masterOnly(auth); const key = apiLib.keyFor('groq'); if (!key) return send(res, 409, { error: 'Cadastre uma chave do Groq em Conexões › Biblioteca de APIs para a transcrição rápida.', fallback: true }); const mime = String(req.headers['content-type'] || ''); if (!audioExt(mime)) return send(res, 415, { error: 'Envie áudio (wav, webm, ogg, mp3 ou m4a).' }); const audio = await rawBody(req); const r = await transcribeGroq(audio, mime, { key, fetchFn: groqFetch }); return send(res, 200, r); }
+      if (req.method === 'POST' && p === '/api/voice/native') { masterOnly(auth); const b = await body(req); voiceGlobal.native = ['listening', 'transcribing'].includes(b.state) ? b.state : ''; voiceGlobal.nativeAt = Date.now(); return send(res, 200, { ok: true }); }
+      if (get && p === '/api/pulse') { masterOnly(auth); const ts = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT); const ap = approvals.pending(); return send(res, 200, { running: ts.filter(t => ['running', 'cancelling'].includes(t.status)).length, queued: ts.filter(t => ['queued', 'waiting_dependency'].includes(t.status)).length, approvals: ap.length, approval: ap[0] ? `${ap[0].agent || 'Nico'}: ${ap[0].title}` : '', listening: !!voiceGlobal.id || voiceGlobal.native === 'listening', voice: voiceGlobal.native || (voiceGlobal.id ? 'listening' : ''), nico: assistant.s?.pending ? 'pensando' : '', name: assistant.s?.name || 'Nico' }); }
       if (get && p === '/api/voice/result') { masterOnly(auth); const r = voiceGlobal.results.get(String(url.searchParams.get('id') || '')); return send(res, 200, r ? { ready: true, text: r.text } : { ready: false, listening: !!voiceGlobal.id }); }
       // Terminais DENTRO do Code Room (pseudo-console do Windows + xterm.js na tela).
       if (p === '/api/term' || p.startsWith('/api/term/')) {
@@ -1155,13 +1168,13 @@ const terminals = new Terminals({ binDir: join(data, 'bin') });   // terminais d
 // O Nico abre o terminal no painel do próprio Code Room (a tela recebe o aviso e mostra a aba nova).
 assistant.terminalSend = (id, text) => terminals.input(id, text);
 assistant.terminalFn = async pl => { const v = await terminals.open(pl, { project: '' }); store.event('_term', { type: 'terminal_opened', at: new Date().toISOString() }); return { result: `Abri ${v.title} no painel de terminais do Code Room (${pl.cwd}).` }; };
-const voiceGlobal = { id: null, at: 0, results: new Map() };
+const voiceGlobal = { id: null, at: 0, results: new Map(), native: '', nativeAt: 0 };
 approvals.taskInfo = id => { const t = store.get('tasks', id); return t ? { unrestricted: !!t.agent?.unrestricted && t.agent?.mode === 'write' && t.project?.area !== 'Financeiro', agent: t.agent?.name || '', project: t.project?.id === ASSISTANT_PROJECT ? '' : t.project?.name || '', assistant: t.project?.id === ASSISTANT_PROJECT } : null; };
 server.listen(port, '127.0.0.1', async () => {
   updates.start();
   // Primeira abertura de uma versão nova: pede ao Windows para renovar o cache de ícones (o atalho mostra a logo nova sem reiniciar o PC).
   try { const lv = store.get('settings', 'lastVersion')?.v; if (lv !== VERSION) { store.put('settings', { id: 'lastVersion', v: VERSION }); if (process.platform === 'win32') execFile('ie4uinit.exe', ['-show'], { windowsHide: true, timeout: 15000 }, () => {}); } } catch {}
-  console.log(`Code Room → http://127.0.0.1:${port}/#${key}`);
+  console.log(`Code Room → http://127.0.0.1:${port}/ (abra pelo atalho; a chave fica só em access.key, nunca no log)`);
   try { await runner.start(); routines.start(); folderJobs.start(); moduleList().catch(() => {}); } catch (e) { console.error('Falha ao iniciar o executor:', e.message); }
   try { await syncListeners(); for (const b of bound) console.log(`Acesso remoto (${b.kind}): http://${b.ip}:${port}/`); } catch (e) { console.error('Rede:', e.message); }
   const t = setInterval(() => syncListeners().catch(() => {}), 20000); t.unref?.(); // o Tailscale pode conectar depois do serviço

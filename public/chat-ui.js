@@ -28,6 +28,13 @@ export function aiButton(ctx) {
   const a = ctx.asst || {}, scope = a.threads?.find(x => x.active)?.projectName;
   return `<button type="button" class="cw-ai-btn" data-act="asst-ai" aria-expanded="${!!ctx.ui?.aiOpen}" aria-controls="cw-ai" title="Trocar a IA, o modelo e o esforço do ${esc(a.name || 'Assistente')}">${esc(provLabel(a, a.provider))} · ${esc(a.model || 'modelo padrão')}${a.effort ? ` · ${esc(EFFORT_NAME[a.effort] || a.effort)}` : ''} ▾</button> · ${a.autonomy === 'pilot' ? 'piloto' : 'conversa'}${scope ? ` · ${esc(scope)}` : ''}`;
 }
+// Atalhos de modo: em vez de escolher modelo + esforço + autonomia toda vez.
+export function presetOf(a = {}) { return a.autonomy === 'pilot' && a.unrestricted ? 'pilot' : a.effort === 'low' && a.autonomy !== 'pilot' ? 'fast' : 'std'; }
+export function presetBar(ctx) {
+  const a = ctx.asst || {}, cur = presetOf(a), dis = a.pending ? ' disabled' : '';
+  const P = [['fast', 'Rápido', 'Conversa e consulta com o modelo mais leve e esforço baixo (gasta menos cota)'], ['std', 'Padrão', 'Modo piloto com modelo equilibrado e esforço médio: age nos arquivos do projeto'], ['pilot', 'Piloto autônomo', 'Roda comandos e altera arquivos sem perguntar; ponto de restauração antes de cada tarefa']];
+  return `<div class="cw-presets" role="radiogroup" aria-label="Modo do ${esc(a.name || 'Assistente')}">${P.map(([id, label, tip]) => `<button type="button" role="radio" aria-checked="${cur === id}" class="cw-preset p-${id}${cur === id ? ' on' : ''}" data-act="asst-preset" data-id="${id}" title="${esc(tip)}"${dis}><i aria-hidden="true"></i>${label}</button>`).join('')}</div>`;
+}
 export function aiPanel(ctx) {
   if (!ctx.ui?.aiOpen) return '';
   const a = ctx.asst || {}, prov = ctx.ui.aiProv || a.provider, info = ctx.ui.aiModels?.[prov], same = prov === a.provider;
@@ -52,7 +59,7 @@ export function chatHeaderHtml(ctx) {
     ${asstOn ? `<div class="cw-dr-h"><b>Ajustes</b></div><div class="cw-dr-set">${modeBtn}${voiceBtn}${notify}${reset}</div>` : `<div class="cw-dr-set">${notify}</div>`}</div><button type="button" class="cw-scrim" data-act="cw-menu" aria-label="Fechar o menu" tabindex="-1"></button>` : '';
   const menuBtn = w.kind === 'assistant' ? `<button type="button" class="iconbtn cw-menu-btn" data-act="cw-menu" aria-expanded="${menuOpen}" aria-controls="cw-drawer" aria-label="Conversas e ajustes" title="Conversas e ajustes">${icon('menu', 20)}${threads.some(t => t.waiting && !t.active) ? '<i class="cw-wait" aria-hidden="true"></i>' : ''}</button>` : '';
   const pipBtn = w.kind === 'assistant' ? `<button type="button" class="iconbtn" data-act="nico-pip" aria-label="Destacar Nico flutuante" title="Destacar Nico flutuante (continua visível mesmo com o Code Room minimizado)">⧉</button>` : '';
-  return `<div class="cw-top">${menuBtn}<span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}${w.kind === 'assistant' ? ` <button type="button" class="cw-rename-btn" data-act="asst-rename" aria-label="Mudar o nome do Assistente" title="Mudar o nome do Assistente">✎</button>` : ''}</b><small>${w.kind === 'assistant' && asstOn ? `<span class="cw-online${a.pending ? ' busy' : ''}" aria-hidden="true"></span>` : ''}${w.kind === 'assistant' && asstOn && !a.pending ? aiButton(ctx) : esc(w.sub)}</small></div>${pipBtn}<button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${w.kind === 'assistant' && asstOn ? aiPanel(ctx) : ''}${drawer}`;
+  return `<div class="cw-top">${menuBtn}<span class="cw-face">${w.face}</span><div class="cw-who"><b id="chat-title">${esc(w.title)}${w.kind === 'assistant' ? ` <button type="button" class="cw-rename-btn" data-act="asst-rename" aria-label="Mudar o nome do Assistente" title="Mudar o nome do Assistente">✎</button>` : ''}</b><small>${w.kind === 'assistant' && asstOn ? `<span class="cw-online${a.pending ? ' busy' : ''}" aria-hidden="true"></span>` : ''}${w.kind === 'assistant' && asstOn && !a.pending ? aiButton(ctx) : esc(w.sub)}</small></div>${pipBtn}<button type="button" class="iconbtn" data-act="chat-min" aria-label="Minimizar o chat" title="Minimizar">–</button></div>${w.kind === 'assistant' && asstOn && !ctx.ui.aiOpen ? presetBar(ctx) : ''}${w.kind === 'assistant' && asstOn ? aiPanel(ctx) : ''}${drawer}`;
 }
 
 // Simulação da missão de equipe (não cria nada, não chama IA): mostra o que bloqueia, o que merece atenção e o que cada agente poderá fazer.

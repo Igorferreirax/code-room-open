@@ -4,6 +4,7 @@ import { createTask, transition } from './tasks.mjs';
 import { emptyContext, mayShare } from './context.mjs';
 import { planPrompt, parsePlan, validatePlan } from './supervisor.mjs';
 import { qaSummaryBadge } from './quality-gates.mjs';
+import { getPolicy } from './alethe-playbook.mjs';
 
 const STOP_RE = /SEM PEND[ÊE]NCIAS|VEREDITO:\s*APROVADO/i, DEFAULT_HOPS = 3;
 export const ROLES = ['desenvolvedor', 'revisor', 'editor', 'pesquisador', 'financeiro', 'operacoes', 'supervisor'];
@@ -36,7 +37,8 @@ export class Orchestrator {
     return new Set(ids.filter(id => known.has(id)));
   }
 
-  // ---------- fluxo sequencial: desenvolvedor → revisor (ou direto sem revisor quando skipReview está ativo) ----------
+  // ---------- fluxo sequencial: direto no desenvolvedor; o revisor só entra se a equipe tiver um E a pessoa pedir revisão
+  // (review: true / skipReview: false) ou a política estiver no modo cuidadoso. Equipe de 1 membro termina ali. ----------
   startSequential(input) {
     const requestId = String(input.requestId || '');
     if (!requestId) throw new Error('requestId obrigatório.');
@@ -44,9 +46,10 @@ export class Orchestrator {
     if (existing) return { flow: existing, duplicate: true };
     const project = this.store.get('projects', input.projectId), team = this.store.get('teams', input.teamId);
     if (!project || !team) throw new Error('Escolha projeto e equipe.');
-    const dev = team.members.find(m => m.role === 'desenvolvedor'), reviewer = team.members.find(m => m.role === 'revisor');
-    const skipReview = input.skipReview === true || (!reviewer && this.store.get('settings', 'orchestrationPolicy')?.directExec === true);
-    if (!dev || (!skipReview && !reviewer)) throw new Error('A equipe precisa de um desenvolvedor e um revisor.');
+    const reviewer = team.members.find(m => m.role === 'revisor'), dev = team.members.find(m => m.role === 'desenvolvedor') || team.members.find(m => m.role !== 'revisor') || team.members[0];
+    if (!dev) throw new Error('A equipe está vazia: adicione pelo menos um agente.');
+    const wantsReview = input.skipReview !== true && (input.review === true || input.skipReview === false || getPolicy(this.store).careful);
+    const skipReview = !reviewer || reviewer === dev || !wantsReview;
     for (const m of (skipReview ? [dev] : [dev, reviewer])) if (!mayShare(project.area || 'Geral', this.store.get('agents', m.agentId).room)) throw new Error('Projeto financeiro: o agente não é do ambiente financeiro.');
     const common = { projectId: project.id, criteria: input.criteria || [], limits: input.limits };
     const flow = { id: randomUUID(), kind: 'sequential', requestId, projectId: project.id, teamId: team.id, objective: String(input.objective || '').trim(), criteria: common.criteria, round: 1, maxReviewRounds: skipReview ? 0 : Math.min(3, Math.max(1, Math.trunc(input.maxReviewRounds) || 1)), taskIds: [], status: 'running', verdict: skipReview ? 'approved' : null, createdAt: now() };
@@ -88,11 +91,11 @@ export class Orchestrator {
   attemptAnswer(task) { return task.result?.attemptId ? this.store.get('runs', task.result.attemptId)?.answer || '' : ''; }
 
   onFinal(task) {
-    if (task.status === 'completed' && task.kind === 'work' && !task.batchId) { try { this.social?.proposePosts(task, this.attemptAnswer(task)).catch(() => {}); } catch {} }   // propostas de postagem do agente (+conta): só viram post se a pessoa aprovar
+    if (task.status === 'completed' && task.kind === 'work' && !task.batchId && String(task.objective || '').includes('[CONTAS PARA POSTAR')) { try { this.social?.proposePosts(task, this.attemptAnswer(task)).catch(() => {}); } catch {} }   // propostas de postagem do agente (+conta): só viram post se a pessoa aprovar
     if (task.status === 'completed' && task.kind === 'work' && !task.batchId) {
       try {
         const subs = proposeSubtasks(this.store, task, this.attemptAnswer(task));
-        if (subs.length && task.project?.area !== 'Financeiro' && (this.store.get('settings', 'orchestrationPolicy')?.directExec === true || this.store.get('settings', 'assistant')?.autonomy === 'pilot')) {
+        if (subs.length && task.project?.area !== 'Financeiro' && (getPolicy(this.store).directExec || this.store.get('settings', 'assistant')?.autonomy === 'pilot')) {
           for (const sb of subs) { try { approveSubtask(this.store, this, sb.id); } catch {} }
           this.pump();
         }

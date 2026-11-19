@@ -50,7 +50,7 @@ try:
         return json.load(urllib.request.urlopen(r))
     proj = tempfile.mkdtemp(prefix='cr-upd-proj-'); api('projects', {'name': 'p', 'path': proj.replace('\\', '/'), 'area': 'Geral'})   # evita a triagem de primeiro uso
     api('agents', {'name': 'Ana', 'role': 'x', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': []})
-    URL = f'http://127.0.0.1:{PORT}/#{key}'; tab = lambda pg, n: (pg.click('[data-nav=settings]'), time.sleep(0.4), pg.click(f'[data-act=settings-tab][data-id={n}]'), time.sleep(0.5))
+    URL = f'http://127.0.0.1:{PORT}/#{key}'; tab = lambda pg, n: (pg.evaluate("crGo('settings')"), time.sleep(0.4), pg.click(f'[data-act=settings-tab][data-id={n}]'), time.sleep(0.5))
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
@@ -109,7 +109,7 @@ try:
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); pg = ctx.new_page(); errs = []
         pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
         api('updates/dismiss', {'version': ''}); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=10000); time.sleep(1.0)
-        pg.click('[data-nav=settings]'); time.sleep(0.4); pg.click('[data-act=settings-tab][data-id=atualizacoes]'); pg.get_by_text('Versão instalada', exact=True).wait_for(); pg.click('[data-act=upd-check]'); pg.wait_for_selector('.update-bar', timeout=15000); time.sleep(0.4)
+        pg.evaluate("crGo('settings')"); time.sleep(0.4); pg.click('[data-act=settings-tab][data-id=atualizacoes]'); pg.get_by_text('Versão instalada', exact=True).wait_for(); pg.click('[data-act=upd-check]'); pg.wait_for_selector('.update-bar', timeout=15000); time.sleep(0.4)
         bar = pg.locator('.update-bar').bounding_box(); check('celular: faixa cabe na tela', bar['x'] >= 0 and bar['x'] + bar['width'] <= 391, bar)
         pg.click('.update-bar [data-act=upd-open]'); pg.wait_for_selector('#update-dialog[open]'); time.sleep(0.4); db = pg.locator('#update-dialog').bounding_box()
         check('celular: janela cabe na tela', db['x'] >= 0 and db['x'] + db['width'] <= 391, db); check('celular: sem rolagem lateral', pg.evaluate('document.documentElement.scrollWidth <= innerWidth'))

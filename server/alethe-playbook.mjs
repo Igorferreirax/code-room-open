@@ -31,7 +31,7 @@ export function getPolicy(store) {
     id: 'orchestrationPolicy',
     goal,
     careful: saved.careful === true,
-    directExec: saved.directExec === true,
+    directExec: saved.directExec !== false,   // padrão: execução direta no especialista (revisor só quando pedido ou no modo cuidadoso)
     autoFallback: saved.autoFallback === true,
     conserve: Array.isArray(saved.conserve) ? saved.conserve.filter(x => typeof x === 'string').slice(0, 6) : [],
     rules: Array.isArray(saved.rules) ? saved.rules.filter(x => typeof x === 'string').slice(0, 8) : [],

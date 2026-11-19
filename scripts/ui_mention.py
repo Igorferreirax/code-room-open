@@ -37,7 +37,7 @@ try:
         page.on('pageerror', lambda e: errors.append(str(e))); page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
         page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
         # ---- Canvas ----
-        page.click('[data-nav=room]'); page.wait_for_timeout(500)
+        page.evaluate("crGo('room')"); page.wait_for_timeout(500)
         page.click('[data-act=view-mode][data-id=canvas]'); page.wait_for_selector('.cv-node', timeout=8000); page.wait_for_timeout(500)
         node = page.locator('.cv-node', has_text='Pesquisador'); b = node.bounding_box()
         # arrastar não abre o menu
@@ -78,7 +78,7 @@ try:
             check('sala: clicar em um agente abre o menu', page.locator('#agent-menu').count() == 1)
             page.keyboard.press('Escape')
         # ---- Acesso remoto: botões novos ----
-        page.click('[data-nav=settings]'); page.wait_for_timeout(400); page.click('[data-act=settings-tab][data-id=acesso]'); page.wait_for_selector('#pref-net-lan', timeout=12000)
+        page.evaluate("crGo('settings')"); page.wait_for_timeout(400); page.click('[data-act=settings-tab][data-id=acesso]'); page.wait_for_selector('#pref-net-lan', timeout=12000)
         check('acesso: botões Diagnosticar e Liberar no firewall', page.locator('[data-act=net-diagnose]').count() == 1 and page.locator('[data-act=net-firewall]').count() == 1)
         page.click('[data-act=net-diagnose]'); page.wait_for_selector('.diag-list', timeout=15000)
         check('acesso: o diagnóstico lista os itens', page.locator('.diag-list li').count() >= 1)
@@ -122,7 +122,7 @@ try:
         page.click('#pref-startup'); page.wait_for_selector('#pref-startup[aria-checked=false]', timeout=20000)
         check('inicio: desligar remove o atalho', api('startup')['on'] is False and not os.path.exists(os.path.join(atalhos, 'Startup', 'Code Room.lnk')))
         # ---- Hermes (servidor remoto): configuração dentro do app ----
-        clear_chat(page); page.click('[data-nav=connections]'); page.wait_for_selector('#hermes-card', timeout=10000); page.wait_for_timeout(400)
+        clear_chat(page); page.evaluate("crGo('connections')"); page.wait_for_selector('#hermes-card', timeout=10000); page.wait_for_timeout(400)
         check('hermes: o cartão aparece em Conexões, ainda não configurado', 'Não configurado' in page.inner_text('#hermes-card') and api('hermes')['configured'] is False)
         keyfile = os.path.join(proj, 'chave_de_teste'); open(keyfile, 'w').write('segredo-que-nao-pode-ser-copiado')
         page.fill('#hermes-host', '-oProxyCommand=calc'); page.fill('#hermes-key', keyfile.replace(chr(92), '/')); page.click('#hermes-card button[type=submit]'); page.wait_for_timeout(800)
@@ -145,7 +145,7 @@ try:
             page.wait_for_timeout(300)
         check('hermes: remover apaga a configuração', api('hermes')['configured'] is False)
         # ---- Navegador do agente (opcional, desligado por padrão) ----
-        clear_chat(page); page.click('[data-nav=agents]'); page.wait_for_selector('[data-act=new-agent]', timeout=8000); page.click('[data-act=new-agent]'); page.wait_for_selector('#agent-form [name=browser]', timeout=5000)
+        clear_chat(page); page.evaluate("crGo('agents')"); page.wait_for_selector('[data-act=new-agent]', timeout=8000); page.click('[data-act=new-agent]'); page.evaluate("document.getElementById('agent-adv-safe').open = true"); page.wait_for_selector('#agent-form [name=browser]', timeout=5000)
         def opt(v): return page.eval_on_selector(f'#agent-form [name=browser] [value={v}]', 'o => o.disabled')
         check('navegador: começa desligado por padrão', page.input_value('#agent-form [name=browser]') == 'off')
         page.select_option('#agent-form [name=provider]', 'codex'); page.wait_for_timeout(200)
@@ -164,7 +164,7 @@ try:
         try: api('agents', {**ag[0], 'browser': 'chrome', 'provider': 'codex'}); check('navegador: servidor recusa "meu Chrome" com Codex', False)
         except Exception: check('navegador: servidor recusa "meu Chrome" com Codex', True)
         # ---- /celular no chat ----
-        page.click('[data-nav=room]'); page.wait_for_timeout(500)
+        page.evaluate("crGo('room')"); page.wait_for_timeout(500)
         if not page.is_visible('#chat'): page.click('#chat-bubble'); page.wait_for_timeout(400)
         reqs = []; page.on('request', lambda r: reqs.append((r.method, r.url.split('/api/')[-1])) if '/api/assistant' in r.url else None); page.on('response', lambda r: reqs.append(('RESP', r.url.split('/api/')[-1], r.status, r.text()[:200] if r.status >= 400 else '')) if '/api/assistant/ask' in r.url else None); page.on('requestfailed', lambda r: reqs.append(('FAIL', r.url.split('/api/')[-1], str(r.failure))))
         page.wait_for_timeout(1200); page.fill('#mission', '/celular'); page.wait_for_timeout(300); page.click('#chat [type=submit]') if page.locator('#chat [type=submit]').count() else page.keyboard.press('Enter'); 

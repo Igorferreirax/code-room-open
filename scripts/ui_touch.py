@@ -34,7 +34,7 @@ try:
             touch('touchStart', x0, y0)
             for i in range(1, steps + 1): touch('touchMove', x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps); time.sleep(0.02)
             touch('touchEnd', x1, y1); time.sleep(0.5)
-        page.click('[data-nav=room]'); time.sleep(0.5)
+        page.evaluate("crGo('room')"); time.sleep(0.5)
         if page.locator('.cv-node').count() == 0: page.click('[data-act=view-mode][data-id=canvas]'); time.sleep(0.8)
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); time.sleep(0.3)
         for i in range(N):

@@ -39,7 +39,7 @@ try:
         page = browser.new_context(viewport={'width': 1440, 'height': 900}).new_page(); errors = []
         page.on('pageerror', lambda e: errors.append(str(e))); page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
         page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
-        page.click('[data-nav=room]'); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)
+        page.evaluate("crGo('room')"); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)
         # abre o chat direto no agente (pelo menu de clique do agente → gaveta → missão)
         card = page.locator('[data-act=agent]', has_text='Lia Ao Vivo').first
         card.click(); page.wait_for_timeout(400)
@@ -78,7 +78,7 @@ try:
         api('projects/members', {'projectId': P['id'], 'add': [beto['id']]})
         page.reload(); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(300)
-        page.click('[data-nav=room]'); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)
+        page.evaluate("crGo('room')"); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)
         for nome in ('Lia Ao Vivo', 'Beto Ao Vivo'):
             page.locator('[data-act=agent]', has_text=nome).first.click(); page.wait_for_timeout(300)
             if page.locator('#agent-menu [data-act=agent]').count(): page.click('#agent-menu [data-act=agent]'); page.wait_for_timeout(300)
@@ -105,7 +105,7 @@ try:
         page.click(f"[data-act=mini-close][data-id='{beto['id']}']"); page.wait_for_timeout(300)
         check('janelas: todas fechadas', page.locator('.mini').count() == 0)
         # ---- balão do agente: clicou no agente, a conversa abre ali do lado ----
-        page.click('[data-nav=room]'); page.wait_for_selector('.ps-station', timeout=8000); page.wait_for_timeout(600)
+        page.evaluate("crGo('room')"); page.wait_for_selector('.ps-station', timeout=8000); page.wait_for_timeout(600)
         page.locator('.ps-station').first.click(); page.wait_for_selector('#agent-menu .am-form textarea', timeout=5000)
         check('balão: clicar no agente abre o balão com caixa de missão e as ações', page.locator('#agent-menu [data-act=mini-open]').count() == 1 and page.locator('#agent-menu [data-act=mention-agent]').count() == 1 and page.locator('#agent-menu [data-act=agent]').count() == 1)
         check('balão: o foco já está na caixa de missão (dá para digitar na hora)', page.evaluate("document.activeElement && document.activeElement.closest('.am-form') !== null"))
@@ -132,7 +132,7 @@ try:
         for _ in range(120):
             if sum(1 for r in api('state')['runs'] if r['status'] in ('completed', 'failed', 'cancelled')) >= 20: break
             time.sleep(0.5)
-        page.click('[data-nav=tasks]'); page.wait_for_timeout(300); page.click('[data-nav=room]'); page.wait_for_selector('.activity-card .activity-list li', timeout=8000); page.wait_for_timeout(600)
+        page.evaluate("crGo('tasks')"); page.wait_for_timeout(300); page.evaluate("crGo('room')"); page.wait_for_selector('.activity-card .activity-list li', timeout=8000); page.wait_for_timeout(600)
         box = page.locator('.activity-card').bounding_box(); lst = page.locator('.activity-card .activity-list')
         check('atividade: o cartão não estica (altura máxima)', box['height'] < 470, box)
         check('atividade: cada atividade cabe em uma linha só', all(h < 50 for h in page.eval_on_selector_all('.activity-card .activity-list li', 'els => els.map(e => e.getBoundingClientRect().height)')))

@@ -58,3 +58,41 @@ export function createDictation(win, { lang = 'pt-BR', onText, onState, onError 
   rec.onerror = e => { if (e.error && e.error !== 'no-speech' && e.error !== 'aborted') onError?.(ERR[e.error] || `Não consegui ouvir (${e.error}).`); };
   return { start: () => { try { rec.start(); } catch {} }, stop: () => { try { rec.stop(); } catch {} }, get listening() { return on; } };
 }
+
+// Gravação para o ditado rápido (Groq): grava o microfone e, ao parar, manda o áudio ao Code Room, que transcreve.
+// stop() devolve { text } ou { fallback: true } quando não há chave do Groq (aí o chamador usa o ditado do navegador).
+export function createRecorder(win, { getKey, onState, onError } = {}) {
+  const md = win.navigator?.mediaDevices; if (!md?.getUserMedia || !win.MediaRecorder) return null;
+  let rec = null, stream = null, chunks = [], on = false, cancelled = false, starting = null;
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(t => win.MediaRecorder.isTypeSupported?.(t)) || '';
+  const release = () => { try { stream?.getTracks().forEach(t => t.stop()); } catch {} stream = null; rec = null; if (on) { on = false; onState?.(false); } };
+  return {
+    get listening() { return on; },
+    async start() {
+      if (on || starting) return; cancelled = false; chunks = [];
+      starting = (async () => {
+        try { stream = await md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+        catch { onError?.('O navegador bloqueou o microfone. Libere o acesso no ícone de cadeado do endereço e tente de novo.'); return; }
+        if (cancelled) { release(); return; }
+        rec = new win.MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+        rec.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
+        rec.start(250); on = true; onState?.(true, stream);
+      })();
+      await starting; starting = null;
+    },
+    cancel() { cancelled = true; try { rec?.stop(); } catch {} release(); },
+    async stop() {
+      if (starting) await starting;
+      if (!rec) { release(); return { text: '' }; }
+      const done = new Promise(r => { rec.onstop = r; }); try { rec.stop(); } catch {} await done;
+      const type = (rec?.mimeType || mime || 'audio/webm').split(';')[0]; release();
+      const blob = new win.Blob(chunks, { type }); chunks = [];
+      if (blob.size < 1500) return { text: '' };
+      const r = await win.fetch('/api/voice/transcribe', { method: 'POST', headers: { 'X-Code-Room-Key': getKey?.() || '', 'Content-Type': type }, body: blob });
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 409 && j.fallback) return { fallback: true };
+      if (!r.ok) throw new Error(j.error || 'Não consegui transcrever.');
+      return { text: j.text || '' };
+    },
+  };
+}

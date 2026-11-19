@@ -36,7 +36,7 @@ try:
         browser = pw.chromium.launch(channel='chrome', headless=True); ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
         ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e))); pg.on('dialog', lambda d: d.accept())
-        pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=routines]'); pg.wait_for_selector('.fj-card', timeout=8000)
+        pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('routines')"); pg.wait_for_selector('.fj-card', timeout=8000)
         check('Rotinas mostra o cartão de pastas de entrada vazio', 'Nenhuma pasta de entrada ainda' in pg.inner_text('.fj-card') and pg.is_visible('[data-act=fj-new]'))
         pg.click('[data-act=fj-new]'); pg.wait_for_selector('#fj-dialog[open]'); time.sleep(0.4)
         check('o formulário vem com exemplo de instrução com {arquivo} e a pasta ENTRADA', '{arquivo}' in pg.input_value('#fj-form [name=instruction]') and pg.input_value('#fj-form [name=dir]') == 'ENTRADA')
@@ -53,7 +53,7 @@ try:
             f = os.path.join(proj, 'ENTRADA', n); open(f, 'w').write('x'); os.utime(f, (old, old))
         api(f"folderjobs/{api('state')['folderJobs'][0]['id']}/run", {}); JID = api('state')['folderJobs'][0]['id']
         s = api('state')['folderJobs'][0]; check('só os 3 .mp4 entram (o .txt é ignorado)', s['counts']['total'] == 3, s['counts'])
-        pg.reload(); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=routines]'); pg.wait_for_selector('.fj-bar', timeout=10000)
+        pg.reload(); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('routines')"); pg.wait_for_selector('.fj-bar', timeout=10000)
         check('a tela mostra a barra de progresso e "x de 3 prontos"', 'de 3 prontos' in pg.inner_text('.fj-row') or 'de <b>3</b>' in pg.inner_html('.fj-row'))
         end = time.time() + 60
         while time.time() < end:
@@ -77,7 +77,7 @@ try:
         errs = [e for e in errs if 'status of 400' not in e]; check('sem erro de console', not errs, errs[:2]); ctx.close()
         # celular
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
-        pg = ctx.new_page(); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=routines]'); pg.wait_for_selector('.fj-card'); pg.click('[data-act=fj-new]'); pg.wait_for_selector('#fj-dialog[open]'); time.sleep(0.4)
+        pg = ctx.new_page(); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('routines')"); pg.wait_for_selector('.fj-card'); pg.click('[data-act=fj-new]'); pg.wait_for_selector('#fj-dialog[open]'); time.sleep(0.4)
         box = pg.evaluate("(() => { const r = document.getElementById('fj-dialog').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
         check('celular: o formulário cabe na tela sem rolagem lateral', box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2], box); ctx.close(); browser.close()
 finally:

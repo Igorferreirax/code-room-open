@@ -23,7 +23,7 @@ test('fluxo sequencial: dev entrega, revisor recebe objetivo, critérios, resumo
   const { store, runner, orchestrator } = await setup(); const P = await addProject(store, 'p');
   const t = await team(store, 'write=index.html:<p>oi</p> answer=Página_criada');
   const savedTeam = orchestrator.saveTeam({ name: 'Web', members: t.members });
-  const { flow } = orchestrator.startSequential({ projectId: P.id, teamId: savedTeam.id, requestId: 'f1', objective: 'Criar a página', criteria: ['tem um parágrafo', 'sem JavaScript'] });
+  const { flow } = orchestrator.startSequential({ projectId: P.id, teamId: savedTeam.id, requestId: 'f1', review: true, objective: 'Criar a página', criteria: ['tem um parágrafo', 'sem JavaScript'] });
   const linkedProject = store.get('projects', P.id); assert.deepEqual(linkedProject.teamIds, [savedTeam.id]); assert.deepEqual(linkedProject.agentIds || [], [], 'membros da equipe continuam vinculados pela equipe, sem virar vínculos individuais');
   await waitFor(() => final(store, flow.id), 30000, 'fluxo');
   const view = orchestrator.flowView(flow.id);
@@ -53,15 +53,15 @@ test('revisão reprovada respeita o limite de rodadas; falha do dev bloqueia a r
   const { store, orchestrator } = await setup(); const P = await addProject(store, 'p');
   const t = await team(store, 'write=a.txt:1', 'answer=VEREDITO:_REPROVADO');
   const tm = orchestrator.saveTeam({ name: 'T', members: t.members });
-  const one = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'r1', objective: 'x', maxReviewRounds: 1 }).flow;
+  const one = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'r1', objective: 'x', review: true, maxReviewRounds: 1 }).flow;
   await waitFor(() => final(store, one.id), 30000);
   assert.equal(store.get('flows', one.id).taskIds.length, 2); assert.equal(store.get('flows', one.id).verdict, 'rejected');
-  const two = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'r2', objective: 'y', maxReviewRounds: 2 }).flow;
+  const two = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'r2', objective: 'y', review: true, maxReviewRounds: 2 }).flow;
   await waitFor(() => final(store, two.id), 40000);
   const f = store.get('flows', two.id); assert.equal(f.taskIds.length, 4, 'correção + nova revisão, e para'); assert.equal(f.round, 2); assert.equal(f.verdict, 'rejected');
   const bad = await team(store, 'exit=2'); // mesmo ids; sobrescreve dev
   const tm2 = orchestrator.saveTeam({ name: 'T2', members: bad.members });
-  const broken = orchestrator.startSequential({ projectId: P.id, teamId: tm2.id, requestId: 'r3', objective: 'z' }).flow;
+  const broken = orchestrator.startSequential({ projectId: P.id, teamId: tm2.id, requestId: 'r3', objective: 'z', review: true }).flow;
   await waitFor(() => final(store, broken.id), 30000);
   const steps = orchestrator.flowView(broken.id).steps; assert.equal(steps[0].status, 'failed'); assert.equal(steps[1].status, 'blocked'); assert.equal(store.get('flows', broken.id).status, 'failed');
 });
@@ -245,4 +245,30 @@ test('cadastros geram evento (o painel reage a mudanças feitas por outro client
   addAgent(store, 'novo'); store.put('settings', { id: 'concurrency', global: 2 });
   const ev = store.eventsSince(before);
   assert.equal(ev.length, 1, 'só cadastros acompanhados geram evento; configurações internas não'); assert.equal(ev[0].run, '_records'); assert.equal(ev[0].type, 'record');
+});
+
+test('execução direta é o padrão: sem revisor sem pedido, equipe de 1 membro, revisor só ao pedir ou no modo cuidadoso', async () => {
+  const { store, orchestrator } = await setup(); const P = await addProject(store, 'direto');
+  const t = await team(store, 'write=a.txt:oi answer=Feito');
+  const tm = orchestrator.saveTeam({ name: 'Dupla', members: t.members });
+  const a = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'd1', objective: 'Criar a.txt' }).flow;
+  assert.equal(a.taskIds.length, 1, 'sem pedido de revisão, só o desenvolvedor roda'); assert.equal(a.maxReviewRounds, 0);
+  await waitFor(() => final(store, a.id), 20000, 'fluxo direto'); assert.equal(store.get('flows', a.id).status, 'completed');
+  const solo = orchestrator.saveTeam({ name: 'Solo', members: [{ role: 'editor', agentId: t.dev.id }] });
+  const s = orchestrator.startSequential({ projectId: P.id, teamId: solo.id, requestId: 'd2', objective: 'Criar b.txt' }).flow;
+  assert.equal(s.taskIds.length, 1, 'equipe de um membro termina nele');
+  const pedida = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'd3', objective: 'Criar c.txt', review: true }).flow;
+  assert.equal(pedida.taskIds.length, 2, 'revisão pedida: agenda o revisor');
+  store.put('settings', { id: 'orchestrationPolicy', careful: true });
+  const cuidadoso = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'd4', objective: 'Criar d.txt' }).flow;
+  assert.equal(cuidadoso.taskIds.length, 2, 'modo cuidadoso: agenda o revisor');
+});
+
+test('postagem: o orquestrador só pede propostas quando a pessoa mencionou uma conta (+conta)', async () => {
+  const { orchestrator } = await setup(); const calls = [];
+  orchestrator.social = { proposePosts: async t => { calls.push(t.id); return []; } };
+  const fin = t => { try { orchestrator.onFinal(t); } catch {} };   // só interessa o primeiro passo (postagem)
+  fin({ id: 'a', status: 'completed', kind: 'work', objective: 'Arrumar o CSS', project: { id: 'x', area: 'Geral' } });
+  fin({ id: 'b', status: 'completed', kind: 'work', objective: 'Post [CONTAS PARA POSTAR, mencionadas pela pessoa] +terror', project: { id: 'x', area: 'Geral' } });
+  assert.deepEqual(calls, ['b']);
 });

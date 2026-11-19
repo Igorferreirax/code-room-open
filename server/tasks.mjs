@@ -153,3 +153,14 @@ export function retryTask(store, id) {
   for (const d of store.list('tasks')) if (d.dependsOn?.includes(id) && d.status === 'blocked') transition(store, d, 'waiting_dependency', { reason: null });
   return queued;
 }
+
+// Resumo legível do pedido para as telas: tarefas do Nico levam as regras dele antes da pergunta; repasses entre agentes
+// começam com o roteiro do repasse. A tela mostra o que a pessoa pediu, não o prompt interno.
+export function objectivePreview(objective, max = 200) {
+  const s = String(objective || ''), ask = s.includes('=== PERGUNTA DA PESSOA ===') ? s.split('=== PERGUNTA DA PESSOA ===').pop() : s;
+  let out = ask.replace(/\s+/g, ' ').trim();
+  const hand = /^Você recebeu o trabalho de (.{1,120}?) por uma ligação entre agentes\. Faça a sua parte como ([^:]{1,80}?):/.exec(out);
+  if (hand) out = `Continuar o trabalho de ${hand[1]} (como ${hand[2]})`;
+  else if (/^Você é o ASSISTENTE do Code Room/.test(out)) out = 'Pedido ao Nico';
+  return out.length > max ? out.slice(0, max - 1) + '…' : out;
+}

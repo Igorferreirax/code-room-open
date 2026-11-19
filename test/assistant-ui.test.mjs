@@ -16,7 +16,7 @@ test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, des
   assert.match(semIa, /Abrir o Code Room no celular/); assert.match(semIa, /Nenhuma IA instalada/); assert.doesNotMatch(semIa, /<script>/);
   assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /No Modo Piloto, ele também pode trabalhar nos arquivos do projeto/);
   assert.match(assistantHtml({ ...base, briefing: { status: 'running' } }), /está lendo o manual/);
-  { const h = assistantHtml({ ...base, stale: true }); assert.match(h, /O manual mudou[\s\S]*Apresentar de novo/); assert.match(h, /id="asst-log"/, 'manual novo não bloqueia a conversa'); assert.ok(!h.includes('asst-input'), 'a entrada fica na barra do chat, não aqui'); }
+  { const h = assistantHtml({ ...base, stale: true }); assert.doesNotMatch(h, /Apresentar de novo/); assert.match(h, /id="asst-log"/, 'manual novo não bloqueia a conversa'); assert.ok(!h.includes('asst-input'), 'a entrada fica na barra do chat, não aqui'); }
   assert.match(assistantHtml(base), /asst-suggest/); assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /Pensando…/);
   assert.match(assistantHtml({ ...base, manual: { available: false } }), /não foi encontrado/);
 });
@@ -130,12 +130,12 @@ test('avisos do Assistente: cartões com "Me ajude" e "Dispensar", HTML escapado
   const h = assistantHtml(a); assert.ok(!h.includes('<b>Montador</b>') && !h.includes('<img src=x>')); assert.match(h, /as-alert bad/); assert.match(h, /data-act="asst-help" data-id="fail:1"/); assert.match(h, /data-act="asst-alert-dismiss" data-id="fail:1"/);
   assert.ok(!assistantHtml(base).includes('as-alerts')); assert.match(assistantHtml(base), /data-id="\/status"/); assert.match(assistantHtml(base), /data-id="\/pendencias"/);
   const ctx = cctx(); assert.match(bubbleHtml(ctx, { alert: true }), /cb-dot cb-alert/); assert.ok(!bubbleHtml(ctx, { alert: false }).includes('cb-alert')); assert.ok(!bubbleHtml(ctx, { unread: true, alert: true }).includes('cb-alert'), 'resposta nova tem prioridade sobre o aviso');
-  assert.match(bubbleHtml(ctx), /class="mascot mc-feliz"/, 'o rosto é o mascote de LED, não o gato nem a logo');
+  assert.match(bubbleHtml(ctx), /class="mascot nico-orb mc-feliz"/, 'o rosto é a bolinha do Nico, a mesma do Nico de mesa');
 });
 
 import { mascot, moodOf, sayOf, MOODS } from '../public/mascot.js';
 test('mascote: um rosto por humor, com nome acessível; o humor segue o estado (pensando > falha > aviso > novidade > dormindo > ok)', () => {
-  for (const m of Object.keys(MOODS)) { const h = mascot(m, 40); assert.match(h, new RegExp(`class="mascot mc-${m}"`)); assert.match(h, /role="img" aria-label="Assistente: /); assert.match(h, /width="40"/); }
+  for (const m of Object.keys(MOODS)) { const h = mascot(m, 40); assert.match(h, new RegExp(`class="mascot nico-orb mc-${m}"`)); assert.match(h, /role="img" aria-label="Assistente: /); assert.match(h, /width="40"/); }
   assert.match(mascot('inexistente'), /mc-feliz/, 'humor desconhecido volta ao padrão');
   const a = { briefed: true, alerts: [], pending: null };
   assert.equal(moodOf(a), 'feliz'); assert.equal(moodOf({ ...a, briefed: false }), 'dormindo'); assert.equal(moodOf(a, { unread: true }), 'surpreso'); assert.equal(moodOf(null), 'feliz');

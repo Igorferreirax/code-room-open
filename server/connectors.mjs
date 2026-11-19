@@ -232,14 +232,21 @@ export function normalize(provider, e) {
     if (e.type === 'system' && e.subtype === 'init') return { type: 'session', text: e.session_id, model: e.model };
     if (e.type === 'assistant') {
       const text = (e.message?.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
-      const tools = (e.message?.content || []).filter(c => c.type === 'tool_use').map(c => c.name).join(', ');
-      if (text || tools) return { type: 'activity', text: text || `Ferramentas: ${tools}` };
+      const tools = (e.message?.content || []).filter(c => c.type === 'tool_use').map(toolLabel).join(', ');
+      const u = e.message?.usage, ctx = u ? (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) : null;   // tamanho do contexto neste turno
+      if (text || tools) return { type: 'activity', text: text || `Ferramentas: ${tools}`, ...(ctx ? { ctx } : {}) };
     }
     if (e.type === 'result') return { type: e.is_error ? 'error' : 'result', text: e.result || e.errors?.join('\n') || '', usage: { input: e.usage?.input_tokens ?? null, output: e.usage?.output_tokens ?? null, cached: e.usage?.cache_read_input_tokens ?? null, cacheWrite: e.usage?.cache_creation_input_tokens ?? null, cost: e.total_cost_usd ?? null }, ...(Array.isArray(e.permission_denials) && e.permission_denials.length ? { denials: e.permission_denials.slice(0, 40).map(d => ({ tool_name: String(d.tool_name || ''), tool_input: { command: typeof d.tool_input?.command === 'string' ? d.tool_input.command.slice(0, 300) : undefined } })) } : {}) };
   }
   return null;
 }
 
+// Nome da ferramenta + alvo curto (arquivo, comando, busca), para a linha do tempo do cartão: "Edit app.js", "Bash npm test".
+export function toolLabel(c) {
+  const i = c?.input || {}, base = s => String(s || '').split(/[\\/]/).filter(Boolean).pop() || '';
+  const alvo = i.file_path || i.notebook_path ? base(i.file_path || i.notebook_path) : i.command ? String(i.command).replace(/\s+/g, ' ').trim().slice(0, 60) : i.pattern || i.query || i.url || i.path ? String(i.pattern || i.query || i.url || base(i.path)).slice(0, 60) : '';
+  return `${String(c?.name || 'ferramenta').replace(/^mcp__/, '').replace(/__/g, '/')}${alvo ? ' ' + alvo : ''}`;
+}
 // Rótulo do custo: o valor reportado por um CLI de assinatura é referência de API, não cobrança.
 export function labelUsage(provider, usage) {
   if (!usage) return null;

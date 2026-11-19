@@ -27,7 +27,7 @@ try:
         browser = pw.chromium.launch(channel='chrome', headless=True); ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
         ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
-        pg.on('dialog', lambda d: d.accept()); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=connections]'); pg.wait_for_selector('.prov-card', timeout=8000)
+        pg.on('dialog', lambda d: d.accept()); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('connections')"); pg.wait_for_selector('.prov-card', timeout=8000)
         check('Conexões tem o cartão "Outras IAs" vazio e o botão para conectar', 'Nenhuma IA extra' in pg.inner_text('.prov-card') and pg.is_visible('[data-act=prov-open]'))
         pg.click('[data-act=prov-open]'); pg.wait_for_selector('#prov-dialog[open]'); time.sleep(0.5)
         t = pg.inner_text('#prov-dialog'); check('janela lista as IAs populares com o estado de instalação', all(n in t for n in ('Gemini CLI', 'OpenCode', 'Aider', 'Qwen Code')) and ('CLI encontrada' in t or 'Ainda não encontrada' in t))
@@ -42,7 +42,7 @@ try:
         c = api('providers')['custom']; check('ficou gravada no servidor com id próprio', len(c) == 1 and c[0]['id'] == 'x-ia-de-teste' and c[0]['args'][-1] == '{prompt}', c)
         pg.click('[data-act=prov-test][data-id=x-ia-de-teste]'); pg.wait_for_selector('.prov-card .prov-test.upd-ok', timeout=30000); check('Testar no cartão funciona', True)
         # criar agente com a IA nova
-        pg.click('[data-nav=agents]'); time.sleep(0.5); pg.click('[data-act=new-agent]'); pg.wait_for_selector('#agent-dialog[open]'); opts = pg.eval_on_selector_all('#agent-form [name=provider] option', 'os => os.map(o => [o.value, o.textContent])')
+        pg.evaluate("crGo('agents')"); time.sleep(0.5); pg.click('[data-act=new-agent]'); pg.wait_for_selector('#agent-dialog[open]'); opts = pg.eval_on_selector_all('#agent-form [name=provider] option', 'os => os.map(o => [o.value, o.textContent])')
         check('o agente novo oferece a IA conectada na lista de ferramentas', ['x-ia-de-teste', 'IA de Teste'] in opts, opts)
         pg.fill('#agent-form [name=name]', 'Pesquisador Próprio'); pg.fill('#agent-form [name=role]', 'Pesquisa'); pg.select_option('#agent-form [name=provider]', 'x-ia-de-teste'); pg.click('#agent-form button.btn.block'); time.sleep(1.0)
         ag = [a for a in api('state')['agents'] if a['name'] == 'Pesquisador Próprio']; check('agente criado com a IA própria', len(ag) == 1 and ag[0]['provider'] == 'x-ia-de-teste' and ag[0]['mode'] == 'read', ag)
@@ -54,7 +54,7 @@ try:
         while time.time() < end and api('state')['runs'][0]['status'] not in ('completed', 'failed'): time.sleep(0.5)
         run = api('state')['runs'][0]; check('a tarefa rodou pela IA própria e terminou', run['status'] == 'completed', run)
         d = api(f"tasks/{t0['id']}"); check('a resposta da IA ficou registrada', 'resposta:' in json.dumps(d, ensure_ascii=False), str(d)[:200])
-        pg.click('[data-nav=room]'); time.sleep(1.0); pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode:'list'}))"); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=room]'); pg.wait_for_selector('.activity-card', timeout=15000); time.sleep(0.8)
+        pg.evaluate("crGo('room')"); time.sleep(1.0); pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode:'list'}))"); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('room')"); pg.wait_for_selector('.activity-card', timeout=15000); time.sleep(0.8)
         act = pg.inner_text('.activity-card'); check('Sala mostra "Atividade recente" com o agente e o que ele fez', 'Atividade recente' in act and 'Pesquisador Próprio' in act and 'concluiu' in act, act)
         tip = pg.get_attribute('.cv-node', 'title') or pg.get_attribute('.term-h', 'title') or pg.get_attribute('.status-strip .s', 'title') or ''; check('ao passar o mouse no agente, a dica mostra a última atividade', 'Última atividade' in tip and 'Pesquise temas' in tip, tip)
         # skills por categoria (no ambiente isolado só existem as skills que o servidor achar)
@@ -62,7 +62,7 @@ try:
         for n, d in (('editar-video-vertical', 'Edita videos verticais com legendas'), ('revisar-codigo', 'Revisa codigo e seguranca'), ('seo-audit-extra', 'Auditoria de SEO e marketing'), ('coisa-estranha', 'Algo sem categoria')):
             os.makedirs(os.path.join(sk, n)); open(os.path.join(sk, n, 'SKILL.md'), 'w', encoding='utf-8', newline='').write('---' + chr(10) + 'name: ' + n + chr(10) + 'description: ' + d + chr(10) + '---' + chr(10) + chr(10) + 'Texto da skill.' + chr(10))
         api('settings/skill-roots', {'path': sk.replace(chr(92), '/')}); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000)
-        pg.click('[data-nav=skills]'); pg.wait_for_selector('.cat-chips', timeout=15000); time.sleep(0.8)
+        pg.evaluate("crGo('skills')"); pg.wait_for_selector('.cat-chips', timeout=15000); time.sleep(0.8)
         chips = pg.eval_on_selector_all('.cat-chips button', 'bs => bs.map(b => b.textContent)'); check('Skills tem filtro por categoria com contagem', chips and chips[0].startswith('Todas ('), chips)
         check('as categorias das skills de teste aparecem com a contagem certa', any(c.startswith('Vídeo') and '(1)' in c for c in chips) and any(c.startswith('Código') and '(1)' in c for c in chips) and any(c.startswith('Marketing') and '(1)' in c for c in chips) and any(c.startswith('Outras') for c in chips), chips)
         if len(chips) > 1:
@@ -73,7 +73,7 @@ try:
         errs = [e for e in errs if 'status of 400' not in e]; check('sem erro de console (fora a recusa de propósito)', not errs, errs[:2]); ctx.close()
         # celular: janela de conectar cabe na tela
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
-        pg = ctx.new_page(); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.click('[data-nav=connections]'); pg.wait_for_selector('.prov-card'); pg.click('[data-act=prov-open]'); pg.wait_for_selector('#prov-dialog[open]'); time.sleep(0.5)
+        pg = ctx.new_page(); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('connections')"); pg.wait_for_selector('.prov-card'); pg.click('[data-act=prov-open]'); pg.wait_for_selector('#prov-dialog[open]'); time.sleep(0.5)
         box = pg.evaluate("(() => { const r = document.getElementById('prov-dialog').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
         check('celular: a janela cabe na tela sem rolagem lateral', box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2], box); ctx.close(); browser.close()
 finally:

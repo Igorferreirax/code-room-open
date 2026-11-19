@@ -147,6 +147,7 @@ try {
 
 # Nico flutuante do Windows (aparece quando o Code Room é minimizado).
 try { . (Join-Path $PSScriptRoot 'nico-flutuante.ps1') } catch {}
+try { . (Join-Path $PSScriptRoot 'nico-voz.ps1') } catch { $ni.ShowBalloonTip(4000, 'Nico', "A voz segurando Ctrl direito não iniciou: $($_.Exception.Message)", [System.Windows.Forms.ToolTipIcon]::Warning) }
 
 $falhas = 0
 $timer = New-Object System.Windows.Forms.Timer
@@ -158,4 +159,4 @@ $timer.add_Tick({
 $ni.Visible = $true
 $timer.Start()
 try { [System.Windows.Forms.Application]::Run() }
-finally { if ($hk) { try { [void][CrHotKeyWin]::UnregisterHotKey($hk.Handle, 1); $hk.DestroyHandle() } catch {} }; $timer.Stop(); $ni.Visible = $false; $ni.Dispose(); $mutex.ReleaseMutex(); $mutex.Dispose() }
+finally { try { [CrVozSegurar]::Parar() } catch {}; if ($hk) { try { [void][CrHotKeyWin]::UnregisterHotKey($hk.Handle, 1); $hk.DestroyHandle() } catch {} }; $timer.Stop(); $ni.Visible = $false; $ni.Dispose(); $mutex.ReleaseMutex(); $mutex.Dispose() }

@@ -1,24 +1,28 @@
-// Mascote do Assistente: uma cabecinha de robô com olhos de LED que muda de humor conforme o que acontece na ferramenta.
-// Desenho original (visor escuro, olhos ciano, fones), inspirado na ideia de "um rosto que mostra o estado", sem copiar nenhum personagem existente.
+// Mascote do Assistente (0.4.0): o Nico é uma bolinha de vidro azul e violeta com olhos, a mesma do Nico de mesa
+// (scripts/nico-flutuante.ps1). O humor muda os olhos e a cor da borda de luz. Desenho original do Code Room.
 export const MOODS = {
   feliz: { label: 'tudo certo', ring: 'var(--accent)' }, pensando: { label: 'pensando…', ring: 'var(--accent-h)' }, dormindo: { label: 'dormindo', ring: 'var(--line)' },
   preocupado: { label: 'algo falhou', ring: '#ef5b5b' }, alerta: { label: 'notei algo', ring: '#f5b73b' }, surpreso: { label: 'tenho novidade', ring: '#2dd4a0' },
 };
-const EYE = 'currentColor';   // a cor vem do humor (CSS: .mc-alerta, .mc-preocupado...), não fica fixa no desenho
-const eyes = {
-  feliz: `<path class="mc-eye" d="M17 34 Q23 25 29 34" /><path class="mc-eye" d="M35 34 Q41 25 47 34" /><path class="mc-mouth" d="M28 41 Q32 44 36 41" />`,
-  pensando: `<circle class="mc-eye" cx="23" cy="31" r="4.6" fill="${EYE}" stroke="none" /><circle class="mc-eye" cx="41" cy="31" r="4.6" fill="${EYE}" stroke="none" /><g class="mc-dots"><circle cx="27" cy="41" r="1.7" /><circle cx="32" cy="41" r="1.7" /><circle cx="37" cy="41" r="1.7" /></g>`,
-  dormindo: `<path class="mc-eye" d="M17 30 Q23 37 29 30" /><path class="mc-eye" d="M35 30 Q41 37 47 30" /><text class="mc-z" x="46" y="22">z</text>`,
-  preocupado: `<ellipse cx="23" cy="31" rx="4.4" ry="6" fill="${EYE}" stroke="none" transform="rotate(-18 23 31)" /><ellipse cx="41" cy="31" rx="4.4" ry="6" fill="${EYE}" stroke="none" transform="rotate(18 41 31)" /><path class="mc-mouth" d="M28 43 Q32 40 36 43" />`,
-  alerta: `<rect x="16.5" y="28" width="13" height="6.2" rx="3" fill="${EYE}" stroke="none" transform="rotate(16 23 31)" /><rect x="34.5" y="28" width="13" height="6.2" rx="3" fill="${EYE}" stroke="none" transform="rotate(-16 41 31)" />`,
-  surpreso: `<ellipse class="mc-eye" cx="23" cy="30" rx="4.8" ry="7" fill="${EYE}" stroke="none" /><ellipse class="mc-eye" cx="41" cy="30" rx="4.8" ry="7" fill="${EYE}" stroke="none" /><ellipse cx="32" cy="43" rx="2.4" ry="3" fill="${EYE}" stroke="none" />`,
+const RIM = { feliz: '#78f0ff', pensando: '#78f0ff', dormindo: '#8fa3c7', preocupado: '#ff7a7a', alerta: '#ffcd6e', surpreso: '#5fffc8' };
+const EYES = {
+  feliz: '<rect class="mc-eye" x="24.6" y="25" width="4.4" height="12" rx="2.2"/><rect class="mc-eye" x="35" y="25" width="4.4" height="12" rx="2.2"/>',
+  pensando: '<rect class="mc-eye" x="25.6" y="22" width="4.4" height="10" rx="2.2"/><rect class="mc-eye" x="36" y="22" width="4.4" height="10" rx="2.2"/><g class="mc-dots"><circle cx="26" cy="41" r="1.6"/><circle cx="32" cy="41" r="1.6"/><circle cx="38" cy="41" r="1.6"/></g>',
+  dormindo: '<path d="M23.5 32 q3 2.6 6 0 M34.5 32 q3 2.6 6 0" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><text class="mc-z" x="44" y="18">z</text>',
+  preocupado: '<rect x="24.6" y="26" width="4.4" height="10" rx="2.2" transform="rotate(-14 26.8 31)"/><rect x="35" y="26" width="4.4" height="10" rx="2.2" transform="rotate(14 37.2 31)"/>',
+  alerta: '<rect x="24.2" y="23.5" width="5.2" height="14" rx="2.6"/><rect x="34.6" y="23.5" width="5.2" height="14" rx="2.6"/>',
+  surpreso: '<rect class="mc-eye" x="24.4" y="23" width="4.8" height="15" rx="2.4"/><rect class="mc-eye" x="34.8" y="23" width="4.8" height="15" rx="2.4"/>',
 };
+let seq = 0;
 export function mascot(mood = 'feliz', size = 40) {
-  const m = eyes[mood] ? mood : 'feliz';
-  return `<svg class="mascot mc-${m}" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="Assistente: ${MOODS[m].label}"><g class="mc-body">
-    <rect x="3" y="26" width="6" height="14" rx="3" fill="#26314d" /><rect x="55" y="26" width="6" height="14" rx="3" fill="#26314d" /><rect x="3.8" y="30" width="1.6" height="6" rx=".8" fill="${EYE}" /><rect x="58.6" y="30" width="1.6" height="6" rx=".8" fill="${EYE}" />
-    <rect x="7" y="10" width="50" height="44" rx="19" fill="#f1f4fc" /><rect x="12" y="15" width="40" height="34" rx="14" fill="#0b1a33" /><rect class="mc-ant" x="27" y="7" width="10" height="4" rx="2" fill="#2dd4a0" />
-    <g class="mc-eyes" fill="none" stroke="${EYE}" stroke-width="4" stroke-linecap="round">${eyes[m]}</g></g></svg>`;
+  const m = EYES[mood] ? mood : 'feliz', id = 'nb' + (++seq).toString(36), rim = RIM[m];
+  return `<svg class="mascot nico-orb mc-${m}" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="Assistente: ${MOODS[m].label}"><defs>
+    <radialGradient id="${id}b" cx="35%" cy="28%" r="78%"><stop offset="0" stop-color="#d9d4ff"/><stop offset=".35" stop-color="#8f84ff"/><stop offset=".72" stop-color="#5546f0"/><stop offset="1" stop-color="#2f22b8"/></radialGradient>
+    <radialGradient id="${id}r" cx="50%" cy="100%" r="62%"><stop offset="0" stop-color="${rim}" stop-opacity=".95"/><stop offset="1" stop-color="${rim}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="${id}h" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="${id}g" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="${rim}" stop-opacity=".45"/><stop offset="1" stop-color="${rim}" stop-opacity="0"/></radialGradient></defs>
+    <g class="mc-body"><ellipse cx="32" cy="55" rx="24" ry="7" fill="url(#${id}g)"/><circle cx="32" cy="31" r="24" fill="url(#${id}b)"/><circle cx="32" cy="31" r="24" fill="url(#${id}r)"/>
+    <ellipse cx="23.5" cy="20" rx="10" ry="7" fill="url(#${id}h)" transform="rotate(-28 23.5 20)"/><g class="mc-eyes" fill="#fff">${EYES[m]}</g></g></svg>`;
 }
 
 // Humor atual do Assistente, na ordem de importância: pensando > falha > aviso > novidade > dormindo (ainda não apresentado) > tudo certo.

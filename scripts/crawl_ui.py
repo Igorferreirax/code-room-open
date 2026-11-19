@@ -50,7 +50,7 @@ try:
             pg.on('dialog', lambda d: d.dismiss()); pg.goto(URL, wait_until='domcontentloaded', timeout=60000); pg.wait_for_selector('#rail button', timeout=15000); time.sleep(1.0)
             for v in VIEWS:
                 print(f'Rastreando {label}/{v}...', flush=True)
-                where[0] = f'{label}/{v}'; pg.keyboard.press('Escape'); pg.click(f'[data-nav={v}]', timeout=8000); time.sleep(0.9)
+                where[0] = f'{label}/{v}'; pg.keyboard.press('Escape'); pg.evaluate('v => crGo(v)', v); time.sleep(0.9)
                 if not pg.inner_text('#view').strip(): problems.append(f'{where[0]}: tela em branco')
                 if pg.evaluate("document.querySelector('#topbar .project-pill')?.getBoundingClientRect().width || 0") < 100: problems.append(f'{where[0]}: o seletor de projeto ficou espremido na barra do topo')
                 if not pg.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'): problems.append(f'{where[0]}: rolagem lateral na página ({pg.evaluate("document.documentElement.scrollWidth")} > {size["width"]})')
@@ -71,7 +71,7 @@ try:
                     if not pg.is_visible('#shell'): problems.append(f'{where[0]}: o app sumiu depois de clicar em "{txt or act}"'); pg.goto('about:blank'); pg.goto(URL, wait_until='domcontentloaded', timeout=60000); pg.wait_for_selector('#rail button', timeout=15000)
                     if pg.evaluate("document.querySelector('#view')?.getAttribute('aria-label')") != pg.evaluate("document.querySelector('#view')?.getAttribute('aria-label')"): pass
                     cur = pg.evaluate("document.querySelector('#rail .on, #rail [aria-current]')?.dataset.nav || ''")
-                    if cur and cur != v: pg.keyboard.press('Escape'); pg.click(f'[data-nav={v}]', timeout=8000); time.sleep(0.5)
+                    if cur and cur != v: pg.keyboard.press('Escape'); pg.evaluate('v => crGo(v)', v); time.sleep(0.5)
                 pg.keyboard.press('Escape')
             for kind, w, msg in errs: problems.append(f'{label} [{kind}] {w}: {msg[:160]}')
             ctx.close()

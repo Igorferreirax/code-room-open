@@ -57,7 +57,7 @@ try:
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.route('**/api/state', handle); pg.route('**/api/connectors/check', connected)
         def show(name):
-            cur['runs'] = SCEN[name]; pg.goto('about:blank'); pg.goto(URL); pg.click('[data-nav=room]')
+            cur['runs'] = SCEN[name]; pg.goto('about:blank'); pg.goto(URL); pg.evaluate("crGo('room')")
             try: pg.wait_for_selector('.cv-node', timeout=15000)
             except Exception: print('   DEBUG erros:', errs[:3], '| texto:', pg.inner_text('body')[-260:].replace(chr(10), ' | ')); raise
             time.sleep(0.8)
@@ -83,13 +83,13 @@ try:
         check('6: sem tarefas: todos com zZ, nenhum verde, nenhuma linha andando', a['zzz'] and b['zzz'] and c['zzz'] and not live and pg.locator('.cv-node.st-running').count() == 0)
         check('legenda explica as cores', all(t in pg.inner_text('.cv-legend') for t in ('trabalhando', 'esperando a vez', 'parado', 'falhou', 'linha verde')))
         # movimento desligado: sem animação, mas o verde e a linha continuam
-        cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', anim: false}))"); pg.goto('about:blank'); pg.goto(URL); pg.click('[data-nav=room]'); pg.wait_for_selector('.cv-node'); time.sleep(0.8)
+        cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', anim: false}))"); pg.goto('about:blank'); pg.goto(URL); pg.evaluate("crGo('room')"); pg.wait_for_selector('.cv-node'); time.sleep(0.8)
         anim = pg.evaluate("[getComputedStyle([...document.querySelectorAll('.cv-node.st-running')][0]).animationName, getComputedStyle(document.querySelector('.cv-pulse')).display]")
         check('movimento desligado: continua verde, mas sem animação e sem bolinhas', anim[0] == 'none' and anim[1] == 'none' and pg.locator('.cv-node.st-running').count() == 1, anim)
         check('sem erro de console (desktop)', not errs, errs[:2]); pg.unroute_all(behavior='ignoreErrors'); ctx.close()
         # celular
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); ctx.add_init_script("try { if (!localStorage.getItem('cr.prefs')) localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', motion: 'on'})); localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
-        pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.route('**/api/connectors/check', connected); pg.goto(URL); pg.click('[data-nav=room]'); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
+        pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.route('**/api/connectors/check', connected); pg.goto(URL); pg.evaluate("crGo('room')"); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
         check('celular: verde e linha ativa aparecem', pg.locator('.cv-node.st-running').count() == 1 and pg.locator('.cv-edge.live').count() == 1)
         check('celular: sem rolagem lateral na página', pg.evaluate('document.documentElement.scrollWidth <= innerWidth')); pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'cv-m.png')); pg.unroute_all(behavior='ignoreErrors'); ctx.close(); browser.close()
 finally:

@@ -38,6 +38,7 @@ test('aprovar cria a tarefa filha (parentTaskId, profundidade) com a passagem de
 
 test('a tarefa concluída propõe sozinha (gancho do orquestrador) e nada roda antes da aprovação', async () => {
   const { store, runner } = await setup(), P = await addProject(store, 'sub3'), A = addAgent(store, 'dev'), B = addAgent(store, 'rev');
+  store.put('settings', { id: 'orchestrationPolicy', directExec: false });   // com a execução direta (padrão) o pedido rodaria sozinho
   const t = task(store, P, A, 'answer=ok\n' + 'x'); store.put('tasks', { ...store.get('tasks', t.id), objective: `[[fake answerfile=${await mkAnswer(bloco({ agente: 'rev', objetivo: 'Revise por favor' }))}]] faça` }); await runner.pump();
   await waitFor(() => store.get('tasks', t.id).status === 'completed', 20000, 'tarefa'); await new Promise(r => setTimeout(r, 300));
   assert.equal(store.list('subtasks').length, 1); assert.equal(store.list('subtasks')[0].status, 'proposed'); assert.equal(store.list('tasks').length, 1, 'o outro agente não foi acionado');

@@ -95,7 +95,7 @@ test('equipe: pedido que não gera arquivo termina no desenvolvedor, sem rodar o
   const dev = addAgent(store, 'dev', { name: 'Theo', mode: 'write', instructions: '[[fake answer=Abri_o_programa]]' });
   const rev = addAgent(store, 'rev', { name: 'Iris', mode: 'read', instructions: '[[fake answer=VEREDITO:_APROVADO]]' });
   const tm = orchestrator.saveTeam({ name: 'Ação', members: [{ role: 'desenvolvedor', agentId: dev.id }, { role: 'revisor', agentId: rev.id }] });
-  const { flow } = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'sem-arquivo', objective: 'Abrir o bloco de notas' });
+  const { flow } = orchestrator.startSequential({ projectId: P.id, teamId: tm.id, requestId: 'sem-arquivo', objective: 'Abrir o bloco de notas', review: true });
   await waitFor(() => store.get('flows', flow.id).status !== 'running', 30000, 'fluxo');
   const f = store.get('flows', flow.id); assert.equal(f.status, 'completed'); assert.equal(f.reviewSkipped, true); assert.equal(f.taskIds.length, 1);
   const review = store.list('tasks').find(t => t.flowId === flow.id && t.step === 'review'); assert.equal(review.status, 'cancelled'); assert.match(review.reason, /Sem arquivos/);

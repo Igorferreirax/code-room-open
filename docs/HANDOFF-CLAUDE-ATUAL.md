@@ -2,6 +2,25 @@
 
 Leia primeiro `AGENTS.md`, este arquivo e a última seção de `C:\Users\Igor\Documents\Obsidian Vault\SOFTWARE\CODE-ROOM\contexto\retomada-v1-2026-11-07.md`. Handoffs e roadmaps antigos são histórico.
 
+## 0.4.0 EM ANDAMENTO (Claude, 18/11/2026, noite) — não publicada
+
+Commit local "0.4.0 (em andamento)" na branch `codex/035-public-release`; nada enviado ao GitHub. Decisões do Igor na memória `plano-040-decisoes`.
+
+**Feito e testado (525/525 testes, auditoria 66/66, sintaxe ok):**
+- Voz segurando **Ctrl direito** em qualquer programa (`scripts/nico-voz.ps1`, C# na bandeja: gancho de teclado + gravação MCI, ignora teclas injetadas); transcrição pelo Groq (`server/voice-transcribe.mjs`, rotas `/api/voice/config|transcribe|native`, chave via `apiLib.keyFor('groq')`); sem chave, ditado do navegador. Microfone do chat: segurar grava, clicar alterna. **Igor ainda não testou com microfone real**; ele achou que era clique direito/Ctrl+seta: é a tecla Ctrl do lado direito, sozinha, segurada.
+- **Nico de mesa nativo** (`scripts/nico-flutuante.ps1` reescrito, `CrNicoMesa`, janela em camadas): ilha no topo quando o app está atrás, bot solto e arrastável quando minimizado (posição em `.data/nico-mesa.txt`), esfera de partículas ao ouvir, anel âmbar em aprovação + aviso do Windows. Visto por captura (BitBlt com CAPTUREBLT). Modo solto e arrastar não testados à mão.
+- **Execução direta**: `directExec` padrão true; revisor só com `review: true`/`skipReview:false` ou modo cuidadoso; equipe de 1 membro; postagem só com `[CONTAS PARA POSTAR`; `iniciar_tarefa` aceita `revisar`; RULES/PILOT_RULES reforçados.
+- **Interface enxuta**: formulário de agente em camadas (Capacidades declaradas escondidas); barra com **5 seções** + abas `#sec-tabs` (`NAV_SECTIONS`, `window.crGo` usado pelos roteiros); atalhos Rápido/Padrão/Piloto no chat; compositor do chat redesenhado; mascote virou a bolinha de vidro (`public/mascot.js`); Ctrl+K (`public/palette.js`); terminais lado a lado (`term-dock.js`); cartão de aprovação com "Vai executar/alterar", Enter/Esc; linha do tempo de ferramentas + contexto (`liveSteps` no `brief`, `toolLabel` em connectors, aviso /compact ≥150 mil tokens); `objectivePreview` (cartões não mostram o prompt interno do Nico).
+- **Entregas com revisão enxuta** (`needsDeliveryApproval` exportado; só mídia ou QA reprovado ficam "Para revisar"). Aba Navegador da Sala e item do menu removidos (duplicados).
+- **Nico guia** (`public/nico-guide.js`): apresentação central (instalação nova ou >7 dias fora) com caminhos Vídeo/Código/Escrita/Automação que levam à tela, abrem navegador/terminal e deixam o pedido pronto no chat; tour com o Nico flutuante; menu do usuário › Apresentação do Nico.
+- **Manual do Nico** reorganizado (ordem de decisão; 12,9 KB) e relido só quando o arquivo muda (cache por data/tamanho); aviso "Apresentar de novo" removido.
+- **Contribuir** (Configurações › Contribuir, `public/contribute-ui.js`): relato abre issue preenchida no GitHub (clique da pessoa), comandos `gh` de fork/PR; CONTRIBUTING.md e PRIVACIDADE.md atualizados.
+- Segurança: a chave de acesso não vai mais para o `server.log`.
+
+**Roteiros de interface:** rodada completa passou em 9 de 12; `ui_smoke` 154/154 na repetição; falhas de `test_radio`/`ui_updates` foram tempo com a máquina ocupada. Ajustados `ui_mention`, `ui_onboarding`, `ui_assistant` e celular (Terminal/Navegador escondidos ≤760 px). Uma rodada dos afetados estava rodando no fim da sessão: **rode de novo** `ui_onboarding ui_mention ui_assistant crawl_ui ui_smoke test_radio ui_updates`.
+
+**Próximos (ordem combinada):** Espaços (Vídeo/Código com Nico fixo à direita) → caminho de vídeo de ponta a ponta com 🎯 Ajustar falando com o Nico (trecho + print, confirmação) → portão de testes (rascunho pronto na pasta temporária, recriar: comando por projeto, lista de programas, falha volta ao agente 1 vez) → diff colorido (o servidor já gera diff unificado em `deliverables.mjs`; falta só renderizar) → redesenho com a skill `frontend-design` → aprovação no Codex/agy e pelo Telegram → teste em máquina limpa. Lista de primeiros passos e "bem-vindo de volta" curto também combinados.
+
 ## Git e publicação
 
 - Pasta do app: `C:\Users\Igor\Desktop\Code Room Publico`, branch local `codex/035-public-release`, em dia com o `main` público de `Igorferreirax/code-room-open` (MIT).

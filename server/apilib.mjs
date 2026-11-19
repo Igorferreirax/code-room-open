@@ -40,6 +40,8 @@ export class ApiLibrary {
   async #save(o) { const f = join(this.dir, 'api-secrets.json'); await writeFile(f, JSON.stringify(o, null, 2)); try { await chmod(f, 0o600); } catch {} }
   catalog() { return Object.fromEntries(Object.entries(SERVICES).map(([k, v]) => [k, { name: v.name, where: v.where, usageNote: v.usageNote }])); }
   #view(e, s) { return { id: e.id, service: e.service, name: e.name, note: e.note || '', hasKey: !!s[e.id]?.key, tail: s[e.id]?.key ? '…' + String(s[e.id].key).slice(-4) : '', createdAt: e.createdAt, last: e.last || null }; }
+  // Uso interno (nunca vai para a tela): a primeira chave guardada de um serviço, para funções como a voz pelo Groq.
+  keyFor(service) { const s = this.#secrets(); const e = this.store.list('apiKeys').filter(x => x.service === service && s[x.id]?.key).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]; return e ? s[e.id].key : ''; }
   list() { const s = this.#secrets(); return this.store.list('apiKeys').sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(e => this.#view(e, s)); }
   async save(b) {
     const svc = SERVICES[b.service]; if (!svc) throw new Error('Escolha o serviço da lista.');

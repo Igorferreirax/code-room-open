@@ -46,7 +46,13 @@ try:
 
         # ---------- desktop: instalação nova ----------
         ctx, pg, errs = new_page({'width': 1440, 'height': 900})
-        pg.goto(URL); pg.wait_for_selector('.onb-card', timeout=10000); time.sleep(0.6)
+        pg.goto(URL); pg.wait_for_selector('.ng-stage', timeout=10000); time.sleep(0.4)
+        check('primeiro acesso: o Nico aparece no meio da tela perguntando o que fazer, com caminhos e Pular', 'O que vamos fazer hoje?' in pg.locator('#ng-title').inner_text() and pg.locator('.ng-path').count() >= 4 and pg.locator('[data-act=ng-skip]').count() == 1)
+        pg.click('[data-act=ng-path][data-id=video]'); time.sleep(0.2)
+        check('escolher um caminho: o Nico explica para onde vai levar antes de ir', 'vídeo' in pg.locator('#ng-title').inner_text() and pg.locator('[data-act=ng-go]').count() == 1)
+        pg.keyboard.press('Escape'); time.sleep(0.3)
+        check('Esc fecha o Nico; numa instalação nova, segue para conectar as IAs', pg.locator('.ng-stage').count() == 0)
+        pg.wait_for_selector('.onb-card', timeout=10000); time.sleep(0.6)
         check('primeiro acesso abre sozinho com o Workspace e pergunta como chamar a pessoa', pg.locator('.onb-card #onb-title').inner_text() == 'Olá! Este é o seu Workspace' and pg.locator('#workspace-name').count() == 1)
         rows = pg.locator('.onb-row').all_inner_texts()
         check('triagem: Codex aparece Conectado', 'Conectado' in rows[0] and 'Codex' in rows[0], rows[0])

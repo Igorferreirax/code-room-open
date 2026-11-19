@@ -16,7 +16,7 @@ function loadXterm() {
 
 export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
   const tabs = new Map();   // id -> { id, title, term, fit, el, alive, ro }
-  let active = null, open = false, height = 320, menu = false;
+  let active = null, open = false, height = 320, menu = false, split = false, second = null, pane = 0;   // split: dois terminais lado a lado (active à esquerda, second à direita)
   try { height = Math.max(160, Math.min(900, Number(localStorage.getItem('cr.term.h')) || 320)); } catch {}
   const host = document.createElement('section'); host.id = 'term-dock'; host.className = 'term-dock'; host.hidden = true; host.setAttribute('aria-label', 'Terminais');
   host.innerHTML = '<div class="td-grip" title="Arraste para mudar a altura"></div><div class="td-bar"><div class="td-tabs" role="tablist"></div><div class="td-actions"></div></div><div class="td-body"></div>';
@@ -26,11 +26,24 @@ export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
   const apply = () => { host.hidden = !open; host.style.height = `${height}px`; document.body.classList.toggle('term-open', open); document.documentElement.style.setProperty('--term-h', open ? `${height}px` : '0px'); };
   const drawBar = () => {
     const ctx = getCtx(), have = new Set((ctx.state?.connectors || []).filter(c => c.available).map(c => c.id)), pr = (ctx.state?.projects || []).find(p => p.id === ctx.project), fin = pr?.area === 'Financeiro';
-    bar.innerHTML = [...tabs.values()].map(t => `<div class="td-tab${t.id === active ? ' on' : ''}${t.alive ? '' : ' off'}" role="tab" aria-selected="${t.id === active}"><button type="button" data-td="pick" data-id="${t.id}">${esc(t.title)}</button><button type="button" class="td-x" data-td="close" data-id="${t.id}" aria-label="Fechar ${esc(t.title)}">×</button></div>`).join('');
-    actionsEl.innerHTML = `<div class="td-new"><button type="button" class="btn ghost sm" data-td="menu" aria-expanded="${menu}">+ Novo terminal</button>${menu ? `<div class="td-menu" role="menu"><p class="small muted">Na pasta de ${esc(pr ? pr.name : 'sua pasta pessoal')}</p>${CLIS.filter(([id]) => id === 'shell' || (have.has(id) && !fin)).map(([id, l]) => `<button type="button" class="term-item" data-td="new" data-id="${id}">${esc(l)}</button>`).join('')}${fin ? '<p class="small muted">Projeto Financeiro: só o shell puro.</p>' : '<label class="term-free small"><input type="checkbox" id="td-free"> Irrestrito: a IA executa tudo sem pedir confirmação</label>'}<button type="button" class="term-item muted" data-td="external">Abrir fora, no Windows Terminal</button></div>` : ''}</div><button type="button" class="iconbtn sm" data-td="hide" aria-label="Esconder terminais" title="Esconder (as abas continuam rodando)">⌄</button>`;
+    bar.innerHTML = [...tabs.values()].map(t => `<div class="td-tab${t.id === active || (split && t.id === second) ? ' on' : ''}${t.alive ? '' : ' off'}" role="tab" aria-selected="${t.id === active}"><button type="button" data-td="pick" data-id="${t.id}">${esc(t.title)}</button><button type="button" class="td-x" data-td="close" data-id="${t.id}" aria-label="Fechar ${esc(t.title)}">×</button></div>`).join('');
+    actionsEl.innerHTML = `<button type="button" class="btn ghost sm td-split" data-td="split" aria-pressed="${split}" title="${split ? 'Voltar a um terminal só' : 'Dividir: dois terminais lado a lado (ex.: servidor à esquerda, IA à direita)'}">◫ ${split ? 'Juntar' : 'Dividir'}</button><div class="td-new"><button type="button" class="btn ghost sm" data-td="menu" aria-expanded="${menu}">+ Novo terminal</button>${menu ? `<div class="td-menu" role="menu"><p class="small muted">Na pasta de ${esc(pr ? pr.name : 'sua pasta pessoal')}</p>${CLIS.filter(([id]) => id === 'shell' || (have.has(id) && !fin)).map(([id, l]) => `<button type="button" class="term-item" data-td="new" data-id="${id}">${esc(l)}</button>`).join('')}${fin ? '<p class="small muted">Projeto Financeiro: só o shell puro.</p>' : '<label class="term-free small"><input type="checkbox" id="td-free"> Irrestrito: a IA executa tudo sem pedir confirmação</label>'}<button type="button" class="term-item muted" data-td="external">Abrir fora, no Windows Terminal</button></div>` : ''}</div><button type="button" class="iconbtn sm" data-td="hide" aria-label="Esconder terminais" title="Esconder (as abas continuam rodando)">⌄</button>`;
   };
-  const fitActive = () => { const t = tabs.get(active); if (!t?.fit || !open) return; try { t.fit.fit(); } catch {} };
-  const show = id => { active = id; for (const t of tabs.values()) t.el.hidden = t.id !== id; drawBar(); setTimeout(() => { fitActive(); tabs.get(id)?.term?.focus(); }, 30); };
+  const fitActive = () => { if (!open) return; for (const id of [active, split ? second : null]) { const t = tabs.get(id); if (t?.fit) try { t.fit.fit(); } catch {} } };
+  const layout = () => { body.classList.toggle('split', split); for (const t of tabs.values()) { const l = t.id === active, r = split && t.id === second; t.el.hidden = !(l || r); t.el.classList.toggle('td-left', l && split); t.el.classList.toggle('td-right', r); t.el.classList.toggle('td-focus', split && ((pane === 0 && l) || (pane === 1 && r))); } };
+  const show = id => {
+    if (!tabs.has(active)) active = null;
+    if (split && pane === 1 && active && id !== active) second = id; else { if (split && id === second) second = active; active = id; }
+    if (split && (!second || second === active)) second = [...tabs.keys()].find(k => k !== active) || null;
+    if (split && !second) split = false;
+    layout(); drawBar(); setTimeout(() => { fitActive(); tabs.get(id)?.term?.focus(); }, 30);
+  };
+  async function toggleSplit() {
+    if (split) { split = false; second = null; pane = 0; layout(); drawBar(); setTimeout(fitActive, 30); return; }
+    split = true; pane = 1;
+    const other = [...tabs.keys()].find(k => k !== active);
+    if (other) { second = other; layout(); drawBar(); setTimeout(fitActive, 30); } else await create('shell');
+  }
 
   async function attach(v) {
     await loadXterm();
@@ -71,7 +84,8 @@ export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
     const t = tabs.get(id); if (!t) return;
     try { await api(`term/${id}/close`, {}); } catch {}
     try { t.ro?.disconnect(); t.term.dispose(); } catch {} t.el.remove(); tabs.delete(id);
-    if (active === id) active = [...tabs.keys()].at(-1) || null;
+    if (second === id) { second = null; split = false; }
+    if (active === id) { active = split && second ? second : [...tabs.keys()].at(-1) || null; if (active === second) { second = null; split = false; } }
     if (active) show(active); else { drawBar(); if (!tabs.size) { open = false; apply(); } }
   }
   // Terminais abertos fora desta tela (pelo Nico, por exemplo): aparecem aqui sozinhos.
@@ -90,6 +104,7 @@ export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
     if (act === 'pick') show(b.dataset.id);
     else if (act === 'close') close(b.dataset.id);
     else if (act === 'hide') { open = false; menu = false; apply(); }
+    else if (act === 'split') toggleSplit();
     else if (act === 'menu') { menu = !menu; drawBar(); }
     else if (act === 'new') {
       const free = !!host.querySelector('#td-free')?.checked;
@@ -100,6 +115,7 @@ export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
       try { const r = await api('terminal', { projectId: getCtx().project || null, cli: 'shell', irrestrito: false }); notify(r.result); } catch (err) { notify(err.message, true); }
     }
   });
+  body.addEventListener('pointerdown', e => { if (!split) return; const el = e.target.closest('.td-term'); if (!el) return; pane = el.classList.contains('td-right') ? 1 : 0; layout(); }, true);
   // Arrastar a borda de cima muda a altura.
   host.querySelector('.td-grip').addEventListener('pointerdown', e => {
     e.preventDefault(); const y0 = e.clientY, h0 = height;
@@ -111,6 +127,6 @@ export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
 
   return {
     toggle() { open = !open; apply(); drawBar(); if (open && !tabs.size) create('shell'); else if (open) setTimeout(fitActive, 30); },
-    openNew: create, sync, isOpen: () => open, count: () => tabs.size,
+    openNew: create, sync, isOpen: () => open, count: () => tabs.size, split: toggleSplit, isSplit: () => split,
   };
 }
