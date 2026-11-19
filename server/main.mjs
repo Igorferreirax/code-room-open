@@ -84,7 +84,7 @@ import { GOALS, PLAYBOOKS, getPolicy, savePolicy, quotaHeadroom, policyPromptLin
 import { acquireInstanceLock } from './single-instance.mjs';
 import { scanLocalPorts, scanProjectPages, liveContentType, proxyLocalPort } from './live-preview.mjs';
 import { revertTaskChanges, planRevert } from './task-checkpoint.mjs';
-import { localOnlyReason, mobileActionAllowed, deviceState } from './access-policy.mjs';
+import { localOnlyReason, mobileActionAllowed, deviceState, hostActionAllowed } from './access-policy.mjs';
 import { validateTaskArtifacts } from './quality-gates.mjs';
 import { buildZip } from './zip-writer.mjs';
 
@@ -916,7 +916,7 @@ const handle = async (req, res) => {
         if (p.startsWith('/api/assistant/')) {
           masterOnly(auth); const a = p.slice('/api/assistant/'.length);
           if (a === 'brief') return send(res, 202, await assistant.brief({ provider: b.provider }));
-          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null, readOnly: b.readOnly === true, image: typeof b.image === 'string' ? b.image : null }));
+          if (a === 'ask') return send(res, 202, await assistant.ask(text(b.text, 4000), { origin: isLocal(ip) ? 'local' : 'remote', projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: typeof b.extraDir === 'string' ? b.extraDir : null, readOnly: b.readOnly === true, image: typeof b.image === 'string' ? b.image : null }));
           if (a === 'reset') return send(res, 200, await assistant.reset());
           if (a === 'thread/new') return send(res, 200, await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null }));
           if (a === 'thread/select') return send(res, 200, await assistant.selectThread(text(b.id, 40)));
@@ -927,7 +927,12 @@ const handle = async (req, res) => {
           if (a === 'provider') return send(res, 200, await assistant.setProvider(b.provider, { ...(typeof b.model === 'string' ? { model: b.model.trim() ? agentModel(b.provider, b.model) : '' } : {}), ...(typeof b.effort === 'string' ? { effort: b.effort } : {}), ...(typeof b.unrestricted === 'boolean' ? { unrestricted: b.unrestricted } : {}) }));
           if (a === 'autonomy') return send(res, 200, await assistant.setAutonomy(b.mode));
           if (a === 'name') return send(res, 200, await assistant.setName(b.name));
-          if (a === 'apply') return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
+          if (a === 'apply') {
+            // Ações que executam no computador (abrir, terminal, pastas locais): só com o pedido vindo do próprio computador.
+            const st0 = await assistant.status(), act = (st0.messages || []).find(x => x.id === b.messageId)?.actions?.find(x => x.idx === Number(b.index));
+            if (act && !hostActionAllowed(act, { local: isLocal(ip) })) return send(res, 403, { error: 'Esta ação executa algo no computador e só pode ser aprovada nele.' });
+            return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
+          }
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
           if (a === 'cancel') return send(res, 200, await assistant.cancel());
           if (a === 'undo-folder') return send(res, 200, await assistant.undoFolder(text(b.messageId, 80)));
@@ -942,7 +947,7 @@ const handle = async (req, res) => {
         if (p.startsWith('/api/mobile/assistant/')) {
           const a = p.slice('/api/mobile/assistant/'.length);
           const cleanMob = st => ({ ...st, desktopPath: null, downloadsPath: null, documentsPath: null, mobile: true });
-          if (a === 'ask') return send(res, 202, cleanMob(await assistant.ask(text(b.text, 4000), { projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: null, readOnly: true })));
+          if (a === 'ask') return send(res, 202, cleanMob(await assistant.ask(text(b.text, 4000), { origin: 'device', projectId: typeof b.projectId === 'string' ? b.projectId : null, screen: typeof b.screen === 'string' ? b.screen : '', extraDir: null, readOnly: true })));
           if (a === 'cancel') return send(res, 200, cleanMob(await assistant.cancel()));
           if (a === 'dismiss') return send(res, 200, cleanMob(await assistant.dismiss(text(b.messageId, 80), Number(b.index))));
           if (a === 'thread/select') return send(res, 200, cleanMob(await assistant.selectThread(text(b.id, 40))));
@@ -950,7 +955,7 @@ const handle = async (req, res) => {
           if (a === 'apply') {
             const st0 = await assistant.status(), msg = (st0.messages || []).find(x => x.id === b.messageId), act = msg?.actions?.find(x => x.idx === Number(b.index));
             if (!act) throw new Error('Ação não encontrada.');
-            if (!mobileActionAllowed(act)) throw new Error('Esta ação mexe no computador ou em permissões e só pode ser aprovada no próprio computador.');
+            if (!mobileActionAllowed(act, { agentOf: pl => { const ag = id => store.get('agents', id); if (pl.agentId) return [ag(pl.agentId)]; if (pl.teamId) return (store.get('teams', pl.teamId)?.members || []).map(m => ag(m.agentId || m.id || m)); if (pl.taskId) return [store.get('tasks', pl.taskId)?.agent]; return []; } })) throw new Error('Esta ação mexe no computador ou em permissões e só pode ser aprovada no próprio computador.');
             const r = await assistant.apply(text(b.messageId, 80), Number(b.index));
             return send(res, 200, { ...r, status: cleanMob(r.status) });
           }

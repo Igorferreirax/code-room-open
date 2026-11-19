@@ -24,11 +24,24 @@ export const LOCAL_ONLY_RULES = LOCAL_ONLY.map(x => ({ path: x.re.source, metodo
 
 // Ações do Nico que o celular pode aprovar (lista do que É permitido: ação nova começa proibida no celular).
 export const MOBILE_ACTIONS = new Set(['abrir_tela', 'iniciar_tarefa', 'cancelar_tarefa', 'repetir_tarefa', 'criar_agente', 'criar_equipe', 'vincular_agente', 'ligar_agentes', 'contratar_biblioteca', 'definir_skills', 'criar_rotina', 'gerenciar_rotina', 'guardar_nota', 'contexto_projeto', 'comparar_ias']);
-export function mobileActionAllowed(act) {
+// O celular olha também o CONTEÚDO da ação: criar agente só de leitura e sem ferramentas; iniciar ou repetir tarefa
+// nunca com agente em modo irrestrito (esse roda sem pedir confirmação). agentOf: busca o agente no servidor.
+export function mobileActionAllowed(act, { agentOf = () => [] } = {}) {
   if (!act || !MOBILE_ACTIONS.has(act.type)) return false;
-  if (act.payload?.unrestricted || act.payload?.irrestrito) return false;   // modo irrestrito só com clique no computador
+  const p = act.payload || {};
+  if (p.unrestricted || p.irrestrito) return false;   // modo irrestrito só com clique no computador
+  if (act.type === 'criar_agente' && (p.mode === 'write' || (p.commands || []).length || (p.mcpTools || []).length || p.web || (p.browser && p.browser !== 'off') || p.skillTool)) return false;
+  if (['iniciar_tarefa', 'repetir_tarefa'].includes(act.type)) {
+    const agents = agentOf(p);   // o servidor resolve agente, equipe (todos os membros) ou a tarefa a repetir
+    if (!agents?.length || agents.some(ag => !ag || ag.unrestricted)) return false;   // desconhecido ou irrestrito: só no computador
+  }
   return true;
 }
+
+// Ações do Nico que EXECUTAM coisas no computador (abrem programas, digitam no terminal, mexem em pastas locais).
+// Só valem quando quem pediu está no próprio computador, tanto pelo botão quanto pela aplicação automática do Piloto.
+export const HOST_ACTIONS = new Set(['abrir', 'abrir_terminal', 'enviar_terminal', 'importar_projeto', 'criar_pasta_entrada']);
+export const hostActionAllowed = (act, { local }) => !HOST_ACTIONS.has(act?.type) || !!local;
 
 // O que o celular recebe do estado: só os campos que a tela do celular usa. Caminhos de pastas, instruções dos
 // agentes, ferramentas liberadas e executáveis ficam no computador.

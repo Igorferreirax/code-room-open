@@ -157,8 +157,9 @@ test('irrestrito sem Git: cópia de segurança antes e "Reverter alterações" d
 
 test('pastas liberadas: validação, entrega às CLIs (Claude/Gemini todas, Codex só as de editar) e texto do pedido', async () => {
   const { cleanWorkDirs, liveWorkDirs, workDirsBlock } = await import('../server/workdirs.mjs');
-  const { mkdtempSync, mkdirSync } = await import('node:fs'); const { tmpdir } = await import('node:os');
-  const base = mkdtempSync(join(tmpdir(), 'cr-wd-')), proj = join(base, 'proj'), fora = join(base, 'fotos'), outra = join(base, 'docs'); mkdirSync(proj); mkdirSync(fora); mkdirSync(outra); mkdirSync(join(proj, 'sub'));
+  const { mkdtempSync, mkdirSync, realpathSync } = await import('node:fs'); const { tmpdir } = await import('node:os');
+  // caminho canônico: no CI o TEMP vem com nome curto 8.3 (RUNNER~1)
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), 'cr-wd-'))), proj = join(base, 'proj'), fora = join(base, 'fotos'), outra = join(base, 'docs'); mkdirSync(proj); mkdirSync(fora); mkdirSync(outra); mkdirSync(join(proj, 'sub'));
   const ok = await cleanWorkDirs([{ path: fora, write: true }, { path: outra, write: false }, { path: fora }], proj);
   assert.equal(ok.length, 2, 'repetida sai'); assert.equal(ok[1].write, false);
   await assert.rejects(cleanWorkDirs([{ path: join(proj, 'sub') }], proj), /faz parte do projeto/);

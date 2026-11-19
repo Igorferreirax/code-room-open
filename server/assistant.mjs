@@ -3,6 +3,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSy
 import { join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { createTask } from './tasks.mjs';
+import { hostActionAllowed } from './access-policy.mjs';
 import { KNOWN_CAPABILITIES } from './supervisor.mjs';
 import { ROLES } from './orchestrator.mjs';
 import { cleanModel, cleanEffort } from './effort.mjs';
@@ -558,8 +559,9 @@ export function folderListing(dir, { max = 150, chars = 2600 } = {}) {
 export const chooseProvider = (preferred, connected) => (preferred && connected.has(preferred)) ? preferred : PROVIDER_ORDER.find(p => connected.has(p)) || [...connected].find(p => /^x-[a-z0-9-]{1,40}$/.test(p)) || null;
 
 // No Modo Piloto (já autorizado pela pessoa), toda ação validada do Code Room é aplicada na hora, sem trava intermediária (publicações em redes continuam sempre pedindo confirmação própria).
-export function canAutoApplyInPilot(a) {
+export function canAutoApplyInPilot(a, { local = true } = {}) {
   if (a?.type === 'abrir_terminal' && a.payload?.irrestrito) return false;   // modo irrestrito só com o clique da pessoa
+  if (!hostActionAllowed(a, { local })) return false;   // pedido vindo de fora (Tailscale/rede): nada que execute no computador
   return Boolean(a?.valid);
 }
 
@@ -679,7 +681,7 @@ export class Assistant {
           putMsgs({ pending: null, error: null });
           if (p.pilot && acts.length) {
             for (const act of acts) {
-              if (!canAutoApplyInPilot(act)) break;
+              if (!canAutoApplyInPilot(act, { local: p.origin !== 'remote' })) break;
               try { await this.#applyCore(msgId, act.idx, { auto: true }); }
               catch { break; }
             }
@@ -724,7 +726,7 @@ export class Assistant {
     const p = await this.#pickProvider(provider), maxB = this.#maxBudget(p), task = this.#task(p, briefingPrompt(maxB < TASK_BUDGET ? manual.text.slice(0, Math.max(4000, maxB - 4000)) : manual.text), 'brief');
     this.#save({ briefing: { taskId: task.id, provider: p, at: new Date(this.now()).toISOString() }, error: null }); return this.status();
   }
-  async ask(text, { projectId = null, screen = '', extraDir = null, image = null, readOnly = false } = {}) {
+  async ask(text, { projectId = null, screen = '', extraDir = null, image = null, readOnly = false, origin = 'local' } = {}) {
     await this.#sync(); let s = this.s; const q = String(text ?? '').trim(); if (!q) throw new Error('Escreva a sua pergunta.');
     if (q.length > MAX_QUESTION) throw new Error(`A pergunta passou de ${MAX_QUESTION} caracteres.`);
     const focusProject = projectId ? this.store.get('projects', projectId) : null, scopeId = focusProject?.internal ? null : focusProject?.id || null;
@@ -771,7 +773,7 @@ export class Assistant {
       task = this.#task(p, prompt, 'ask', { pilot, projectId: sidelined ? null : projectId, extraDir, imagePath });
     } catch (e) { removeChatImage(this.dataDir, imagePath); throw e; }
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
-    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, question: q, ...(sidelined ? { sidelined: true } : {}), ...(switchedFrom ? { switched: p } : {}), projectId: scopeId, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir, extraAccess: pilot ? 'edit' : 'read' } : {}) } }], error: null });
+    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, question: q, origin: origin === 'remote' || origin === 'device' ? 'remote' : 'local', ...(sidelined ? { sidelined: true } : {}), ...(switchedFrom ? { switched: p } : {}), projectId: scopeId, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir, extraAccess: pilot ? 'edit' : 'read' } : {}) } }], error: null });
     return this.status();
   }
   async cancel() {
