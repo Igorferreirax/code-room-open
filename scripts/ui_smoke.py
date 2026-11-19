@@ -2,18 +2,11 @@
 Sobe um serviço temporário com dados e pastas isolados, percorre as 11 telas em desktop e celular e confere:
 sem erro de console, sem imagem quebrada, sem rolagem horizontal, painéis, gaveta por teclado, temas e formulário de preços.
 Não chama nenhum provedor (não gasta cota). Uso: python scripts/ui_smoke.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request, shutil
+import json, os, sys, tempfile, time, urllib.request, shutil
 from playwright.sync_api import sync_playwright
+from _servico import ROOT, Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORT = 4790
-data = tempfile.mkdtemp(prefix='cr-ui-data-'); proj = tempfile.mkdtemp(prefix='cr-ui-proj-')
-# O CI não tem Codex instalado. O executável falso só habilita a criação da
-# tarefa de fixture; a pasta apagada faz a execução falhar antes de chamar IA.
-bindir = os.path.join(data, 'bin'); os.makedirs(bindir)
-shutil.copy(shutil.which('node'), os.path.join(bindir, 'codex.exe'))
-env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+# A CLI falsa habilita a tarefa de fixture. A pasta apagada faz a tarefa falhar antes de chamar IA.
 fails, passes = [], 0
 
 def check(name, ok, extra=''):
@@ -22,13 +15,11 @@ def check(name, ok, extra=''):
     else: fails.append(f'{name} {extra}')
     print(('OK    ' if ok else 'FALHA ') + name + (' ' + str(extra) if extra and not ok else ''))
 
-try:
-    for _ in range(50):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        req = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(req))
+with Servico() as servico:
+    api = servico.api
+    key = servico.key
+    data = servico.data
+    proj = servico.proj
     api('skills/library/install', {'id': 'planejar-entrega'})  # fixa o autocomplete sem depender das skills pessoais do computador de teste
     p = api('projects', {'name': 'projeto-ui', 'path': proj.replace('\\', '/'), 'area': 'Programação'})
     fixture_skills = api(f"skills?project={p['id']}")
@@ -58,7 +49,7 @@ try:
             page.on('console', lambda m: errors.append(m.text) if m.type == 'error' and 'favicon' not in m.text and 'status of 400' not in m.text else None)
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.on('response', lambda r: errors.append(f'404: {r.url}') if r.status == 404 and 'favicon' not in r.url else None)
-            page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
+            page.goto(f'{servico.base}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
             for s in ['home', 'room', 'projects', 'tasks', 'teams', 'recipes', 'agents', 'deliveries', 'skills', 'usage', 'routines', 'connections', 'settings']:
                 page.evaluate('v => crGo(v)', s); time.sleep(0.7)
                 broken = page.evaluate("[...document.images].filter(i => i.complete && i.naturalWidth === 0).length")
@@ -186,10 +177,10 @@ try:
                 ep0 = api('state')['batches'][0]['episodes'][0]['id']; media = api(f"batches/{bt['id']}/episodes/{ep0}/media")
                 kinds = {f['kind']: f for f in media['files']}
                 check('player: o servidor acha a prévia e o POST do episódio', 'previa' in kinds and 'post' in kinds and kinds['previa']['bytes'] > 1000, media)
-                rq = urllib.request.Request(f"http://127.0.0.1:{PORT}{kinds['previa']['url']}", headers={'Range': 'bytes=0-99'})
+                rq = urllib.request.Request(f"{servico.base}{kinds['previa']['url']}", headers={'Range': 'bytes=0-99'})
                 with urllib.request.urlopen(rq, timeout=5) as r: ok206 = (r.status, r.headers.get('Content-Type'), len(r.read()))
                 check('player: avançar no vídeo funciona (206, video/mp4, 100 bytes)', ok206 == (206, 'video/mp4', 100), ok206)
-                try: urllib.request.urlopen(f"http://127.0.0.1:{PORT}{kinds['previa']['url'][:-8]}x.0000/previa", timeout=5); bad = 200
+                try: urllib.request.urlopen(f"{servico.base}{kinds['previa']['url'][:-8]}x.0000/previa", timeout=5); bad = 200
                 except urllib.error.HTTPError as e: bad = e.code
                 check('player: token inválido é recusado (403)', bad == 403, bad)
                 qa = api(f"batches/{bt['id']}/episodes/{ep0}/qa?kind=previa")
@@ -246,7 +237,7 @@ try:
         tctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True)
         tctx.add_init_script(f"localStorage.setItem('cr.project', JSON.stringify({json.dumps(p['id'])})); localStorage.setItem('cr.sup.{p['id']}', JSON.stringify({json.dumps(a4['id'])}));")
         tp = tctx.new_page()
-        tp.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); tp.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
+        tp.goto(f'{servico.base}/?v=1#{key}'); tp.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
         tp.click('#chat-bubble'); tp.wait_for_selector('#mission', state='visible'); time.sleep(0.4)
         check('chat no celular (toque): a caixa de mensagem não fica atrás da barra de baixo e o topo continua visível', tp.evaluate("() => { const r = document.querySelector('#mission').getBoundingClientRect(), n = document.querySelector('.rail').getBoundingClientRect(); return r.bottom <= n.top + 1 && document.querySelector('#chat').getBoundingClientRect().top >= 59; }"))
         tp.click('[data-act=chat-min]'); time.sleep(0.3)
@@ -322,15 +313,10 @@ try:
         check('toque: arrastar do ponto de saída com o dedo cria a ligação', len(api('state')['links']) == 1, api('state')['links'])
         for l in api('state')['links']: api(f"links/{l['id']}/delete", {})
         tctx.close()
-        anon = browser.new_context(viewport={'width': 390, 'height': 844}).new_page(); anon.goto(f'http://127.0.0.1:{PORT}/'); anon.wait_for_selector('#login-form', timeout=8000)
+        anon = browser.new_context(viewport={'width': 390, 'height': 844}).new_page(); anon.goto(servico.base + '/'); anon.wait_for_selector('#login-form', timeout=8000)
         check('login: campo de código de pareamento no celular', anon.locator('#pair-code').count() == 1 and anon.locator('[data-act=pair-submit]').is_visible())
         anon.fill('#pair-code', 'ERRADO12'); anon.click('[data-act=pair-submit]'); time.sleep(0.6)
         check('login: código errado mostra erro, sem entrar', 'inválido' in anon.inner_text('#login-error').lower() or 'expirado' in anon.inner_text('#login-error').lower())
         browser.close()
-finally:
-    srv.terminate()
-    try: srv.wait(5)
-    except Exception: srv.kill()
-    shutil.rmtree(data, ignore_errors=True); shutil.rmtree(proj, ignore_errors=True)
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 sys.exit(1 if fails else 0)

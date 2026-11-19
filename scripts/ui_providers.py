@@ -1,28 +1,24 @@
 """Roteiro no navegador: conectar outra IA (formulário, teste, salvar), usá-la num agente, ver a atividade e filtrar skills por categoria.
 Usa o Node como "IA" de teste (nenhuma IA real, nenhuma cota). Uso: python scripts/ui_providers.py"""
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request, urllib.error
+import json, os, shutil, sys, tempfile, time
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4797
-data = tempfile.mkdtemp(prefix='cr-prov-'); proj = tempfile.mkdtemp(prefix='cr-prov-p-'); NODE = shutil.which('node')
-srv = subprocess.Popen([NODE, os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), USERPROFILE=os.path.join(data, 'home')), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+NODE = shutil.which('node')
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
     if ok: passes += 1
     else: fails.append(f'{name} {extra}')
     print(('OK    ' if ok else 'FALHA ') + name + (f'  [{extra}]' if extra != '' and not ok else ''))
-try:
-    for _ in range(60):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        try: return json.load(urllib.request.urlopen(r, timeout=40))
-        except urllib.error.HTTPError as e: return {'_http': e.code, **json.loads(e.read() or b'{}')}
+with Servico(falsos=(), timeout_api=40, erro_http='json',
+             env_extra=lambda s: {'USERPROFILE': os.path.join(s.data, 'home')}) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
     P = api('projects', {'name': 'Canal', 'path': proj.replace('\\', '/'), 'area': 'Vídeo'})
-    URL = f'http://127.0.0.1:{PORT}/#{key}'
+    URL = f'{servico.base}/#{key}'
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True); ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
         ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
@@ -58,7 +54,7 @@ try:
         act = pg.inner_text('.activity-card'); check('Sala mostra "Atividade recente" com o agente e o que ele fez', 'Atividade recente' in act and 'Pesquisador Próprio' in act and 'concluiu' in act, act)
         tip = pg.get_attribute('.cv-node', 'title') or pg.get_attribute('.term-h', 'title') or pg.get_attribute('.status-strip .s', 'title') or ''; check('ao passar o mouse no agente, a dica mostra a última atividade', 'Última atividade' in tip and 'Pesquise temas' in tip, tip)
         # skills por categoria (no ambiente isolado só existem as skills que o servidor achar)
-        sk = tempfile.mkdtemp(prefix='cr-skills-')
+        sk = tempfile.mkdtemp(prefix='cr-skills-', dir=servico.tmp)
         for n, d in (('editar-video-vertical', 'Edita videos verticais com legendas'), ('revisar-codigo', 'Revisa codigo e seguranca'), ('seo-audit-extra', 'Auditoria de SEO e marketing'), ('coisa-estranha', 'Algo sem categoria')):
             os.makedirs(os.path.join(sk, n)); open(os.path.join(sk, n, 'SKILL.md'), 'w', encoding='utf-8', newline='').write('---' + chr(10) + 'name: ' + n + chr(10) + 'description: ' + d + chr(10) + '---' + chr(10) + chr(10) + 'Texto da skill.' + chr(10))
         api('settings/skill-roots', {'path': sk.replace(chr(92), '/')}); pg.goto('about:blank'); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000)
@@ -76,8 +72,6 @@ try:
         pg = ctx.new_page(); pg.goto(URL); pg.wait_for_selector('#rail button', timeout=15000); pg.evaluate("crGo('connections')"); pg.wait_for_selector('.prov-card'); pg.click('[data-act=prov-open]'); pg.wait_for_selector('#prov-dialog[open]'); time.sleep(0.5)
         box = pg.evaluate("(() => { const r = document.getElementById('prov-dialog').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
         check('celular: a janela cabe na tela sem rolagem lateral', box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2], box); ctx.close(); browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

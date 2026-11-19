@@ -1,30 +1,22 @@
 """Roteiro no navegador do Canvas "ao vivo": quem trabalha fica verde, quem espera fica âmbar, quem falhou fica vermelho,
 e o trabalho viaja pela linha de um agente ao outro. Não chama nenhuma IA: a resposta de /api/state é adulterada no navegador
 para simular as tarefas. Uso: python scripts/ui_canvas_live.py"""
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request
+import json, os, sys, tempfile, time
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4786
-data = tempfile.mkdtemp(prefix='cr-cv-'); proj_dir = tempfile.mkdtemp(prefix='cr-cv-proj-')
-bindir = os.path.join(data, 'bin'); os.makedirs(bindir)
-for name in ('claude', 'codex', 'agy'): shutil.copy(shutil.which('node'), os.path.join(bindir, name + '.exe'))
-env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
     if ok: passes += 1
     else: fails.append(f'{name} {extra}')
     print(('OK    ' if ok else 'FALHA ') + name + (f'  [{extra}]' if extra != '' and not ok else ''))
-try:
-    for _ in range(50):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(r))
-    P = api('projects', {'name': 'Canal', 'path': proj_dir.replace('\\', '/'), 'area': 'Programação'})
+with Servico(falsos=['claude.exe', 'codex.exe', 'agy.exe']) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
+    P = api('projects', {'name': 'Canal', 'path': proj.replace('\\', '/'), 'area': 'Programação'})
     mk = lambda n, prov, mode: api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': prov, 'model': '', 'instructions': '', 'mode': mode, 'skillIds': [], 'capabilities': []})
     A, B, C = mk('Claude', 'claude', 'read'), mk('Codex', 'codex', 'write'), mk('Gemini', 'agy', 'read')
     api('projects/members', {'projectId': P['id'], 'add': [A['id'], B['id'], C['id']]})
@@ -50,7 +42,7 @@ try:
     def handle(route):
         r = route.fetch(); j = r.json(); j['runs'] = cur['runs']; route.fulfill(status=r.status, headers={'Content-Type': 'application/json', 'Cache-Control': 'no-store'}, body=json.dumps(j))
 
-    URL = f'http://127.0.0.1:{PORT}/#{key}'
+    URL = f'{servico.base}/#{key}'
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script("try { if (!localStorage.getItem('cr.prefs')) localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas', motion: 'on'})); localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
@@ -92,8 +84,6 @@ try:
         pg = ctx.new_page(); cur['runs'] = SCEN['2 Claude entregou, Codex recebeu e trabalha']; pg.route('**/api/state', handle); pg.route('**/api/connectors/check', connected); pg.goto(URL); pg.evaluate("crGo('room')"); pg.wait_for_selector('.cv-node', timeout=15000); time.sleep(0.8)
         check('celular: verde e linha ativa aparecem', pg.locator('.cv-node.st-running').count() == 1 and pg.locator('.cv-edge.live').count() == 1)
         check('celular: sem rolagem lateral na página', pg.evaluate('document.documentElement.scrollWidth <= innerWidth')); pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'cv-m.png')); pg.unroute_all(behavior='ignoreErrors'); ctx.close(); browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

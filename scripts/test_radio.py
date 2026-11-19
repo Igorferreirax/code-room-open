@@ -1,13 +1,11 @@
 """Teste técnico do motor da Rádio da Sala (public/radio.js), sem alto-falante: renderiza áudio no navegador (OfflineAudioContext) e mede
 volume, estouro, graves/agudos, andamento e determinismo. Não julga se "soa bem": isso é gosto, quem decide é quem ouve.
 Uso: python scripts/test_radio.py [saida.wav]   (grava uma amostra de 48 s em WAV; padrão: não grava)"""
-import base64, hashlib, os, subprocess, sys, tempfile, time, urllib.request, wave
+import base64, hashlib, os, sys, time, wave
 import numpy as np
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4788
-data = tempfile.mkdtemp(prefix='cr-radio-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -22,14 +20,12 @@ JS = """async ({seed, seconds}) => {
   let peak = 0, over = 0; for (const c of ch) for (let i = 0; i < n; i++) { const a = Math.abs(c[i]); if (a > peak) peak = a; if (a >= 0.999) over++; }
   const u8 = new Uint8Array(i16.buffer); let s = ''; for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768));
   return { b64: btoa(s), sr: buf.sampleRate, ms: performance.now() - t0, peak, over, nan: ch.some(c => c.some(x => !Number.isFinite(x))) }; }"""
-try:
-    for _ in range(50):
-        try: urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
+with Servico(falsos=()) as servico:
+    key = servico.key
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True); pg = browser.new_context().new_page(); errs = []
         pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
-        pg.goto(f'http://127.0.0.1:{PORT}/'); time.sleep(0.8)
+        pg.goto(servico.base + '/'); time.sleep(0.8)
         def render(seed, seconds=48):
             r = pg.evaluate(JS, {'seed': seed, 'seconds': seconds}); raw = np.frombuffer(base64.b64decode(r['b64']), dtype='<i2').reshape(-1, 2); return raw, r
         a, ra = render(7); b, rb = render(7); c, rc = render(8)
@@ -63,10 +59,10 @@ try:
             check(f'faixa com semente {sd}: sem estouro, sem NaN e volume parecido', not rz['nan'] and rz['over'] == 0 and abs(rmz - rms) < 3, f'RMS {rmz:.1f} dBFS (faixa 1: {rms:.1f})')
         check('sem erro de console', not errs, errs[:2])
         # ---- botão no app: liga de verdade, mostra o volume e desliga ----
-        key = open(os.path.join(data, 'access.key')).read().strip(); ctx2 = browser.new_context(viewport={'width': 1440, 'height': 900}); errs2 = []
+        ctx2 = browser.new_context(viewport={'width': 1440, 'height': 900}); errs2 = []
         ctx2.add_init_script("window.__ctxs = []; const AC = window.AudioContext; window.AudioContext = class extends AC { constructor(o) { super(o); window.__ctxs.push(this); } }; try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
         p2 = ctx2.new_page(); p2.on('console', lambda m: errs2.append(m.text) if m.type == 'error' else None); p2.on('pageerror', lambda e: errs2.append(str(e)))
-        p2.goto(f'http://127.0.0.1:{PORT}/#{key}'); p2.wait_for_selector('#rail button', timeout=15000); time.sleep(0.6)
+        p2.goto(f'{servico.base}/#{key}'); p2.wait_for_selector('#rail button', timeout=15000); time.sleep(0.6)
         pr = lambda: p2.get_attribute('#radio-fab', 'aria-pressed')
         check('rádio desligada por padrão: só o radinho aparece, sem barra e sem áudio criado sozinho', p2.is_visible('#radio-fab') and pr() == 'false' and not p2.is_visible('#radio-vol') and p2.evaluate('window.__ctxs.length') == 0)
         check('não existe mais o painel com botão de play', p2.locator('#radio-btn').count() == 0 and p2.locator('#radio-min').count() == 0)
@@ -87,8 +83,6 @@ try:
             with wave.open(sys.argv[1], 'wb') as w: w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr); w.writeframes(a.tobytes())
             print('amostra gravada em', sys.argv[1], f'({os.path.getsize(sys.argv[1]) / 1048576:.1f} MB)')
         browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

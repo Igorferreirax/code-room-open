@@ -1,14 +1,21 @@
 """Menu ao clicar em um agente (Sala e Canvas): "@ Mencionar no chat" põe @Nome na barra do chat; arrastar não abre o menu.
 Também confere os botões novos do Acesso remoto e o comando /celular. Servidor temporário isolado; não chama nenhuma IA.
 Uso: python scripts/ui_mention.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request
+import json, os, sys
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORT = 4796
-data = tempfile.mkdtemp(prefix='cr-men-data-'); proj = tempfile.mkdtemp(prefix='cr-men-proj-'); atalhos = tempfile.mkdtemp(prefix='cr-men-atalhos-'); homedir = tempfile.mkdtemp(prefix='cr-men-home-')  # sem o hermes.bat de verdade  # o teste nunca mexe na pasta Inicializar de verdade
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_ATALHOS_DIR=atalhos, USERPROFILE=homedir, HOME=homedir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def preparar_mention(servico):
+    # Isola o Hermes e a pasta Inicializar reais.
+    atalhos = os.path.join(servico.tmp, 'atalhos')
+    homedir = os.path.join(servico.tmp, 'home')
+    os.mkdir(atalhos)
+    os.mkdir(homedir)
+    return {'CODE_ROOM_ATALHOS_DIR': atalhos, 'USERPROFILE': homedir, 'HOME': homedir}
+
+
 fails, passes = [], 0
 
 def check(name, ok, extra=''):
@@ -17,13 +24,11 @@ def check(name, ok, extra=''):
     else: fails.append(name)
     print(('OK    ' if ok else 'FALHA ') + name + (' ' + str(extra) if extra and not ok else ''))
 
-try:
-    for _ in range(50):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        req = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(req))
+with Servico(falsos=(), env_extra=preparar_mention) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
+    atalhos = os.path.join(servico.tmp, 'atalhos')
     P0 = api('projects', {'name': 'projeto-ui', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
     for n, caps in (('Pesquisador Chefe', ['research']), ('Roteirista', ['writing'])):
         _a = api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': caps})
@@ -35,7 +40,7 @@ try:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         page = browser.new_context(viewport={'width': 1440, 'height': 900}).new_page(); errors = []
         page.on('pageerror', lambda e: errors.append(str(e))); page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
-        page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
+        page.goto(f'{servico.base}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
         # ---- Canvas ----
         page.evaluate("crGo('room')"); page.wait_for_timeout(500)
         page.click('[data-act=view-mode][data-id=canvas]'); page.wait_for_selector('.cv-node', timeout=8000); page.wait_for_timeout(500)
@@ -178,7 +183,5 @@ try:
         errors = [e for e in errors if 'status of 400' not in e]   # o 400 do Hermes inválido é o servidor recusando de propósito
         check('sem erro de console', not errors, errors[:3])
         browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 raise SystemExit(1 if fails else 0)

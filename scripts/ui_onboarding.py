@@ -2,13 +2,10 @@
 Sobe um serviço temporário VAZIO (instalação nova), simula o resultado da verificação dos CLIs (não chama nenhum provedor
 de IA nem gasta cota) e percorre: triagem, criação dos agentes iniciais, tutorial inteiro, atalhos de teclado, pular,
 reabrir pelo menu do usuário e o celular. Uso: python scripts/ui_onboarding.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request
+import json, os, sys, tempfile, time
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORT = 4791
-data = tempfile.mkdtemp(prefix='cr-onb-data-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 
 def check(name, ok, extra=''):
@@ -25,14 +22,10 @@ CHECKS = [
     {'id': 'hermes', 'installed': False, 'path': None, 'version': None, 'authenticated': None, 'method': None},
 ]
 
-try:
-    for _ in range(50):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        req = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(req))
-    URL = f'http://127.0.0.1:{PORT}/#{key}'
+with Servico(falsos=()) as servico:
+    api = servico.api
+    key = servico.key
+    URL = f'{servico.base}/#{key}'
 
     with sync_playwright() as pw:
         try: browser = pw.chromium.launch(channel='chrome', headless=True)
@@ -125,8 +118,6 @@ try:
         check('celular: pular funciona', pg.locator('.tour').count() == 0)
         check('sem erro de console (celular)', not errs, errs[:2])
         ctx.close(); browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

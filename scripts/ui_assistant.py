@@ -2,18 +2,11 @@
 as respostas da IA (nenhuma IA é chamada, nada gasta cota) para percorrer: balão minimizado, abrir, apresentar, conversar pela barra do chat,
 cartões de ação, aprovar tudo, várias conversas, missão direta a um agente, aviso de resposta nova, celular e erros de console.
 Uso: python scripts/ui_assistant.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request, urllib.error, shutil
+import json, os, sys, tempfile, time, urllib.error
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4793
-data = tempfile.mkdtemp(prefix='cr-asst-'); proj = tempfile.mkdtemp(prefix='cr-asst-p-')
-# O teste cria uma missão, mas não precisa de conta Claude. Um executável de
-# fixture no PATH permite verificar a criação da tarefa em um Windows limpo.
-bindir = os.path.join(data, 'bin'); os.makedirs(bindir)
-shutil.copy(shutil.which('node'), os.path.join(bindir, 'claude.exe'))
-env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT))
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -40,18 +33,16 @@ S = fresh(); OTHER = {}   # OTHER: mensagens das conversas inativas
 calls = []
 def act(i, valid=True, typ='criar_equipe', summary='Criar a equipe “Dev”: desenvolvedor → A, revisor → B', error=None, status='pending'):
     return {'idx': i, 'type': typ, 'summary': summary, 'payload': {}, 'valid': valid, 'error': error, 'status': status}
-try:
-    for _ in range(50):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(r))
+with Servico(falsos=['claude.exe']) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
     real = api('assistant')
     check('rota real /api/assistant responde com o estado inicial e uma conversa', real['briefed'] is False and real['manual']['available'] is True and real['messages'] == [] and len(real['threads']) == 1 and 'raw' not in json.dumps(real), real)
     st = api('state')
     check('estado público não traz agentes nem projeto internos do Assistente', not [a for a in st['agents'] if a.get('internal')] and not [p for p in st['projects'] if p.get('internal')])
-    try: urllib.request.urlopen(f'http://127.0.0.1:{PORT}/api/assistant', timeout=2); anon = 200
+    try:
+        with servico.raw('/api/assistant', autenticar=False, timeout=2): anon = 200
     except urllib.error.HTTPError as e: anon = e.code
     check('sem a chave, a rota do Assistente é negada', anon in (401, 403), anon)
     P = api('projects', {'name': 'Canal', 'path': proj.replace(chr(92), '/'), 'area': 'Vídeo'})
@@ -92,7 +83,7 @@ try:
         if path == 'dismiss': [m for m in S['messages'] if m['id'] == body['messageId']][0]['actions'][body['index']]['status'] = 'dismissed'; return out(S)
         out({'error': 'rota?'}, 404)
 
-    URL = f'http://127.0.0.1:{PORT}/#{key}'
+    URL = f'{servico.base}/#{key}'
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}")
@@ -199,8 +190,6 @@ try:
         check('celular: a janela ocupa a largura toda, entre o topo e a barra de baixo (sem cobri-los), sem rolagem lateral', box[0] <= 1 and box[2] >= box[4] - 1 and 55 <= box[1] <= 65 and box[3] <= box[5] - 55 and box[3] >= box[5] - 70 and box[6] <= box[4], box)
         check('celular: manual novo não interrompe (sem pedir para se apresentar de novo) e a conversa continua', 'Apresentar de novo' not in pg.inner_text('#asst') and pg.is_visible('#mission') and pg.is_visible('#send'))
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'chat-m.png')); ctx.close(); browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

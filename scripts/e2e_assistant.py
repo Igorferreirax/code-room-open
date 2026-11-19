@@ -2,20 +2,18 @@
 Copia o app para uma pasta temporária, faz o falso Codex responder com ações, e confere que cada ação aprovada
 vira o efeito real: pasta do projeto, agentes, equipe, skill gravada e reconhecida, ligação e tarefa executada.
 Uso: python scripts/e2e_assistant.py"""
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request, urllib.error
+import json, os, sys, time, urllib.error
+from _servico import Servico
 sys.stdout.reconfigure(encoding='utf-8')
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4795
-tmp = tempfile.mkdtemp(prefix='cr-e2e-'); app = os.path.join(tmp, 'app'); data = os.path.join(tmp, 'data'); work = os.path.join(tmp, 'projetos'); bindir = os.path.join(tmp, 'bin'); ans = os.path.join(tmp, 'resposta.txt')
-os.makedirs(bindir); os.makedirs(app); os.makedirs(os.path.join(tmp, 'home'))
-for d in ('server', 'public', 'docs'): shutil.copytree(os.path.join(ROOT, d), os.path.join(app, d))
-shutil.copy(os.path.join(ROOT, 'package.json'), app)
-os.makedirs(os.path.join(app, 'test', 'fixtures')); [shutil.copy(os.path.join(ROOT, 'test', 'fixtures', f), os.path.join(app, 'test', 'fixtures', f)) for f in ('fake-agent.mjs', 'fake-codex-preload.mjs')]
-with open(os.path.join(app, 'docs', 'ASSISTENTE.md'), 'a', encoding='utf-8') as f: f.write('\n[[fake answerfile=' + ans.replace('\\', '/') + ']]\n')
-shutil.copy(shutil.which('node'), os.path.join(bindir, 'codex.exe'))
-env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_WORKSPACE=work, CODE_ROOM_NO_BROWSER='1', USERPROFILE=os.path.join(tmp, 'home'), HOME=os.path.join(tmp, 'home'),
-           NODE_OPTIONS='--import ' + 'file:///' + os.path.join(app, 'test', 'fixtures', 'fake-codex-preload.mjs').replace('\\', '/'))
-srv = subprocess.Popen([shutil.which('node'), os.path.join(app, 'server', 'main.mjs')], cwd=app, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def preparar_assistente(servico):
+    resposta = os.path.join(servico.tmp, 'resposta.txt')
+    with (servico.app / 'docs' / 'ASSISTENTE.md').open('a', encoding='utf-8') as manual:
+        manual.write('\n[[fake answerfile=' + resposta.replace('\\', '/') + ']]\n')
+    return {'CODE_ROOM_WORKSPACE': os.path.join(servico.tmp, 'projetos')}
+
+
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -24,15 +22,13 @@ def check(name, ok, extra=''):
     print(('OK    ' if ok else 'FALHA ') + name + (f'  [{extra}]' if extra != '' and not ok else ''))
 F = '`' * 3
 def block(j): return F + 'code-room-action\n' + json.dumps(j, ensure_ascii=False) + '\n' + F
-try:
-    key = None
-    for _ in range(60):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        try: return json.load(urllib.request.urlopen(r, timeout=30))
-        except urllib.error.HTTPError as e: return {'_http': e.code, **json.loads(e.read() or b'{}')}
+with Servico(copiar_app=True, env_extra=preparar_assistente, timeout_api=30, erro_http='json') as servico:
+    api = servico.api
+    key = servico.key
+    data = servico.data
+    tmp = servico.tmp
+    work = os.path.join(tmp, 'projetos')
+    ans = os.path.join(tmp, 'resposta.txt')
     def wait(fn, what, secs=40):
         end = time.time() + secs
         while time.time() < end:
@@ -75,13 +71,12 @@ try:
     again = api('assistant/apply', {'messageId': m['id'], 'index': 0}); check('aprovar de novo a mesma ação é recusado', '_http' in again and 'já foi tratada' in again.get('error', ''), again)
     # segurança: o Assistente nunca recebe a chave nem caminhos e a rota é só do computador
     dev = api('pairing', {}) if False else None
-    try: urllib.request.urlopen(f'http://127.0.0.1:{PORT}/api/assistant', timeout=3); anon = 200
+    try:
+        with servico.raw('/api/assistant', autenticar=False, timeout=3): anon = 200
     except urllib.error.HTTPError as e: anon = e.code
     check('sem a chave, o Assistente é negado', anon in (401, 403), anon)
     prompts = [t.get('prompt', '') + t.get('objective', '') for t in api('state')['runs']]
     prompt_asst = open(os.path.join(data, 'assistente', 'CONHECIMENTO.md'), encoding='utf-8').read(); check('o que a IA entendeu não contém a chave nem caminhos do usuário', key not in prompt_asst and tmp not in prompt_asst)
-finally:
-    srv.kill(); time.sleep(0.5); shutil.rmtree(tmp, ignore_errors=True)
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

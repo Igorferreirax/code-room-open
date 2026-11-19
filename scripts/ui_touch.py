@@ -1,28 +1,23 @@
 """Arraste por toque no Canvas (celular): repete a ligação entre dois agentes N vezes e conta quantas deram certo.
 Mede a firmeza do toque (antes de mexer no código e depois). Servidor temporário isolado, sem chamar IA.
 Uso: python scripts/ui_touch.py [repeticoes]  (padrão 10; sai com erro se alguma falhar)"""
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request
+import os, sys, time
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4795
-data = tempfile.mkdtemp(prefix='cr-touch-data-'); proj = tempfile.mkdtemp(prefix='cr-touch-proj-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_ATALHOS_DIR=data), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 ok = 0; falhas = []
-try:
-    for _ in range(60):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(r, timeout=30))
+with Servico(falsos=(), timeout_api=30, env_extra=lambda s: {'CODE_ROOM_ATALHOS_DIR': s.data}) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
     pj = api('projects', {'name': 'toque', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
     ids = [api('agents', {'name': n, 'role': 'teste', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})['id'] for n in ('Ana', 'Caio', 'Dora')]
     api('projects/members', {'projectId': pj['id'], 'add': ids})   # desde a 0.3.4 cada projeto mostra só os agentes ligados a ele
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         ctx = browser.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True); page = ctx.new_page()
-        page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
+        page.goto(f'{servico.base}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); time.sleep(0.8)
         page.evaluate("localStorage.setItem('cr.prefs', JSON.stringify({mode: 'canvas'}))")
         if os.environ.get('CR_TOUCH_DEBUG'):
             page.on('console', lambda m: print('  [console]', m.type, m.text[:160]) if m.type in ('error', 'warning') else None)
@@ -68,7 +63,5 @@ try:
             if got >= 1: ok += 1
             else: falhas.append((i, 'ligação não criada'))
         browser.close()
-finally:
-    srv.kill(); time.sleep(0.4); shutil.rmtree(data, ignore_errors=True); shutil.rmtree(proj, ignore_errors=True)
 print(f'toque no Canvas: {ok} de {N} ligações criadas' + (f' | falhas: {falhas}' if falhas else ''))
 raise SystemExit(0 if ok == N else 1)

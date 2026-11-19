@@ -2,13 +2,14 @@
 Cobre: verificar, faixa de aviso, janela com novidades (HTML malicioso escapado), download com SHA-256, arquivo adulterado recusado,
 "Depois" que persiste, interruptor, falha de rede e celular. Esta cópia roda pelo código-fonte, então a instalação em um clique
 não aparece (ela é testada à parte, no pacote Windows: installer/test-update.ps1). Uso: python scripts/ui_updates.py"""
-import hashlib, json, os, subprocess, sys, tempfile, threading, time, urllib.request
+import hashlib, json, os, sys, tempfile, threading, time, urllib.request
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VER = __import__('json').load(open(__import__('os').path.join(ROOT, 'package.json'), encoding='utf-8'))['version']
-PORT, RPORT = 4792, 4794
 ZIPNAME = 'Code-Room-0.9.9-portatil-win-x64.zip'; ZIPDATA = os.urandom(300_000); SHA = hashlib.sha256(ZIPDATA).hexdigest()
 BAD_ZIPDATA = ZIPDATA[:-1] + bytes([ZIPDATA[-1] ^ 1])
 state = {'mode': 'ok'}   # ok | bad (zip adulterado) | down (servidor fora do ar)
@@ -21,7 +22,7 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header('Content-Type', ctype); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_GET(self):
         if state['mode'] == 'down': return self.send(503, b'fora do ar')
-        base = f'http://127.0.0.1:{RPORT}'
+        base = f'http://127.0.0.1:{self.server.server_port}'
         if self.path == '/api/latest':
             rel = {'tag_name': 'v0.9.9', 'name': 'Code Room 0.9.9', 'body': NOTES, 'html_url': base + '/release', 'published_at': '2026-11-07T10:00:00Z', 'draft': False, 'prerelease': False,
                    'assets': [{'name': ZIPNAME, 'browser_download_url': f'{base}/dl/{ZIPNAME}', 'size': len(ZIPDATA)}, {'name': 'SHA256SUMS.txt', 'browser_download_url': f'{base}/dl/SHA256SUMS.txt', 'size': 100}]}
@@ -29,11 +30,18 @@ class H(BaseHTTPRequestHandler):
         if self.path == '/dl/SHA256SUMS.txt': return self.send(200, f'{SHA}  {ZIPNAME}\n'.encode(), 'text/plain')
         if self.path == f'/dl/{ZIPNAME}': return self.send(200, BAD_ZIPDATA if state['mode'] == 'bad' else ZIPDATA)
         self.send(404, b'nao')
-fake = ThreadingHTTPServer(('127.0.0.1', RPORT), H); threading.Thread(target=fake.serve_forever, daemon=True).start()
 
-data = tempfile.mkdtemp(prefix='cr-upd-ui-')
-server_log_path = os.path.join(data, 'server.log'); server_log = open(server_log_path, 'w', encoding='utf-8')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_RELEASES_URL=f'http://127.0.0.1:{RPORT}/api/latest'), stdout=server_log, stderr=subprocess.STDOUT)
+
+@contextmanager
+def releases_falsas():
+    with ThreadingHTTPServer(('127.0.0.1', 0), H) as fake:
+        threading.Thread(target=fake.serve_forever, daemon=True).start()
+        try:
+            yield f'http://127.0.0.1:{fake.server_port}/api/latest'
+        finally:
+            fake.shutdown()
+
+
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -41,16 +49,14 @@ def check(name, ok, extra=''):
     else: fails.append(f'{name} {extra}')
     print(('OK    ' if ok else 'FALHA ') + name + (' ' + str(extra) if extra and not ok else ''))
 
-try:
-    for _ in range(50):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(r))
-    proj = tempfile.mkdtemp(prefix='cr-upd-proj-'); api('projects', {'name': 'p', 'path': proj.replace('\\', '/'), 'area': 'Geral'})   # evita a triagem de primeiro uso
+with releases_falsas() as url_releases, Servico(falsos=(), env_extra={'CODE_ROOM_RELEASES_URL': url_releases}) as servico:
+    api = servico.api
+    key = servico.key
+    data = servico.data
+    proj = servico.proj
+    api('projects', {'name': 'p', 'path': proj.replace('\\', '/'), 'area': 'Geral'})   # evita a triagem de primeiro uso
     api('agents', {'name': 'Ana', 'role': 'x', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': []})
-    URL = f'http://127.0.0.1:{PORT}/#{key}'; tab = lambda pg, n: (pg.evaluate("crGo('settings')"), time.sleep(0.4), pg.click(f'[data-act=settings-tab][data-id={n}]'), time.sleep(0.5))
+    URL = f'{servico.base}/#{key}'; tab = lambda pg, n: (pg.evaluate("crGo('settings')"), time.sleep(0.4), pg.click(f'[data-act=settings-tab][data-id={n}]'), time.sleep(0.5))
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
@@ -75,10 +81,8 @@ try:
         except Exception:
             try: status = api('updates')
             except Exception as e: status = str(e)
-            server_log.flush()
-            log_text = open(server_log_path, encoding='utf-8').read()[-3000:]
-            log_text = log_text.replace('#' + key, '#<chave-oculta>')
-            print('DIAGNOSTICO UPDATE:', json.dumps({'server': status, 'processExit': srv.poll(), 'serverLog': log_text, 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=True), flush=True)
+            log_text = servico.saida()
+            print('DIAGNOSTICO UPDATE:', json.dumps({'server': status, 'processExit': servico.processo.poll(), 'serverLog': log_text, 'dialogOpen': pg.evaluate("document.getElementById('update-dialog').open"), 'dialogText': pg.inner_text('#update-dialog')[:1000], 'console': errs[-5:]}, ensure_ascii=True), flush=True)
             raise
         time.sleep(0.3)
         check('arquivo ADULTERADO é recusado com aviso claro', 'NÃO confere' in pg.inner_text('#update-dialog .upd-err'))
@@ -114,8 +118,6 @@ try:
         pg.click('.update-bar [data-act=upd-open]'); pg.wait_for_selector('#update-dialog[open]'); time.sleep(0.4); db = pg.locator('#update-dialog').bounding_box()
         check('celular: janela cabe na tela', db['x'] >= 0 and db['x'] + db['width'] <= 391, db); check('celular: sem rolagem lateral', pg.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'upd-dialog-m.png')); check('sem erro de console (celular)', not errs, errs[:2]); ctx.close(); browser.close()
-finally:
-    srv.kill(); server_log.close(); fake.shutdown()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

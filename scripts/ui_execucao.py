@@ -3,13 +3,11 @@ texto devolvido para a bandeja colar), menu Terminal, cartão de aprovação dur
 do agente. Sobe um serviço temporário; nenhuma IA é chamada e nenhum terminal é aberto (a rota do terminal é simulada).
 O microfone é o de teste do Chrome e o reconhecimento de fala é simulado (devolve uma frase fixa).
 Uso: python scripts/ui_execucao.py"""
-import json, os, subprocess, sys, tempfile, time, urllib.request
+import json, os, sys, time
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4795
-data = tempfile.mkdtemp(prefix='cr-exec-'); proj = tempfile.mkdtemp(prefix='cr-exec-p-')
-srv = subprocess.Popen(['node', os.path.join(ROOT, 'server', 'main.mjs')], cwd=ROOT, env=dict(os.environ, CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 def check(name, ok, extra=''):
     global passes
@@ -27,20 +25,16 @@ window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR;
 try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true})); } catch (e) {}
 """
 
-try:
-    for _ in range(60):
-        if os.path.exists(os.path.join(data, 'access.key')): break
-        time.sleep(0.5)
-    time.sleep(1.5); key = open(os.path.join(data, 'access.key')).read().strip()
-    def api(p, b=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{p}', data=None if b is None else json.dumps(b).encode(), method='GET' if b is None else 'POST', headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.loads(urllib.request.urlopen(r).read())
+with Servico(falsos=()) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
     P = api('projects', {'path': proj, 'name': 'Projeto Exec', 'area': 'Geral'})
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True, args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'])
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script(FAKE_SR)
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
-        pg.goto(f'http://127.0.0.1:{PORT}/#{key}'); pg.wait_for_selector('.top-right', timeout=15000); pg.wait_for_timeout(3500)   # espera o canal de eventos da tela conectar
+        pg.goto(f'{servico.base}/#{key}'); pg.wait_for_selector('.top-right', timeout=15000); pg.wait_for_timeout(3500)   # espera o canal de eventos da tela conectar
 
         # --- voz em qualquer programa: o que a bandeja faz (liga, desliga, busca o texto) ---
         r = api('voice/global', {'action': 'toggle'}); check('atalho (1º toque): começa a ouvir e devolve um id', r.get('listening') is True and len(r.get('id', '')) == 36, r)
@@ -98,8 +92,6 @@ try:
         check('agente: o formulário tem a opção de modo irrestrito', pg.locator('input[name=unrestricted]').count() == 1)
         check('sem erro de console', not [e for e in errs if 'favicon' not in e], errs[:3])
         browser.close()
-finally:
-    srv.kill()
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 for f in fails: print('  - ' + f)
 sys.exit(1 if fails else 0)

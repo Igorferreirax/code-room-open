@@ -1,20 +1,10 @@
 """Sessão ao vivo no chat com um agente: abre o chat no agente enquanto uma tarefa roda e confere que o painel mostra o andamento,
 a resposta chegando e o estado final. Usa um agente falso (processo real, sem gastar cota). Servidor temporário isolado.
 Uso: python scripts/ui_live.py"""
-import json, os, shutil, subprocess, tempfile, time, urllib.request
+import time
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4797
-tmp = tempfile.mkdtemp(prefix='cr-live-'); app = os.path.join(tmp, 'app'); data = os.path.join(tmp, 'data'); bindir = os.path.join(tmp, 'bin'); proj = os.path.join(tmp, 'proj')
-for d in (bindir, app, proj, os.path.join(tmp, 'home')): os.makedirs(d)
-for d in ('server', 'public', 'docs'): shutil.copytree(os.path.join(ROOT, d), os.path.join(app, d))
-shutil.copy(os.path.join(ROOT, 'package.json'), app); os.makedirs(os.path.join(app, 'test', 'fixtures'))
-for f in ('fake-agent.mjs', 'fake-codex-preload.mjs'): shutil.copy(os.path.join(ROOT, 'test', 'fixtures', f), os.path.join(app, 'test', 'fixtures', f))
-shutil.copy(shutil.which('node'), os.path.join(bindir, 'codex.exe'))
-env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_NO_BROWSER='1', CODE_ROOM_RELEASES_URL='http://127.0.0.1:1/x',
-           USERPROFILE=os.path.join(tmp, 'home'), HOME=os.path.join(tmp, 'home'),
-           NODE_OPTIONS='--import file:///' + os.path.join(app, 'test', 'fixtures', 'fake-codex-preload.mjs').replace(chr(92), '/'))
-srv = subprocess.Popen([shutil.which('node'), os.path.join(app, 'server', 'main.mjs')], cwd=app, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 fails, passes = [], 0
 
 def check(name, ok, extra=''):
@@ -23,13 +13,11 @@ def check(name, ok, extra=''):
     else: fails.append(name)
     print(('OK    ' if ok else 'FALHA ') + name + (' ' + str(extra) if extra and not ok else ''))
 
-try:
-    for _ in range(60):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        return json.load(urllib.request.urlopen(r, timeout=40))
+with Servico(copiar_app=True, nome_projeto='proj', timeout_api=40,
+             env_extra=lambda s: {'CODE_ROOM_RELEASES_URL': s.base + '/x'}) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
     P = api('projects', {'name': 'Canal Ao Vivo', 'path': proj.replace(chr(92), '/'), 'area': 'Programação'})
     ag = api('agents', {'name': 'Lia Ao Vivo', 'role': 'testa o painel', 'room': 'Programação', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': 'read', 'skillIds': [], 'capabilities': ['research']})
     api('tasks', {'projectId': P['id'], 'agentId': ag['id'], 'requestId': 'live1', 'objective': 'Trabalhar um pouco [[fake echo=1 sleep=9000 answer=Terminei_o_trabalho]]'})
@@ -38,7 +26,7 @@ try:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         page = browser.new_context(viewport={'width': 1440, 'height': 900}).new_page(); errors = []
         page.on('pageerror', lambda e: errors.append(str(e))); page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
-        page.goto(f'http://127.0.0.1:{PORT}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
+        page.goto(f'{servico.base}/?v=1#{key}'); page.wait_for_selector('#rail button', timeout=8000); page.wait_for_timeout(800)
         page.evaluate("crGo('room')"); page.wait_for_selector('[data-act=agent]', timeout=8000); page.wait_for_timeout(500)
         # abre o chat direto no agente (pelo menu de clique do agente → gaveta → missão)
         card = page.locator('[data-act=agent]', has_text='Lia Ao Vivo').first
@@ -142,7 +130,5 @@ try:
         if page.is_visible('#chat'): page.click('[data-act=chat-min]'); page.wait_for_timeout(400)
         check('ao vivo: sem erro de console', not errors, errors[:3])
         browser.close()
-finally:
-    srv.kill(); time.sleep(0.5); shutil.rmtree(tmp, ignore_errors=True)
 print(f'\n{passes} verificações ok, {len(fails)} falha(s)')
 raise SystemExit(1 if fails else 0)

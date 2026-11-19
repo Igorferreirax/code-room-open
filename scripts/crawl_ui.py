@@ -2,33 +2,19 @@
 sem erro de console, sem erro de página, sem resposta 5xx do servidor, sem rolagem lateral e sem tela em branco. Também procura textos cortados
 (elementos cujo conteúdo passa da própria caixa). Usa um serviço temporário com um Codex falso (nenhuma IA real, nenhuma cota).
 Uso: python scripts/crawl_ui.py"""
-import json, os, re, shutil, subprocess, sys, tempfile, time, urllib.request, urllib.error
-from urllib.parse import quote
+import os, re, sys, time
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
+from _servico import Servico
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); PORT = 4792
-tmp = tempfile.mkdtemp(prefix='cr-crawl-'); app = os.path.join(tmp, 'app'); data = os.path.join(tmp, 'data'); bindir = os.path.join(tmp, 'bin'); proj = os.path.join(tmp, 'canal')
-for d in (bindir, app, proj, os.path.join(tmp, 'home')): os.makedirs(d)
-for d in ('server', 'public', 'docs'): shutil.copytree(os.path.join(ROOT, d), os.path.join(app, d))
-shutil.copy(os.path.join(ROOT, 'package.json'), app); os.makedirs(os.path.join(app, 'test', 'fixtures'))
-for f in ('fake-agent.mjs', 'fake-codex-preload.mjs'): shutil.copy(os.path.join(ROOT, 'test', 'fixtures', f), os.path.join(app, 'test', 'fixtures', f))
-shutil.copy(shutil.which('node'), os.path.join(bindir, 'codex.exe'))
-env = dict(os.environ, PATH=bindir + os.pathsep + os.environ['PATH'], CODE_ROOM_DATA=data, CODE_ROOM_PORT=str(PORT), CODE_ROOM_NO_BROWSER='1', CODE_ROOM_RELEASES_URL='http://127.0.0.1:1/x', USERPROFILE=os.path.join(tmp, 'home'), HOME=os.path.join(tmp, 'home'),
-           NODE_OPTIONS='--import=' + quote('file:///' + os.path.join(app, 'test', 'fixtures', 'fake-codex-preload.mjs').replace(chr(92), '/'), safe='/:'))
-srv = subprocess.Popen([shutil.which('node'), os.path.join(app, 'server', 'main.mjs')], cwd=app, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 problems, clicks = [], 0
 SKIP_ACT = re.compile(r'delete|remove|install|download|logout|reset|clean|wipe|revoke|disconnect|exit|stop|quit|archive|reprove|reject|lixeira|empty|publish|post-', re.I)
 SKIP_TEXT = re.compile(r'remover|apagar|excluir|sair|instalar|baixar|descartar|reprovar|desconectar|esvaziar|publicar|limpar', re.I)
-try:
-    for _ in range(60):
-        try: key = open(os.path.join(data, 'access.key')).read().strip(); urllib.request.urlopen(f'http://127.0.0.1:{PORT}/', timeout=1); break
-        except Exception: time.sleep(0.2)
-    if 'key' not in locals(): raise RuntimeError('O servidor de teste não iniciou; confira NODE_OPTIONS e o processo local.')
-    def api(path, body=None):
-        r = urllib.request.Request(f'http://127.0.0.1:{PORT}/api/{path}', data=json.dumps(body).encode() if body is not None else None, headers={'X-Code-Room-Key': key, 'Content-Type': 'application/json'})
-        try: return json.load(urllib.request.urlopen(r, timeout=40))
-        except urllib.error.HTTPError as e: return {'_http': e.code}
+with Servico(copiar_app=True, nome_projeto='canal', timeout_api=40,
+             erro_http='status', env_extra=lambda s: {'CODE_ROOM_RELEASES_URL': s.base + '/x'}) as servico:
+    api = servico.api
+    key = servico.key
+    proj = servico.proj
     P = api('projects', {'name': 'Canal Teste', 'path': proj.replace(chr(92), '/'), 'area': 'Vídeo'})
     ags = [api('agents', {'name': n, 'role': r, 'room': 'Vídeo', 'provider': 'codex', 'model': '', 'instructions': '', 'mode': m, 'skillIds': [], 'capabilities': c}) for n, r, m, c in (('Diretor de Edição', 'Dirige a edição do vídeo', 'read', ['review']), ('Roteirista de Legendas muito longas', 'Escreve o episódio (falas, prompts, post) com texto bem comprido para testar quebra', 'write', ['writing']), ('Montador', 'Monta o vídeo', 'write', ['video.edit']))]
     api('teams', {'name': 'Equipe de Edição de Vídeo', 'members': [{'role': 'desenvolvedor', 'agentId': ags[2]['id']}, {'role': 'revisor', 'agentId': ags[0]['id']}]})
@@ -38,7 +24,7 @@ try:
     api('routines', {'name': 'Rotina diária', 'projectId': P['id'], 'objective': 'Buscar vagas', 'trigger': {'type': 'manual'}, 'target': {'type': 'agent', 'id': ags[1]['id']}})
     time.sleep(3)
     VIEWS = ['room', 'projects', 'tasks', 'teams', 'recipes', 'agents', 'deliveries', 'skills', 'usage', 'routines', 'connections', 'settings']
-    URL = f'http://127.0.0.1:{PORT}/#{key}'
+    URL = f'{servico.base}/#{key}'
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True)
         for label, size, mobile in (('desktop', {'width': 1440, 'height': 900}, False), ('celular', {'width': 390, 'height': 844}, True)):
@@ -76,8 +62,6 @@ try:
             for kind, w, msg in errs: problems.append(f'{label} [{kind}] {w}: {msg[:160]}')
             ctx.close()
         browser.close()
-finally:
-    srv.kill(); time.sleep(0.5); shutil.rmtree(tmp, ignore_errors=True)
 uniq = list(dict.fromkeys(problems))
 print(f'{clicks} cliques em botões, {len(uniq)} problema(s)')
 for p in uniq: print('  -', p)
