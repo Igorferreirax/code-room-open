@@ -863,10 +863,11 @@ export class Assistant {
   }
 
   // Aplica UMA ação aprovada: valida de novo (o estado pode ter mudado) e só então executa, pelos mesmos caminhos do resto do app.
-  async #applyCore(msgId, idx, { auto = false } = {}) {
+  async #applyCore(msgId, idx, { auto = false, guard = null } = {}) {
     const found = this.#findMsg(msgId), a = found?.msg?.actions?.find(x => x.idx === Number(idx));
     if (!a) throw new Error('Ação não encontrada.'); if (a.status !== 'pending') throw new Error('Esta ação já foi tratada.');
     const w = await this.worldFn(), r = normalizeAction(a.raw || {}, w); if (!r || !r.valid) throw new Error(r?.error || 'A ação deixou de ser válida.');
+    guard?.(r);   // regra de quem pede (celular, de fora) checada na MESMA ação que vai executar, já normalizada
     let result = '', projectId = null, taskView = null, browserUrl = null;
     if (r.type === 'criar_equipe') {
       const t = this.saveTeam(r.payload);
@@ -922,8 +923,8 @@ export class Assistant {
     this.#updateAction(msgId, idx, { status: 'applied', result, ...(auto ? { auto: true } : {}), ...(browserUrl ? { browserUrl } : {}) });
     return { result, view: r.type === 'abrir_tela' ? r.payload.view : taskView, projectId, browserUrl };
   }
-  async apply(msgId, idx) {
-    const out = await this.#applyCore(msgId, idx);
+  async apply(msgId, idx, { guard = null } = {}) {
+    const out = await this.#applyCore(msgId, idx, { guard });
     return { ...out, status: await this.status() };
   }
   dismiss(msgId, idx) {

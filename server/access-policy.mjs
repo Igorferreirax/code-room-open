@@ -23,7 +23,8 @@ export function localOnlyReason(method, path) {
 export const LOCAL_ONLY_RULES = LOCAL_ONLY.map(x => ({ path: x.re.source, metodos: x.all ? 'todos' : 'só alterações', motivo: x.why }));
 
 // Ações do Nico que o celular pode aprovar (lista do que É permitido: ação nova começa proibida no celular).
-export const MOBILE_ACTIONS = new Set(['abrir_tela', 'iniciar_tarefa', 'cancelar_tarefa', 'repetir_tarefa', 'criar_agente', 'criar_equipe', 'vincular_agente', 'ligar_agentes', 'contratar_biblioteca', 'definir_skills', 'criar_rotina', 'gerenciar_rotina', 'guardar_nota', 'contexto_projeto', 'comparar_ias']);
+// Fora da lista de propósito: comparar_ias, criar_rotina e gerenciar_rotina (rodam agentes sem um alvo simples de conferir).
+export const MOBILE_ACTIONS = new Set(['abrir_tela', 'iniciar_tarefa', 'cancelar_tarefa', 'repetir_tarefa', 'criar_agente', 'criar_equipe', 'vincular_agente', 'ligar_agentes', 'contratar_biblioteca', 'definir_skills', 'guardar_nota', 'contexto_projeto']);
 // O celular olha também o CONTEÚDO da ação: criar agente só de leitura e sem ferramentas; iniciar ou repetir tarefa
 // nunca com agente em modo irrestrito (esse roda sem pedir confirmação). agentOf: busca o agente no servidor.
 export function mobileActionAllowed(act, { agentOf = () => [] } = {}) {

@@ -929,9 +929,8 @@ const handle = async (req, res) => {
           if (a === 'name') return send(res, 200, await assistant.setName(b.name));
           if (a === 'apply') {
             // Ações que executam no computador (abrir, terminal, pastas locais): só com o pedido vindo do próprio computador.
-            const st0 = await assistant.status(), act = (st0.messages || []).find(x => x.id === b.messageId)?.actions?.find(x => x.idx === Number(b.index));
-            if (act && !hostActionAllowed(act, { local: isLocal(ip) })) return send(res, 403, { error: 'Esta ação executa algo no computador e só pode ser aprovada nele.' });
-            return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index)));
+            const local = isLocal(ip);
+            return send(res, 200, await assistant.apply(text(b.messageId, 80), Number(b.index), { guard: r => { if (!hostActionAllowed(r, { local })) throw Object.assign(new Error('Esta ação executa algo no computador e só pode ser aprovada nele.'), { status: 403 }); } }));
           }
           if (a === 'dismiss') return send(res, 200, await assistant.dismiss(text(b.messageId, 80), Number(b.index)));
           if (a === 'cancel') return send(res, 200, await assistant.cancel());
@@ -953,10 +952,8 @@ const handle = async (req, res) => {
           if (a === 'thread/select') return send(res, 200, cleanMob(await assistant.selectThread(text(b.id, 40))));
           if (a === 'thread/new') return send(res, 200, cleanMob(await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null })));
           if (a === 'apply') {
-            const st0 = await assistant.status(), msg = (st0.messages || []).find(x => x.id === b.messageId), act = msg?.actions?.find(x => x.idx === Number(b.index));
-            if (!act) throw new Error('Ação não encontrada.');
-            if (!mobileActionAllowed(act, { agentOf: pl => { const ag = id => store.get('agents', id); if (pl.agentId) return [ag(pl.agentId)]; if (pl.teamId) return (store.get('teams', pl.teamId)?.members || []).map(m => ag(m.agentId || m.id || m)); if (pl.taskId) return [store.get('tasks', pl.taskId)?.agent]; return []; } })) throw new Error('Esta ação mexe no computador ou em permissões e só pode ser aprovada no próprio computador.');
-            const r = await assistant.apply(text(b.messageId, 80), Number(b.index));
+            const agentOf = pl => { const ag = id => store.get('agents', id); if (pl.agentId) return [ag(pl.agentId)]; if (pl.teamId) return (store.get('teams', pl.teamId)?.members || []).map(m => ag(m.agentId)); if (pl.taskId) return [store.get('tasks', pl.taskId)?.agent]; return []; };
+            const r = await assistant.apply(text(b.messageId, 80), Number(b.index), { guard: act => { if (!mobileActionAllowed(act, { agentOf }) || !hostActionAllowed(act, { local: false })) throw Object.assign(new Error('Esta ação mexe no computador ou em permissões e só pode ser aprovada no próprio computador.'), { status: 403 }); } });
             return send(res, 200, { ...r, status: cleanMob(r.status) });
           }
         }

@@ -12,7 +12,7 @@ test('só no computador: terminal, abrir programas, voz global, rede, atualizaç
 });
 
 test('celular: só aprova ações da lista; o que roda programas, mexe em pastas ou em permissões fica no computador', () => {
-  for (const t of ['abrir', 'abrir_terminal', 'enviar_terminal', 'importar_projeto', 'criar_pasta_entrada', 'criar_projeto', 'ajustar_agente', 'politica_orquestracao', 'criar_canal', 'criar_skill', 'tipo_que_ainda_nao_existe'])
+  for (const t of ['abrir', 'abrir_terminal', 'enviar_terminal', 'importar_projeto', 'criar_pasta_entrada', 'criar_projeto', 'ajustar_agente', 'politica_orquestracao', 'criar_canal', 'criar_skill', 'comparar_ias', 'criar_rotina', 'gerenciar_rotina', 'tipo_que_ainda_nao_existe'])
     assert.equal(mobileActionAllowed({ type: t, payload: {} }), false, t);
   for (const t of MOBILE_ACTIONS) assert.equal(mobileActionAllowed({ type: t, payload: { agentId: 'a' } }, { agentOf: () => [{ id: 'a', unrestricted: false }] }), true, t);
   assert.equal(mobileActionAllowed({ type: 'criar_agente', payload: { unrestricted: true } }), false, 'modo irrestrito só no computador');
