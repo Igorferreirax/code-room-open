@@ -29,6 +29,7 @@ export const DEFAULT_CONCURRENCY = { global: 1, provider: { codex: 1, claude: 1,
 const overlap = (a, b) => a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
 const now = () => new Date().toISOString();
 const fail = (failureKind, message) => Object.assign(new Error(message), { failureKind });
+export const isAssistantTask = t => String(t?.agent?.id || '').startsWith('assistant-');
 
 export class Runner {
   // hooks.handoffsFor(task) → mensagens de passagem; hooks.onFinal(task) → orquestração depois do estado final.
@@ -95,16 +96,33 @@ export class Runner {
     }
   }
 
-  canStart(task, limits) {
-    const entries = [...this.active.values()];
-    if (entries.length >= limits.global) return false;
-    const provider = task.agent.provider;
-    if (entries.filter(e => e.task.agent.provider === provider).length >= (limits.provider[provider] ?? 1)) return false;
+  canStart(task, limits) { return !this.blockReason(task, limits); }
+  // Por que a tarefa ainda não começou ('' = pode começar). A mesma regra que a fila usa, em texto para a tela.
+  // O Nico tem uma via própria: não entra no limite de tarefas simultâneas nem por IA (antes, uma tarefa de agente
+  // rodando deixava o Nico em "pensando…" sem dizer por quê), e também não ocupa vaga das tarefas dos agentes.
+  blockReason(task, limits = this.concurrency()) {
+    const label = e => isAssistantTask(e.task) ? 'o Nico' : `“${String(e.task.objective || '').replace(/\s+/g, ' ').slice(0, 50)}” (${e.task.agent.name})`;
+    const all = [...this.active.values()];
+    if (isAssistantTask(task)) {
+      const other = all.find(e => isAssistantTask(e.task));
+      return other ? 'O Nico ainda está terminando a resposta anterior.' : '';
+    }
+    const entries = all.filter(e => !isAssistantTask(e.task));
+    if (entries.length >= limits.global) return `Limite de ${limits.global} tarefa(s) ao mesmo tempo: esperando ${label(entries[0])} terminar. Dá para aumentar em Consumo e limites.`;
+    const provider = task.agent.provider, same = entries.filter(e => e.task.agent.provider === provider);
+    if (same.length >= (limits.provider[provider] ?? 1)) return `Limite de ${limits.provider[provider] ?? 1} tarefa(s) por vez nesta IA: esperando ${label(same[0])} terminar.`;
     const writer = task.agent.mode === 'write';
     // Tarefa isolada em worktree trabalha numa cópia própria: não trava nem é travada pela pasta do projeto.
-    if (!task.isolate) for (const e of entries) if (!e.task.isolate && overlap(e.task.project.path, task.project.path) && (writer || e.task.agent.mode === 'write')) return false;
-    if (task.agent.capabilities?.includes('video.render') && entries.filter(e => e.task.agent.capabilities?.includes('video.render')).length >= limits.video) return false;
-    return true;
+    if (!task.isolate) for (const e of all) if (!e.task.isolate && overlap(e.task.project.path, task.project.path) && (writer || e.task.agent.mode === 'write')) return `Outra tarefa está mexendo na mesma pasta: esperando ${label(e)} terminar (ou use “Isolar em worktree”).`;
+    if (task.agent.capabilities?.includes('video.render') && entries.filter(e => e.task.agent.capabilities?.includes('video.render')).length >= limits.video) return 'Só um render de vídeo por vez: esperando o anterior terminar.';
+    return '';
+  }
+  // Motivo de espera de uma tarefa na fila (pausa, orçamento ou limite).
+  whyWaiting(task) {
+    if (!task || task.status !== 'queued') return '';
+    if (this.paused() && !isAssistantTask(task)) return 'Novas tarefas estão pausadas. Retome em Tarefas › Retomar novas tarefas.';
+    if ((b => b.reached || b.tokens.reached)(this.budget())) return 'O limite de gasto configurado foi atingido (Consumo e limites).';
+    return this.blockReason(task);
   }
   async pump() {
     if (this.pumping) { this.again = true; return; }
@@ -112,9 +130,9 @@ export class Runner {
     try {
       do {
         this.again = false;
-        if (this.paused() || (b => b.reached || b.tokens.reached)(this.budget())) break;
-        const limits = this.concurrency();
-        const queued = this.store.list('tasks').filter(t => t.status === 'queued').sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.createdAt.localeCompare(b.createdAt));
+        if ((b => b.reached || b.tokens.reached)(this.budget())) break;
+        const limits = this.concurrency(), paused = this.paused();   // pausado: só o Nico continua respondendo (conversa, não tarefa nova de agente)
+        const queued = this.store.list('tasks').filter(t => t.status === 'queued' && (!paused || isAssistantTask(t))).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.createdAt.localeCompare(b.createdAt));
         for (const t of queued) if (this.canStart(t, limits)) this.begin(t);
       } while (this.again);
     } finally { this.pumping = false; }
@@ -169,14 +187,26 @@ export class Runner {
     if (task.resume) this.event(attempt.id, { type: 'diagnostic', text: `Continuando a conversa: sessão ${task.resume.sessionId.slice(0, 8)}… da tarefa ${task.resume.fromTask.slice(0, 8)}… (mesmo provedor).` });
     const before = await snapshot(root);
     if (agent.mode === 'write' && !task.isolate && task.project?.id !== 'assistant-internal') {
+      const free = !!agent.unrestricted && task.project?.area !== 'Financeiro';
       entry.checkpoint = await captureTaskCheckpoint(root);
-      // Modo irrestrito sem Git: cópia dos arquivos antes de começar, para "Reverter alterações" funcionar mesmo assim.
-      if (!entry.checkpoint && agent.unrestricted && task.project?.area !== 'Financeiro' && this.backupDir) {
-        await this.pruneBackups().catch(() => {});
-        entry.checkpoint = await captureFileBackup(root, join(this.backupDir, task.id)).catch(() => null);
-        if (entry.checkpoint && !entry.checkpoint.available) { this.event(attempt.id, { type: 'diagnostic', text: `Modo irrestrito sem ponto de restauração: ${entry.checkpoint.reason}.` }); entry.checkpoint = null; }
-        else if (entry.checkpoint) this.event(attempt.id, { type: 'diagnostic', text: `Modo irrestrito: cópia de segurança de ${entry.checkpoint.files} arquivo(s) feita antes de começar (Reverter alterações desfaz o que a IA mudar).` });
-      } else if (agent.unrestricted && entry.checkpoint) this.event(attempt.id, { type: 'diagnostic', text: 'Modo irrestrito: ponto de restauração do Git gravado antes de começar.' });
+      // Modo irrestrito sem Git (ou com o Git falhando): cópia dos arquivos antes de começar.
+      let why = entry.checkpoint ? '' : 'o ponto de restauração do Git não pôde ser gravado';
+      if (!entry.checkpoint && free) {
+        if (!this.backupDir) why = 'a pasta de cópias de segurança não está configurada';
+        else {
+          await this.pruneBackups().catch(() => {});
+          const cp = await captureFileBackup(root, join(this.backupDir, task.id)).catch(e => ({ available: false, kind: 'copy', reason: `a cópia de segurança falhou (${e.message})` }));
+          if (cp?.available) entry.checkpoint = cp;
+          else { why = cp?.reason || 'a cópia de segurança falhou'; await rm(join(this.backupDir, task.id), { recursive: true, force: true }).catch(() => {}); }
+        }
+      }
+      // O ponto cobre só a pasta do projeto. Pastas liberadas e a pasta extra ficam de fora: dizer isso claramente.
+      const outside = [...(wdl.ok || []).map(w => w.path || w), task.extraDir].filter(Boolean);
+      if (entry.checkpoint) entry.checkpoint = { ...entry.checkpoint, covers: [root], notCovered: outside };
+      if (free && !entry.checkpoint) {
+        throw fail('checkpoint_unavailable', `Modo irrestrito bloqueado: ${why}. Sem ponto de restauração a IA não começa. Pasta que precisava ser coberta: ${root}. Saídas: use um projeto com Git, uma pasta menor, a opção "Executar em worktree isolado" (o agente trabalha numa cópia do repositório e nada é mesclado sozinho) ou desligue o modo irrestrito deste agente.`);
+      }
+      if (free) this.event(attempt.id, { type: 'diagnostic', text: `Modo irrestrito: ${entry.checkpoint.kind === 'copy' ? `cópia de segurança de ${entry.checkpoint.files} arquivo(s)` : 'ponto de restauração do Git'} gravado antes de começar. Coberto: ${root}.${outside.length ? ` Fora do ponto de restauração (Reverter não desfaz): ${outside.join(', ')}.` : ''}` });
     }
     let externalBefore = task.extraDir ? await snapshot(task.extraDir, { strict: true }) : null;
     if (externalBefore && !externalBefore.complete) {   // pasta grande (ex.: Área de Trabalho): acompanha o primeiro nível em vez de recusar a tarefa

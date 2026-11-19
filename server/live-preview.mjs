@@ -106,7 +106,7 @@ export async function scanProjectPages(projectPath, { maxFiles = 24, maxDepth = 
 // Proxy reverso estritamente local (127.0.0.1:PORTA) para o Navegador Interno:
 // 1) Evita bloqueio de iframe por X-Frame-Options: deny em servidores dev locais (Next.js, Vincere, Vite, etc.);
 // 2) Permite ver pelo celular (Tailscale/Wi-Fi) servidores que só escutam em 127.0.0.1 no computador.
-export function proxyLocalPort(req, res, { port, subPath = '/', search = '', proxyPrefix, excludePort = 4780 }) {
+export function proxyLocalPort(req, res, { port, subPath = '/', search = '', proxyPrefix, excludePort = 4780, csp = '' }) {
   const p = Number(port);
   if (!Number.isInteger(p) || p < 1024 || p > 65535 || p === Number(excludePort)) {
     res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -137,7 +137,7 @@ export function proxyLocalPort(req, res, { port, subPath = '/', search = '', pro
       }
     }
     headers['Cache-Control'] = 'no-store';
-    headers['Content-Security-Policy'] = "frame-ancestors 'self'";
+    headers['Content-Security-Policy'] = csp || "frame-ancestors 'self'";
     const ct = String(upRes.headers['content-type'] || '').toLowerCase();
     if (ct.includes('text/html') && req.method === 'GET') {
       const chunks = [];

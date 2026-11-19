@@ -129,8 +129,10 @@ with Servico() as servico:
                 except Exception: pass
                 check('chat: "@" mostra os agentes', page.locator('#slash-pop [data-pick]').count() >= 3 and 'Ana' in page.inner_text('#slash-pop'), page.evaluate("() => ({project: document.querySelector('#project-select')?.value, active: document.activeElement?.id, value: document.querySelector('#mission')?.value, popup: document.querySelector('#slash-pop')?.innerText || ''})"))
                 page.keyboard.press('Escape'); page.fill('#mission', ''); time.sleep(0.2)
+                if page.locator('details.nico-tools:not([open]) [data-act=opts]').count(): page.click('details.nico-tools > summary'); time.sleep(0.2)   # 0.4.0: com o Nico, Critérios fica em Mais ferramentas
                 page.click('[data-act=opts]'); time.sleep(0.3)
                 check('compositor: opção "Isolar em worktree" disponível', page.locator('#isolate').count() == 1)
+                if page.locator('details.nico-tools:not([open]) [data-act=opts]').count(): page.click('details.nico-tools > summary'); time.sleep(0.2)
                 page.click('[data-act=opts]'); time.sleep(0.2)
                 page.click('[data-act=chat-min]'); time.sleep(0.2); check('chat: minimizar devolve o balão e esconde a janela', page.is_visible('#chat-bubble') and not page.is_visible('#chat'))
                 # ---- Canvas (terceira vista da Sala) ----

@@ -1144,7 +1144,20 @@ details.adv>summary small{font-weight:400;margin-left:auto;text-align:right}
 details.adv>:not(summary){margin:0 14px 12px}
 .warn-text{color:var(--warn,#f5b73b)!important}
 /* Atalhos de modo do Nico (0.4.0) */
-.cw-presets{display:flex;gap:4px;padding:6px 10px 8px;border-bottom:1px solid var(--line)}
+.cw-presets{position:relative;padding:0 12px 8px}
+.cw-presets>summary{width:max-content;max-width:100%;padding:4px 8px;list-style:none}
+.cw-presets>summary::-webkit-details-marker,.nico-tools>summary::-webkit-details-marker{display:none}
+.cw-preset-options,.nico-tools-menu{display:grid;gap:3px;position:absolute;z-index:12;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px;box-shadow:var(--shadow)}
+.cw-preset-options{top:calc(100% - 4px);left:12px}
+.cw-preset-options .cw-preset{justify-content:flex-start;padding:6px 9px}
+.nico-tools{position:relative;grid-area:cl}
+.nico-tools>summary{display:grid;place-items:center;list-style:none;cursor:pointer}
+.nico-tools-menu{bottom:calc(100% + 5px);left:0;grid-auto-flow:column}
+.as-decisions .as-decision-label{color:var(--warn);font-weight:650;margin:0 0 6px}
+.as-reply-detail,.as-execution{margin-top:8px;color:var(--muted)}
+.as-reply-detail>summary,.as-execution>summary{font-size:.78rem;cursor:pointer}
+.as-reply-detail[open]>summary,.as-execution[open]>summary{margin-bottom:5px}
+.as-reply-detail[open]>:not(summary){color:var(--text)}
 .cw-preset{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;font:500 .78rem/1.2 inherit;color:var(--muted);background:transparent;border:1px solid transparent;border-radius:8px;padding:6px 4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cw-preset i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55;flex:none}
 .cw-preset:hover{color:var(--text);border-color:var(--line)}
@@ -1177,6 +1190,7 @@ details.adv>:not(summary){margin:0 14px 12px}
 .td-split[aria-pressed=true]{color:var(--text);border-color:var(--accent)}
 /* Campo do chat (0.4.0): texto em cima, barra de ferramentas embaixo; ícones de linha; seletor como pílula discreta */
 html body .cw-foot .composer{grid-template-columns:auto auto auto auto minmax(0,1fr) auto;grid-template-areas:'tx tx tx tx tx tx' 'cl im ex mc tg sd';gap:2px 4px;padding:6px 8px 8px;border-radius:18px;align-items:center}
+html body .cw-foot .composer-nico{grid-template-columns:auto auto auto minmax(0,1fr) auto;grid-template-areas:'tx tx tx tx tx' 'cl im mc tg sd'}
 html body .cw-foot .composer textarea{grid-area:tx;min-height:44px;max-height:160px;padding:8px 6px 4px;line-height:1.45;field-sizing:content;scrollbar-width:none;overflow-y:auto}
 html body .cw-foot .composer textarea::-webkit-scrollbar{display:none}
 html body .cw-foot .composer>.iconbtn{width:34px;height:34px;min-width:34px;min-height:34px;border-radius:10px;color:var(--muted);border:0;background:transparent;display:grid;place-items:center}
@@ -1212,10 +1226,11 @@ html body .cw-foot .asst-image-preview{transform:none;grid-area:tx;align-self:en
 @media (max-width:760px){#topbar .term-wrap,#topbar [data-act=browser-toggle]{display:none}}
 /* Nico guia (0.4.0): apresentação no centro da tela e tour com o Nico flutuando ao lado de cada parte */
 .ng-stage{position:fixed;inset:0;z-index:9600;display:grid;place-items:center;padding:24px 16px}
-.ng-scrim{position:absolute;inset:0;background:radial-gradient(60% 50% at 50% 45%,rgba(40,30,120,.55),rgba(3,6,14,.88));backdrop-filter:blur(6px);animation:ng-fade .5s ease both}
+.ng-scrim{position:absolute;inset:0;background:radial-gradient(60% 50% at 50% 45%,rgba(40,30,120,.32),rgba(3,6,14,.6));backdrop-filter:blur(12px) saturate(.85);-webkit-backdrop-filter:blur(12px) saturate(.85);animation:ng-fade .6s ease both}
+.ng-scrim-out{position:fixed;z-index:9590;pointer-events:none;animation:ng-fade .7s ease reverse both}
 .ng-hello{position:relative;display:grid;grid-template-columns:auto minmax(0,560px);gap:28px;align-items:center;max-width:820px;width:100%}
 .ng-orb{position:relative;width:132px;height:132px;animation:ng-pop .9s cubic-bezier(.2,1.4,.4,1) both}
-.ng-orb .mascot{width:132px;height:132px;filter:drop-shadow(0 18px 40px rgba(108,92,255,.45))}
+.ng-orb .mascot{width:132px;height:132px;filter:drop-shadow(0 18px 40px rgba(108,92,255,.45));animation:ng-bob 4.6s ease-in-out .9s infinite}
 .ng-ring{position:absolute;inset:-14px;border-radius:50%;border:1px solid rgba(120,240,255,.35);animation:ng-ring 2.6s ease-out infinite}
 .ng-talk{position:relative;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid color-mix(in srgb,#7d8bff 35%,var(--line));border-radius:20px;padding:22px 24px;box-shadow:0 30px 80px rgba(0,0,0,.5);animation:ng-rise .6s .35s ease both}
 .ng-talk::before{content:"";position:absolute;left:-9px;top:46px;width:16px;height:16px;background:inherit;border-left:1px solid color-mix(in srgb,#7d8bff 35%,var(--line));border-bottom:1px solid color-mix(in srgb,#7d8bff 35%,var(--line));transform:rotate(45deg)}
@@ -1231,21 +1246,96 @@ html body .cw-foot .asst-image-preview{transform:none;grid-area:tx;align-self:en
 .ng-stage.leaving .ng-scrim{animation:ng-fade .5s reverse both}
 .ng-stage.leaving .ng-talk{opacity:0;transform:translateY(8px);transition:.3s}
 .ng-stage.leaving .ng-orb{animation:ng-fly .65s cubic-bezier(.5,0,.75,0) both}
-.ng-float{position:fixed;z-index:9600;display:flex;gap:10px;align-items:flex-start;width:min(360px,calc(100vw - 24px));animation:ng-rise .35s ease both}
-.ng-float-orb{flex:none;width:64px;height:64px;animation:mc-float 3.4s ease-in-out infinite}.ng-float-orb .mascot{width:64px;height:64px}
+.ng-float{position:fixed;z-index:9600;display:flex;gap:10px;align-items:flex-start;width:min(360px,calc(100vw - 24px));animation:ng-rise .35s ease both;transition:left .75s cubic-bezier(.22,.8,.25,1),top .75s cubic-bezier(.22,.8,.25,1)}
+.ng-float.ng-from-hello{animation:none}.ng-float.ng-from-hello .ng-bubble{animation:ng-rise .4s .5s ease both}
+.ng-float .ng-bubble{animation:ng-swap .35s ease both}
+.ng-float-orb{flex:none;width:64px;height:64px;transition:transform .75s cubic-bezier(.22,.8,.25,1)}.ng-float-orb .mascot{width:64px;height:64px;animation:ng-bob 4.2s ease-in-out infinite}
 .ng-bubble{flex:1;min-width:0;background:var(--panel);border:1px solid color-mix(in srgb,#7d8bff 40%,var(--line));border-radius:16px;padding:12px 14px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
 .ng-bubble h3{margin:0 0 4px;font-size:1rem}.ng-bubble p{margin:0 0 10px;font-size:.88rem;line-height:1.45}
 .ng-hl{position:relative;z-index:9550;box-shadow:0 0 0 2px #7d8bff,0 0 0 8px rgba(125,139,255,.22)!important;border-radius:12px;transition:box-shadow .2s}
 @keyframes ng-fade{from{opacity:0}}
 @keyframes ng-pop{0%{opacity:0;transform:scale(.3) translateY(30px)}60%{opacity:1}100%{transform:none}}
 @keyframes ng-rise{from{opacity:0;transform:translateY(10px)}}
+@keyframes ng-bob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-7px) rotate(-2deg)}}
+@keyframes ng-swap{from{opacity:.25}}
 @keyframes ng-ring{0%{transform:scale(.85);opacity:.9}100%{transform:scale(1.35);opacity:0}}
 @keyframes ng-fly{to{transform:translate(42vw,40vh) scale(.35);opacity:.2}}
 @media (max-width:700px){.ng-hello{grid-template-columns:1fr;justify-items:center;text-align:left}.ng-orb,.ng-orb .mascot{width:96px;height:96px}.ng-talk::before{display:none}.ng-paths{grid-template-columns:1fr}.ng-line{font-size:1.25rem}}
-@media (prefers-reduced-motion:reduce){.ng-orb,.ng-talk,.ng-scrim,.ng-ring,.ng-float,.ng-float-orb,.ng-stage.leaving .ng-orb{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.ng-orb,.ng-talk,.ng-scrim,.ng-ring,.ng-float,.ng-float-orb,.ng-stage.leaving .ng-orb,.ng-orb .mascot,.ng-float-orb .mascot,.ng-float .ng-bubble,.ng-scrim-out{animation:none!important}.ng-float,.ng-float-orb{transition:none!important}}
 /* Configurações › Contribuir (0.4.0) */
 .contrib-steps{margin:6px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;counter-reset:cs}
 .contrib-steps li{counter-increment:cs;border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:4px}
 .contrib-steps li b::before{content:counter(cs) ". ";color:var(--accent-h,var(--accent))}
 .contrib-steps li span{color:var(--muted);font-size:.85rem}
 .contrib-cmd{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font:.82rem/1.5 ui-monospace,"Cascadia Code",Consolas,monospace;white-space:pre-wrap;overflow-x:auto}
+
+/* Prévia de "Reverter alterações" (um item por arquivo; preservados em tom neutro) */
+.revert-dlg { max-width: min(720px, calc(100vw - 32px)); width: 100%; border: 1px solid var(--line, #2a3550); border-radius: 14px; background: var(--panel, #0f1830); color: inherit; padding: 20px; }
+.revert-dlg::backdrop { background: rgba(4, 8, 18, .6); backdrop-filter: blur(3px); }
+.revert-dlg h2 { margin: 0 0 6px; font-size: 1.1rem; }
+.rv-list { list-style: none; margin: 12px 0 16px; padding: 0; max-height: 50vh; overflow: auto; display: grid; gap: 6px; }
+.rv-list label { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, .03); cursor: pointer; }
+.rv-list code { overflow-wrap: anywhere; }
+.rv-list small { grid-column: 2 / 4; }
+.rv-what { font-size: .8rem; white-space: nowrap; }
+.rv-keep .rv-what, .rv-none .rv-what { opacity: .7; }
+.rv-restore .rv-what, .rv-recreate .rv-what { color: var(--ok, #5ad19a); }
+.rv-trash .rv-what { color: var(--warn, #f2b94b); }
+.parallel-hint { display: block; margin-top: 4px; }
+
+/* Nico: mensagem a caminho, andamento real e tempos */
+.as-out .as-bubble{opacity:.8}.as-out.failed .as-bubble{opacity:1;outline:1px dashed color-mix(in srgb,var(--bad) 60%,transparent)}
+.as-out-st{color:var(--muted);font-size:.75rem}
+.as-out-err{display:grid;gap:6px;justify-items:end;margin-top:4px;font-size:.8rem;color:var(--bad);text-align:right}
+.as-wait{display:grid;gap:6px;min-width:min(320px,100%)}
+.as-wait-head{display:flex;align-items:center;gap:8px}.as-wait-head .grow{flex:1}.as-wait-head small{font-variant-numeric:tabular-nums}
+.as-wait.ph-approval{border-color:color-mix(in srgb,var(--warn) 70%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--warn) 35%,transparent)}
+.as-wait.ph-approval .as-wait-head b{color:var(--warn)}
+.as-partial{max-height:40vh;overflow:auto;padding-top:4px;border-top:1px solid var(--line)}
+.as-timing{display:block;font-size:.72rem;font-variant-numeric:tabular-nums}
+.sendbtn.waiting{opacity:.45;cursor:not-allowed}
+.wait-why{display:inline-block;margin:2px 0}
+
+/* ---------- Workspace (public/workspace.js): uma camada só distribui a largura entre página, Navegador e Nico ---------- */
+@media (min-width:1101px){
+  #shell.ws .browser-dock{width:var(--bd-w,min(48vw,700px));right:var(--nico-r,0px);transition:width .18s ease,right .18s ease}
+  #shell.ws .browser-dock.expanded,#shell.ws.ws-bd-center .browser-dock{width:calc(100vw - 68px - var(--nico-r,0px))}
+  #shell.ws.browser-open .main{margin-right:calc(var(--bd-w,0px) + var(--nico-r,0px))}
+  #shell.ws.browser-open.ws-bd-center .main,#shell.ws.browser-open:has(.browser-dock.expanded) .main{margin-right:var(--nico-r,0px)}
+  #shell.ws:not(.browser-open) .main{margin-right:var(--nico-r,0px)}
+  #shell.ws .term-dock{right:var(--side-r,0px)}
+  /* Nico encaixado: coluna inteira à direita, sem cobrir nada */
+  #shell.ws-nico-dock .chat{top:60px;right:0;bottom:0;width:var(--nico-r);height:auto;border-radius:0;border-width:0 0 0 1px;box-shadow:none;z-index:31}
+  #shell.ws-nico-dock .chat-bubble,#shell.ws-nico-dock .nf-pill{right:calc(var(--side-r,0px) + 18px)}
+  body:has(#shell.ws) #browser-dock:not([hidden]) ~ .chat-bubble{right:calc(var(--side-r,0px) + 18px)}
+  #shell.ws.ws-dragging .browser-dock,#shell.ws.ws-dragging .chat{transition:none}
+}
+/* Divisória arrastável (borda esquerda do Nico e do Navegador) */
+.ws-grip{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:5;touch-action:none;outline:none}
+.ws-grip::after{content:"";position:absolute;left:3px;top:50%;width:2px;height:44px;margin-top:-22px;border-radius:2px;background:var(--line);transition:background .15s,height .15s}
+.ws-grip:hover::after,.ws-grip:focus-visible::after{background:var(--accent);height:72px;margin-top:-36px}
+body.ws-dragging{cursor:col-resize;user-select:none}body.ws-dragging iframe{pointer-events:none}
+/* Página estreita (Nico e Navegador abertos): a coluna lateral da Sala vai para baixo em vez de espremer o Canvas */
+#shell.main-narrow .cols.c-2-1{grid-template-columns:minmax(0,1fr)}
+#shell.main-tight .footer-tip{display:none}
+/* Modo Foco: recolhe Atividade, Missão, Supervisor e afins; decisões pendentes continuam à vista */
+#shell.ws-focus .cols.c-2-1{grid-template-columns:minmax(0,1fr)}
+#shell.ws-focus .cols.c-2-1 > aside > :not(#needs-you){display:none}
+#shell.ws-focus .footer-tip{display:none}
+/* Menu Espaço no topo */
+.ws-wrap{position:relative}
+.ws-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:250px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:var(--shadow);display:grid;gap:2px}
+.ws-menu button{display:flex;align-items:center;gap:8px;text-align:left;background:none;border:0;color:var(--text);padding:8px 10px;border-radius:8px;cursor:pointer;font:inherit}
+.ws-menu button:hover,.ws-menu button:focus-visible{background:var(--accent-soft);outline:none}
+.ws-menu button[aria-checked=true]{color:var(--accent-h);font-weight:600}
+.ws-menu small{color:var(--muted);display:block;font-size:.75rem}
+.ws-menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
+.ws-center-pill{position:absolute;right:12px;bottom:12px;z-index:4}
+/* Prévia no centro: abas Página | Prévia; com Página à vista, a prévia fica escondida (sem recarregar) */
+.ws-tabs{position:fixed;top:68px;right:calc(var(--nico-r,0px) + 16px);z-index:33;display:flex;gap:2px;padding:3px;border-radius:10px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);box-shadow:var(--shadow)}
+.ws-tabs button{border:0;background:none;color:var(--muted);font:600 .8rem/1 inherit;padding:7px 12px;border-radius:7px;cursor:pointer}
+.ws-tabs button[aria-selected=true]{background:var(--accent-soft);color:var(--accent-h)}
+.ws-tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#shell.ws-peek-page .browser-dock{visibility:hidden;pointer-events:none}
+@media (min-width:1101px){.term-dock{right:var(--side-r,0px)}}
+@media (max-width:1100px){.ws-wrap,.cw-dock{display:none}}   /* o Workspace só vale em telas largas: no celular não ocupa a barra */

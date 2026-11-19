@@ -25,6 +25,12 @@ export function adaptPreviewUrl(rawUrl, currentHost = location.hostname) {
 }
 
 export function createBrowserManager({ api, getCtx, notify, onStateChange = () => {}, onTweak = null }) {
+  // Prévias do projeto (/live, /lp) abrem pela ORIGEM DEDICADA da prévia (outra porta), nunca pela origem do painel:
+  // assim a página do projeto não alcança a sessão do painel nem a API. Sem a origem dedicada, o servidor manda em sandbox.
+  const frameUrl = url => { const o = getCtx?.()?.state?.previewOrigin; return o && /^\/(live|lp)\//.test(url) ? o + url : url; };
+  // Permissões mínimas para sites e servidores de desenvolvimento funcionarem (scripts, formulários, armazenamento da
+  // PRÓPRIA origem da prévia). allow-same-origin só vale porque a prévia nunca tem a origem do painel.
+  const SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox allow-pointer-lock';
   let open = false, expanded = false, tweakOpen = false;
   let tabs = [{ id: 'b1', title: 'Nova guia', url: '', viewport: 'desktop', autoReload: true, reloadTick: 0 }];
   let activeId = 'b1', seq = 2;
@@ -120,7 +126,7 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
     t.reloadTick = (t.reloadTick || 0) + 1;
     document.querySelectorAll(`iframe[data-btab="${t.id}"]`).forEach(ifr => {
       const sep = t.url.includes('?') ? '&' : '?';
-      ifr.src = `${t.url}${sep}_cr=${Date.now()}`;
+      ifr.src = frameUrl(`${t.url}${sep}_cr=${Date.now()}`);
     });
   }
 
@@ -257,12 +263,14 @@ export function createBrowserManager({ api, getCtx, notify, onStateChange = () =
         ifr.dataset.btab = t.id;
         ifr.className = 'bd-iframe';
         ifr.setAttribute('allow', 'autoplay; clipboard-write; fullscreen');
+        ifr.setAttribute('sandbox', SANDBOX);
+        ifr.setAttribute('referrerpolicy', 'no-referrer');
         ifr.title = `Navegador interno: ${t.title}`;
-        ifr.src = t.url;
+        ifr.src = frameUrl(t.url);
         ifr.dataset.loadedUrl = t.url;
         framesBox.appendChild(ifr);
       } else if (ifr.dataset.loadedUrl !== t.url) {
-        ifr.src = t.url;
+        ifr.src = frameUrl(t.url);
         ifr.dataset.loadedUrl = t.url;
       }
       ifr.hidden = !(t.id === activeId && cur?.url);

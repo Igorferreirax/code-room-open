@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Store } from '../server/store.mjs';
 import { Assistant } from '../server/assistant.mjs';
-import { assistantHtml } from '../public/assistant-ui.js';
+import { assistantHtml, waitHtml } from '../public/assistant-ui.js';
 import { sentHtml, targetBodyHtml } from '../public/chat-ui.js';
 import { tempDir } from './helpers.mjs';
 
@@ -36,7 +36,7 @@ test('piloto: o status do chat traz a última ferramenta usada pela IA (atividad
 test('chat: aviso do piloto fora do Claude e atividade ao vivo no balão "Pensando…"', () => {
   const base = { connected: ['claude', 'codex'], manual: { available: true }, briefed: true, messages: [], alerts: [], autonomy: 'pilot' };
   assert.doesNotMatch(assistantHtml({ ...base, provider: 'claude' }), /não usa MCP/); assert.match(assistantHtml({ ...base, provider: 'agy' }), /não usa MCP nem o Chrome/);
-  assert.match(assistantHtml({ ...base, provider: 'claude', pending: { status: 'running', activity: 'Bash <b>x</b>' } }), /as-act">⚙ Bash &lt;b&gt;x&lt;\/b&gt;/); assert.doesNotMatch(assistantHtml({ ...base, provider: 'claude', pending: { status: 'queued' } }), /as-act/);
+  assert.match(waitHtml({ ...base, provider: 'claude', pending: { status: 'running', activity: 'Bash <b>x</b>' } }), /as-act">⚙ Bash &lt;b&gt;x&lt;\/b&gt;/); assert.doesNotMatch(waitHtml({ ...base, provider: 'claude', pending: { status: 'queued' } }), /as-act/);
 });
 
 test('chat: missão enviada a uma equipe aparece com o texto e o andamento (e some quando não há nada)', () => {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
@@ -209,8 +210,8 @@ test('Ponto de restauração Git por tarefa: reverte arquivo modificado e move a
     await writeFile(join(repo, 'novo.txt'), 'gerado-pela-ia', 'utf8');
     const r = await revertTaskChanges(repo, ckpt, {
       files: [
-        { path: 'app.js', change: 'modified', bytes: 19 },
-        { path: 'novo.txt', change: 'created', bytes: 14 },
+        { path: 'app.js', change: 'modified', bytes: 19, sha256: createHash('sha256').update('const versao = 999;\n').digest('hex') },
+        { path: 'novo.txt', change: 'created', bytes: 14, sha256: createHash('sha256').update('gerado-pela-ia').digest('hex') },
       ],
     });
     assert.equal(r.restored, 1);

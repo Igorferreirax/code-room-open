@@ -48,9 +48,10 @@ const folderUndoHtml = m => m.canUndoFolder
   ? `<div class="btn-row" style="margin-top:6px"><button type="button" class="btn outline sm" data-act="asst-undo-folder" data-id="${esc(m.id)}">Desfazer organização</button></div>`
   : m.folderUndone ? `<p class="as-done small" role="status">✔ ${esc(m.folderUndone)}</p>` : '';
 
-const failureHint = kind => ({ auth: 'Faça login nessa IA e use “Testar resposta” em Conexões antes de repetir.', executable_missing: 'A CLI não foi encontrada. Instale-a ou reinicie o Code Room após atualizar o PATH.', no_output: 'A CLI encerrou sem resposta. Use “Testar resposta” em Conexões; se falhar, abra o diagnóstico para ver a saída da CLI.', tool_denied: 'A IA pediu uma ferramenta que não estava liberada para execução sem tela. Abra o diagnóstico e libere apenas a ferramenta necessária.', timeout: 'A tarefa excedeu o tempo permitido. Confira o diagnóstico e reduza o pedido ou aumente o limite do agente.', external_snapshot_unavailable: 'Escolha uma pasta extra menor ou mais específica e envie uma nova tarefa.', prompt_too_long: 'Divida o pedido ou coloque o material extenso em um arquivo do projeto.', rate_limit: 'Essa IA atingiu o limite de uso da sua conta. Espere o limite renovar ou troque a IA no seletor do topo do chat e pergunte de novo.', model: 'Essa IA não aceitou o modelo escolhido. Em Conexões, use “Testar resposta” para ver os modelos aceitos e escolha um da lista; depois pergunte de novo.' })[kind] || 'Abra o diagnóstico da execução para ver o motivo e o próximo passo.';
+const failureHint = kind => ({ auth: 'Faça login nessa IA e use “Testar resposta” em Conexões antes de repetir.', executable_missing: 'A CLI não foi encontrada. Instale-a ou reinicie o Code Room após atualizar o PATH.', no_output: 'A CLI encerrou sem resposta. Use “Testar resposta” em Conexões; se falhar, abra o diagnóstico para ver a saída da CLI.', tool_denied: 'A IA pediu uma ferramenta que não estava liberada para execução sem tela. Abra o diagnóstico e libere apenas a ferramenta necessária.', timeout: 'A tarefa excedeu o tempo permitido. Confira o diagnóstico e reduza o pedido ou aumente o limite do agente.', external_snapshot_unavailable: 'Escolha uma pasta extra menor ou mais específica e envie uma nova tarefa.', checkpoint_unavailable: 'Sem ponto de restauração o modo irrestrito não começa: repita em worktree isolado, use Git ou desligue o modo irrestrito.', prompt_too_long: 'Divida o pedido ou coloque o material extenso em um arquivo do projeto.', rate_limit: 'Essa IA atingiu o limite de uso da sua conta. Espere o limite renovar ou troque a IA no seletor do topo do chat e pergunte de novo.', model: 'Essa IA não aceitou o modelo escolhido. Em Conexões, use “Testar resposta” para ver os modelos aceitos e escolha um da lista; depois pergunte de novo.' })[kind] || 'Abra o diagnóstico da execução para ver o motivo e o próximo passo.';
 const connectionHelp = kind => ['auth', 'executable_missing', 'no_output', 'model'].includes(kind) ? '<button type="button" class="btn ghost sm" data-nav="connections">Abrir Conexões</button>' : kind === 'rate_limit' ? '<button type="button" class="btn ghost sm" data-act="asst-ai">Trocar a IA que responde</button>' : '';
-const face = () => `<span class="as-face" aria-hidden="true">${mascot('feliz', 30)}</span>`;
+// Memorizado: o mascote ganha ids novos a cada chamada; sem isso o HTML da conversa nunca era igual e ela era recriada a cada leitura.
+let FACE = ''; const face = () => FACE || (FACE = `<span class="as-face" aria-hidden="true">${mascot('feliz', 30)}</span>`);
 const contextLine = m => {
   const c = m.context || {}, parts = [];
   if (c.project) parts.push(`Projeto: ${c.project}`);
@@ -59,9 +60,33 @@ const contextLine = m => {
   if (Number(c.obsidianNotes) > 0) parts.push(`${c.obsidianNotes} referência${c.obsidianNotes === 1 ? '' : 's'} do Obsidian`);
   return parts.length ? `<small class="as-context" title="Fontes de contexto incluídas no pedido enviado à IA">Contexto enviado: ${esc(parts.join(' · '))}</small>` : '';
 };
+function executionHtml(m) {
+  const link = m.taskId ? `<button type="button" class="btn ghost sm" data-act="asst-task" data-id="${esc(m.taskId)}" data-tab="${m.error ? 'resumo' : 'arquivos'}">${m.error ? 'Ver diagnóstico da execução' : m.fileCount === 0 ? 'Ver registro da execução' : 'Ver arquivos e diff da execução'}</button>` : '';
+  if (m.error) return link + timingLine(m);
+  const notice = m.externalApproved && !m.externalTracked
+    ? '<p class="small" role="note">Confira manualmente as alterações na pasta extra.</p>'
+    : '';
+  const shallow = m.externalShallow ? '<p class="small" role="note">Apenas o primeiro nível da pasta extra foi acompanhado.</p>' : '';
+  const record = timingLine(m) + link;
+  const noChanges = m.pilot && m.fileCount === 0 && !notice;
+  const details = record
+    ? `<details class="as-execution"><summary>${noChanges ? 'Sem alterações registradas' : 'Detalhes da execução'}</summary>${record}</details>`
+    : noChanges ? '<p class="small muted">Sem alterações registradas.</p>' : '';
+  return notice + shallow + details;
+}
+
+function replyHtml(m) {
+  if (m.error) return `<p class="upd-err" role="alert">${esc(m.error)}</p><p class="small muted">${esc(failureHint(m.failureKind))}</p>${connectionHelp(m.failureKind)}`;
+  const actions = m.actions || [];
+  const pending = actions.filter(a => a.status === 'pending');
+  const proposals = pending.length ? `<section class="as-decisions" aria-label="Decisões pendentes"><p class="as-decision-label">Para decidir</p>${pending.map(a => actionCard(m, a)).join('')}${allBar(m)}</section>` : '';
+  const text = m.text ? pending.length ? `<details class="as-reply-detail"><summary>Ver resposta do Nico</summary>${mdLite(m.text)}</details>` : mdLite(m.text) : '';
+  return proposals + text + thumbsHtml(m) + actions.filter(a => a.status !== 'pending').map(a => actionCard(m, a)).join('') + folderUndoHtml(m);
+}
+
 const message = m => m.role === 'user'
   ? `<div class="as-msg me"><div class="as-bubble">${mdLite(m.text)}${m.hasImage ? '<p class="small">🖼️ Print anexado</p>' : ''}</div><small>${esc(hour(m.at))}</small>${contextLine(m)}</div>`
-  : `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble">${m.error ? `<p class="upd-err" role="alert">${esc(m.error)}</p><p class="small muted">${esc(failureHint(m.failureKind))}</p>${connectionHelp(m.failureKind)}` : mdLite(m.text)}${thumbsHtml(m)}${(m.actions || []).map(a => actionCard(m, a)).join('')}${allBar(m)}${folderUndoHtml(m)}${m.pilot && m.fileCount === 0 && !m.error ? `<p class="muted small" role="status">${m.externalApproved && !m.externalTracked ? 'Não foi possível confirmar as alterações na pasta extra. Confira-a manualmente.' : 'Nenhum arquivo foi alterado nas pastas acompanhadas nesta execução.'}</p>` : ''}${m.externalShallow ? '<p class="muted small" role="note">A pasta extra é grande: conferi só o primeiro nível dela (arquivos e pastas soltos). O que mudou dentro das subpastas não aparece na lista; confira lá se precisar.</p>' : ''}${m.taskId ? `<button type="button" class="btn ghost sm" data-act="asst-task" data-id="${esc(m.taskId)}" data-tab="${m.error ? 'resumo' : 'arquivos'}">${m.error ? 'Ver diagnóstico da execução' : m.pilot && m.fileCount === 0 ? 'Ver registro da execução' : 'Ver arquivos e diff da execução'}</button>` : ''}</div><small>${esc(hour(m.at))}</small></div></div>`;
+  : `<div class="as-msg ai"><div class="as-col"><div class="as-bubble">${replyHtml(m)}${executionHtml(m)}</div><small>${esc(hour(m.at))}</small></div></div>`;
 
 // O que merece atenção agora (falhas, fila parada, lote com problema, IA indisponível). "Me ajude" manda a pergunta pronta ao Assistente.
 const alertsHtml = a => (a.alerts || []).length ? `<div class="as-alerts" role="region" aria-label="O que merece atenção">${a.alerts.map(x => `<div class="as-alert ${esc(x.level)}"><div><b>${esc(x.title)}</b><p>${esc(x.text)}</p></div><div class="btn-row"><button type="button" class="btn sm" data-act="asst-help" data-id="${esc(x.id)}">Me ajude com isso</button><button type="button" class="btn ghost sm" data-act="asst-alert-dismiss" data-id="${esc(x.id)}">Dispensar</button></div></div>`).join('')}</div>` : '';
@@ -73,6 +98,31 @@ export function folderAskHtml(a) {
 export function sendErrorHtml(a) {
   if (!a.sendError) return '';
   return `<div class="as-msg ai as-send-error">${face()}<div class="as-col"><div class="as-bubble"><p class="upd-err" role="alert">Não consegui enviar: ${esc(a.sendError)}</p><p class="small muted">Seu texto continua na barra. Corrija o que for preciso e envie de novo.</p><button type="button" class="btn ghost sm" data-act="asst-senderr-x">Entendi</button></div></div></div>`;
+}
+// Tempos de uma resposta (mostrados discretamente embaixo da bolha).
+const secs = ms => ms == null ? '' : ms < 10000 ? (ms / 1000).toFixed(1).replace('.', ',') + ' s' : Math.round(ms / 1000) + ' s';
+function timingLine(m) {
+  const t = m.timing || {}; if (t.doneMs == null) return '';
+  const parts = [t.cliStartMs != null ? `IA iniciou em ${secs(t.cliStartMs)}` : '', t.firstChunkMs != null ? `1º trecho em ${secs(t.firstChunkMs)}` : ''].filter(Boolean);
+  return `<p class="as-timing small muted" title="Contado a partir do envio">${m.error ? 'Parou' : 'Respondeu'} em ${secs(t.doneMs)}${parts.length ? ' · ' + parts.join(' · ') : ''}${m.sidelined ? ' · respondi fora da pasta do projeto porque um agente estava editando' : ''}</p>`;
+}
+// Mensagens a caminho: aparecem na hora do Enter ("Enviando…"); se falharem, o texto fica na bolha com "Tentar de novo".
+export function outboxHtml(list = []) {
+  return (list || []).map(o => `<div class="as-msg me as-out ${o.state === 'failed' ? 'failed' : 'sending'}" data-out="${esc(o.id)}"><div class="as-bubble">${mdLite(o.text)}</div>${o.state === 'failed'
+    ? `<div class="as-out-err" role="alert"><span>Não foi enviada: ${esc(o.error || 'erro desconhecido')}</span><span class="btn-row"><button type="button" class="btn sm" data-act="asst-out-retry" data-id="${esc(o.id)}">Tentar de novo</button><button type="button" class="btn ghost sm" data-act="asst-out-edit" data-id="${esc(o.id)}">Voltar para a barra</button></span></div>`
+    : '<small class="as-out-st" role="status">Enviando…</small>'}</div>`).join('');
+}
+// Andamento real da resposta do Nico (fila com o motivo, IA iniciando, aprovação, respondendo com o texto que já chegou).
+const PHASE = { queued: 'Na fila', starting: 'Iniciando a IA…', thinking: 'Pensando…', approval: 'Aguardando sua aprovação', responding: 'Respondendo…' };
+export function waitHtml(a) {
+  const p = a.pending || {}, ph = PHASE[p.phase] ? p.phase : 'thinking', t = p.timing || {};
+  const since = Date.parse(p.since || ''), el = Number.isFinite(since) ? Math.max(0, Date.now() - since) : null;
+  const steps = [t.cliStartMs != null ? `IA iniciou em ${secs(t.cliStartMs)}` : '', t.firstChunkMs != null ? `1º trecho em ${secs(t.firstChunkMs)}` : ''].filter(Boolean).join(' · ');
+  return `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble as-wait ph-${ph}" role="status" aria-live="polite">
+    <div class="as-wait-head"><span class="as-dots" aria-hidden="true"><i></i><i></i><i></i></span><b>${esc(PHASE[ph])}</b>${el != null ? `<small class="muted">${secs(el)}</small>` : ''}<span class="grow"></span><button type="button" class="btn ghost sm as-wait-cancel" data-act="asst-cancel">Cancelar resposta</button></div>
+    ${p.waitReason ? `<p class="small warn-txt">${esc(p.waitReason)}</p>` : ''}${ph === 'approval' ? '<p class="small warn-txt">O Nico pediu para fazer algo que precisa do seu “sim”. Veja o cartão de aprovação acima.</p>' : ''}
+    ${p.partial ? `<div class="as-partial">${mdLite(p.partial)}</div>` : ''}${p.activity ? `<small class="as-act">⚙ ${esc(p.activity)}</small>` : ''}${steps ? `<small class="as-timing muted">${steps}</small>` : ''}${p.sidelined ? '<small class="muted">Um agente está editando o projeto: respondo sem mexer nos arquivos dele.</small>' : ''}
+  </div></div></div>`;
 }
 export function assistantHtml(a) {
   if (!a) return '<p class="muted">Carregando…</p>';
@@ -94,5 +144,5 @@ export function assistantHtml(a) {
   const intro = msgs.length ? '' : `<div class="as-empty as-hero"><span class="as-hero-face" aria-hidden="true">${mascot('feliz', 92)}</span><p class="as-hero-t"><b>Oi! Eu sou ${esc(a.name || 'o Nico')}.</b></p><p class="small muted">Conte o que quer fazer (um vídeo, um projeto, uma equipe). Ações no Code Room pedem seu clique; no Modo Piloto, posso trabalhar nos arquivos do projeto.</p><div class="as-sugs">${['/status', '/pendencias', 'Monte uma equipe de vídeo', 'Crie uma rotina semanal'].map(q => `<button type="button" class="chip" data-act="asst-suggest" data-id="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
   const modeBar = a.autonomy === 'pilot' && !a.pilotNoticeDismissed ? '<div class="as-pilot-note" role="status"><span><b>Piloto ligado.</b> Eu mexo nos arquivos do projeto em foco e uso as suas ferramentas. Nada é postado, enviado nem pago sem o seu “sim”.' + (a.provider && a.provider !== 'claude' ? ' Com esta IA o piloto não usa MCP nem o Chrome (só o Claude faz isso): para o piloto completo, escolha o Claude Code no seletor do topo do chat.' : '') + '</span><button type="button" class="as-note-close" data-act="asst-pilot-note-dismiss" aria-label="Ocultar aviso do Modo Piloto" title="Ocultar aviso">×</button></div>' : '';
   const grantBar = a.folderGrant ? `<div class="as-stale as-grant" role="status"><span>📁 <b>${esc(a.folderGrant.path)}</b> · ${a.folderGrant.access === 'read' ? 'só ver' : 'ver e editar'} nesta conversa</span><button type="button" class="btn ghost sm" data-act="folder-grant-x">Tirar</button></div>` : '';
-  return `${modeBar}${alertsHtml(a)}${staleBar}${errBar}${grantBar}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${folderAskHtml(a)}${sendErrorHtml(a)}${busy ? `<div class="as-msg ai">${face()}<div class="as-col"><div class="as-bubble as-wait" role="status"><span class="as-dots" aria-hidden="true"><i></i><i></i><i></i></span> Pensando…${a.pending?.activity ? ` <small class="as-act">⚙ ${esc(a.pending.activity)}</small>` : ''} <button type="button" class="btn ghost sm as-wait-cancel" data-act="asst-cancel">Cancelar</button></div></div></div>` : ''}</div>${err}`;
+  return `${modeBar}${alertsHtml(a)}${staleBar}${errBar}${grantBar}<div class="as-log" id="asst-log" role="log" aria-live="polite">${intro}${msgs.map(message).join('')}${folderAskHtml(a)}${sendErrorHtml(a)}${outboxHtml(a.outbox)}<div id="asst-wait-slot"></div></div>${err}`;
 }

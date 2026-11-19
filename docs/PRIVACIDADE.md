@@ -53,6 +53,14 @@ Estas funções agem no seu computador ou fora dele, e **vêm desligadas**. Cada
 - **Acesso pelo celular, rede local e Tailscale.**
 - **Obsidian em modo “Alimentar”** e **Git** (commits locais; nunca envia ao GitHub sozinho).
 
+## Quem pode o quê (computador, acesso remoto e celular)
+
+As regras ficam num arquivo só, `server/access-policy.mjs`, e têm teste próprio (`test/access-policy.test.mjs`).
+
+- **Só no próprio computador** (chave principal pedindo de 127.0.0.1): terminais (abrir, digitar, ler a saída), abrir arquivos e programas, voz global e atalho de voz do Windows, mudar a rede, baixar e instalar atualizações e parear aparelhos. Mesmo com a chave principal, um pedido vindo do Tailscale ou da rede local é recusado nessas operações.
+- **Celular pareado**: recebe do estado só o que a tela dele usa. Caminhos de pastas, instruções dos agentes, ferramentas liberadas e executáveis ficam no computador. O Nico do celular só aprova ações de uma lista fechada (iniciar, cancelar ou repetir tarefa, criar agente ou equipe, rotinas, notas e afins). Ações que rodam programas, mexem em pastas ou em permissões, e qualquer ação nova, ficam para o computador.
+- **Prévia isolada**: o HTML e o JavaScript dos seus projetos (Navegador interno, `/live` e `/lp`) rodam numa origem própria (porta do painel + 1, só em 127.0.0.1), separada do painel e da API. A página da prévia não lê a sessão do painel e a API recusa pedidos vindos dela. Pela origem do painel (por exemplo, no celular), a prévia abre em sandbox, sem acesso à sessão. O iframe do Navegador interno também usa sandbox.
+
 ## Como conferir
 - **Conexões › O que o Code Room enviou:** mostra as últimas 40 chamadas para fora das **redes sociais**, do **YouTube** (login e upload), da **verificação de atualização** e dos testes da **Biblioteca de APIs** (método, endereço, cabeçalhos, conteúdo e código da resposta). Senhas, tokens e chaves aparecem como `***`, e a resposta do serviço não é guardada. **Não aparecem aí:** os pedidos às IAs, que saem pelos CLIs delas. O conteúdo do vídeo enviado ao YouTube aparece só como “arquivo enviado em partes”.
 - `npm run audit` roda ataques reais contra um serviço isolado (chave errada, `Host` e `Origin` forjados, travessia de pasta, vazamento da chave).

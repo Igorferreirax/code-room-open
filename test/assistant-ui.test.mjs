@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mdLite, assistantHtml } from '../public/assistant-ui.js';
+import { mdLite, assistantHtml, waitHtml } from '../public/assistant-ui.js';
 
 test('markdown simples: escapa HTML da IA, aplica negrito, código e listas, sem links nem scripts', () => {
   const h = mdLite('Olá <script>alert(1)</script> **forte** e `cod`\n- um\n- dois\n\n```\n<b>x</b>\n```');
@@ -17,7 +17,9 @@ test('painel: cada estado mostra o certo (sem IA, sem apresentação, lendo, des
   assert.match(assistantHtml({ ...base, briefed: false }), /data-act="asst-brief"[^>]*>Apresentar o Code Room/); assert.match(assistantHtml({ ...base, briefed: false }), /No Modo Piloto, ele também pode trabalhar nos arquivos do projeto/);
   assert.match(assistantHtml({ ...base, briefing: { status: 'running' } }), /está lendo o manual/);
   { const h = assistantHtml({ ...base, stale: true }); assert.doesNotMatch(h, /Apresentar de novo/); assert.match(h, /id="asst-log"/, 'manual novo não bloqueia a conversa'); assert.ok(!h.includes('asst-input'), 'a entrada fica na barra do chat, não aqui'); }
-  assert.match(assistantHtml(base), /asst-suggest/); assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /Pensando…/);
+  assert.match(assistantHtml(base), /asst-suggest/);
+  assert.match(assistantHtml({ ...base, pending: { status: 'running' } }), /id="asst-wait-slot"/);
+  assert.match(waitHtml({ pending: { status: 'running' } }), /Pensando…/);
   assert.match(assistantHtml({ ...base, manual: { available: false } }), /não foi encontrado/);
 });
 
@@ -40,7 +42,7 @@ test('chat do Assistente: resposta do piloto permite abrir os arquivos e o diff 
   const h = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Feito', at: '2026-01-01T10:00:00Z', taskId: 't1' }] });
   assert.match(h, /data-act="asst-task" data-id="t1" data-tab="arquivos">Ver arquivos e diff/);
   const empty = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Criei o arquivo', at: '', taskId: 't2', pilot: true, fileCount: 0 }] });
-  assert.match(empty, /Nenhum arquivo foi alterado nas pastas acompanhadas nesta execução/);
+  assert.match(empty, /<details class="as-execution"><summary>Sem alterações registradas/);
   assert.match(empty, /data-id="t2" data-tab="arquivos">Ver registro da execução/);
   const changed = assistantHtml({ ...base, autonomy: 'pilot', messages: [{ role: 'assistant', text: 'Feito', at: '', taskId: 't3', pilot: true, fileCount: 1 }] });
   assert.doesNotMatch(changed, /Nenhum arquivo da pasta/);

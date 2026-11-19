@@ -7,7 +7,8 @@ import { icon } from './icons.js';
 import { canvasHtml, bindCanvas, canvasBusy } from './canvas.js';
 import * as O from './onboarding.js';
 import * as U from './updates-ui.js';
-import { assistantHtml } from './assistant-ui.js';
+import { assistantHtml, waitHtml } from './assistant-ui.js';
+import { createWorkspace, PRESETS } from './workspace.js';
 import { chatHeaderHtml, targetBodyHtml, bubbleHtml } from './chat-ui.js';
 import { screenContext } from './screen-context.js';
 import { voiceSupport, stripForSpeech, speak, cancelSpeech, createDictation, createRecorder } from './voice.js';
@@ -27,7 +28,7 @@ import { createPalette, paletteItems } from './palette.js';
 import * as G from './nico-guide.js';
 import * as CU from './contribute-ui.js';
 const contribDraft = () => ({ kind: ctx.ui.contrib?.kind || 'bug', title: $('contrib-title')?.value || '', what: $('contrib-what')?.value || '', steps: $('contrib-steps')?.value || '' });
-let termDock = null;
+let termDock = null, ws = null;
 let stopVoiceStrip = null;
 // Os olhos do mascote acompanham o ponteiro (só com animações ligadas).
 addEventListener('pointermove', e => { if (ctx.prefs?.anim === false) return; const r = document.documentElement.style; r.setProperty('--mx', ((e.clientX / innerWidth) * 2 - 1).toFixed(2)); r.setProperty('--my', ((e.clientY / innerHeight) * 2 - 1).toFixed(2)); }, { passive: true });
@@ -464,15 +465,27 @@ function renderAsst() {
   if (!open) { ctx.ui._liveFor = null; return; }
   const tgNow = String(V.targetOf(ctx) || '');
   if (ctx.ui._liveFor !== tgNow) { ctx.ui._liveFor = tgNow; ctx.live = null; refreshLive().then(renderAsst); }   // trocou de agente: busca a tarefa dele
-  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml({ ...ctx.asst, pilotNoticeDismissed: store.get('cr.pilot-note-dismissed', false), folderAsk: ctx.ui.folderAsk || null, sendError: ctx.ui.asstSendError || null, folderGrant: ctx.ui.folderGrant?.thread === ctx.asst?.thread ? ctx.ui.folderGrant : null }) : targetBodyHtml(ctx);
+  const who = V.targetOf(ctx), head = chatHeaderHtml(ctx), body = who === 'assistant' ? approvalHtml(ctx) + assistantHtml({ ...ctx.asst, outbox: ctx.ui.outbox || [], pilotNoticeDismissed: store.get('cr.pilot-note-dismissed', false), folderAsk: ctx.ui.folderAsk || null, sendError: ctx.ui.asstSendError || null, folderGrant: ctx.ui.folderGrant?.thread === ctx.asst?.thread ? ctx.ui.folderGrant : null }) : targetBodyHtml(ctx);
   if (ctx.ui._ch !== head) { $('chat-head').innerHTML = head; ctx.ui._ch = head; }
+  // A conversa e a bolha de andamento são atualizadas separadamente: fase, texto parcial e tempo mudam a cada leitura
+  // e não devem recriar a conversa (seleção, rolagem e cartões ficam como estão).
+  const waitPart = who === 'assistant' && ctx.asst?.pending && !ctx.asst?.briefing ? waitHtml(ctx.asst) : '';
   if (ctx.ui._cb !== body) {
+    ctx.ui.renders = (ctx.ui.renders || 0) + 1; ctx.ui._wait = null;
     const log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, n = ctx.asst?.messages?.length || 0, keep = $('asst').scrollTop;
     $('asst').innerHTML = body; ctx.ui._cb = body; const nl = $('asst-log');
     if (nl && (atEnd || n !== ctx.ui.asstCount || ctx.ui.asstThread !== ctx.asst?.thread)) nl.scrollTop = nl.scrollHeight; else $('asst').scrollTop = keep;
     ctx.ui.asstCount = n; ctx.ui.asstThread = ctx.asst?.thread;
     const lv = $('live-log'); if (lv) lv.scrollTop = lv.scrollHeight;
   }
+  const slot = $('asst-wait-slot');
+  if (slot && ctx.ui._wait !== waitPart) {
+    const log = $('asst-log'), atEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 60, first = ctx.ui._wait == null;
+    slot.innerHTML = waitPart; ctx.ui._wait = waitPart; if (!first) ctx.ui.patches = (ctx.ui.patches || 0) + 1;
+    if (log && (atEnd || first)) log.scrollTop = log.scrollHeight;
+  }
+  // Enquanto o Nico responde: a barra continua livre para o rascunho, só o Enviar fica desligado.
+  const sb = $('send'); if (sb && who === 'assistant') { const wait = !!ctx.asst?.pending; sb.disabled = wait; sb.title = wait ? 'O Nico está respondendo. Escreva o rascunho; envie quando ele terminar (ou cancele a resposta).' : ''; sb.classList.toggle('waiting', wait); }
   loadApprovalMedia();
 }
 // Vídeo e imagens dos cartões de aprovação: busca uma vez por item (e de novo depois de 8 min, porque o endereço do arquivo é temporário).
@@ -526,10 +539,12 @@ async function attachChatImage(file) {
   const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('Não consegui ler o print.')); reader.readAsDataURL(file); });
   ctx.ui.asstImage = { name: file.name || 'print', data }; showChatImage(); notify('Print pronto. Escreva o que quer analisar e envie.');
 }
-async function askAssistant(text, { includeContext = true, extraDir = null, image = ctx.ui.asstImage?.data || null, folderDecided = false, readOnly = false } = {}) {
+async function askAssistant(text, { includeContext = true, extraDir = null, image = ctx.ui.asstImage?.data || null, folderDecided = false, readOnly = false, onSending = null } = {}) {
   if (!ctx.ui.asstOpen) setChatOpen(true);
-  await loadAsst();
-  if (ctx.asst?.pending) { notify('O Assistente ainda está respondendo. Espere um instante.', true); return false; }
+  { const wc = workspaceCommand(text); if (wc) { onSending?.(); await wc.run(); return true; } }   // “prepare meu espaço de vídeo”: aplicado na hora
+  if (!ctx.asst || !ctx.asst.desktopPath) await loadAsst();   // usa o estado que a tela já tem (só relê se ainda não chegou o essencial): a mensagem aparece na hora (antes esperava uma leitura completa)
+  if (ctx.asst?.pending) await loadAsst();   // a tela pode estar até 1,5 s atrasada: confere com o servidor antes de recusar
+  if (ctx.asst?.pending) { notify('O Nico ainda está respondendo. Seu texto continua na barra: envie quando ele terminar ou use “Cancelar resposta”.'); return false; }
   const local = /^\/(status|pendencias|pendências|alethe|roteamento|aprender(?:\s+[\s\S]+)?|memorias|memórias|celular|ajuda)\s*$/i.test(text.trim());   // comandos locais não usam a IA: valem antes da apresentação
   if (!ctx.asst?.briefed && !local) { notify('Antes, apresente o Code Room à sua IA: use o botão no chat.'); return false; }
   const mentioned = mentionedFolder(text, { desktop: ctx.asst?.desktopPath, downloads: ctx.asst?.downloadsPath, documents: ctx.asst?.documentsPath });
@@ -547,12 +562,19 @@ async function askAssistant(text, { includeContext = true, extraDir = null, imag
   }
   if (extraDir && !readOnly && ctx.asst?.autonomy !== 'pilot' && !await asstCall('autonomy', { mode: 'pilot' })) return false;
   ctx.ui.asstSendError = null;
-  ctx.asst = { ...ctx.asst, messages: [...(ctx.asst.messages || []), { id: 'tmp', role: 'user', text, at: new Date().toISOString() }], pending: { status: 'queued' } }; renderAsst();
-  const ok = await asstCall('ask', { text, ...(extraDir ? { extraDir, ...(readOnly ? { readOnly: true } : {}) } : {}), ...(image ? { image } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) });
-  if (ok && local) await loadAsst();   // comandos imediatos mostram a resposta sem esperar o próximo ciclo de atualização
-  // O motivo real da recusa fica numa bolha do chat (antes um aviso genérico cobria o motivo e parecia que nada acontecia).
-  if (!ok) { await loadAsst(); ctx.ui.asstSendError = asstCall.lastError || 'Erro desconhecido.'; renderAsst(); }
-  return ok;
+  const body = { text, ...(extraDir ? { extraDir, ...(readOnly ? { readOnly: true } : {}) } : {}), ...(image ? { image } : {}), ...(includeContext ? { projectId: ctx.project || undefined, screen: (() => { try { return screenContext(ctx, TITLES); } catch { return undefined; } })() } : {}) };
+  const out = { id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, body, state: 'sending', t0: performance.now() };
+  ctx.ui.outbox = [...(ctx.ui.outbox || []), out]; renderAsst(); onSending?.();
+  return sendOut(out, local);
+}
+// Envia uma mensagem da fila "a caminho". Aceita: some da fila (o servidor já devolve a conversa com ela). Falhou: fica com "Tentar de novo".
+async function sendOut(out, local = false) {
+  out.state = 'sending'; out.error = null; renderAsst();
+  const ok = await asstCall('ask', out.body);
+  ctx.ui.lastAskMs = Math.round(performance.now() - out.t0);   // tempo até o servidor aceitar (medição)
+  if (ok) { ctx.ui.outbox = (ctx.ui.outbox || []).filter(o => o !== out); if (local) await loadAsst(); renderAsst(); return true; }
+  out.state = 'failed'; out.error = asstCall.lastError || 'Erro desconhecido.'; renderAsst();
+  return false;
 }
 async function applyAsst(id) {
   const [m, i] = id.split(':'); const r = await api(asstBase() + '/apply', { messageId: m, index: Number(i) }); ctx.asst = r.status;
@@ -605,12 +627,32 @@ function renderGuide() {
   document.querySelectorAll('.ng-hl').forEach(e => e.classList.remove('ng-hl'));
   if (!g) { root.innerHTML = ''; return; }
   if (g.mode === 'hello') { root.innerHTML = G.helloHtml(g, { name: ctx.prefs.displayName, icon }); root.querySelector('.ng-path, [data-act=ng-go]')?.focus(); return; }
-  root.innerHTML = G.tourBubbleHtml(g.step);
-  const s = G.GUIDE_TOUR[g.step], target = [...document.querySelectorAll(s.target)].find(e => e.offsetParent), box = root.querySelector('.ng-float');
+  // Tour: o MESMO Nico desliza de um alvo ao outro (não recria o balão). Vindo do "bem-vindo", ele sai do centro,
+  // encolhe até o tamanho do tour e o desfoque do fundo se desfaz aos poucos.
+  const tpl = document.createElement('template'); tpl.innerHTML = G.tourBubbleHtml(g.step).trim();
+  const helloOrb = root.querySelector('.ng-orb'), from = helloOrb?.getBoundingClientRect();
+  let box = root.querySelector('.ng-float'); const fresh = !box;
+  if (box) box.querySelector('.ng-bubble').replaceWith(tpl.content.querySelector('.ng-bubble'));
+  else {
+    const scrim = root.querySelector('.ng-scrim'); root.innerHTML = '';
+    if (scrim) { scrim.classList.add('ng-scrim-out'); root.appendChild(scrim); scrim.addEventListener('animationend', () => scrim.remove(), { once: true }); setTimeout(() => scrim.remove(), 1200); }
+    box = tpl.content.firstElementChild; root.appendChild(box);
+    if (from) box.classList.add('ng-from-hello');
+  }
+  const s = G.GUIDE_TOUR[g.step], target = [...document.querySelectorAll(s.target)].find(e => e.offsetParent);
   if (target) target.classList.add('ng-hl');
   const r = target ? target.getBoundingClientRect() : { left: innerWidth / 2, right: innerWidth / 2, top: innerHeight / 3, bottom: innerHeight / 3, width: 0, height: 0 };
-  const pos = G.placeNear(r, box.getBoundingClientRect(), { width: innerWidth, height: innerHeight }); box.style.left = pos.x + 'px'; box.style.top = pos.y + 'px';
-  box.querySelector('[data-act=ng-next]')?.focus();
+  const pos = G.placeNear(r, box.getBoundingClientRect(), { width: innerWidth, height: innerHeight });
+  const orb = box.querySelector('.ng-float-orb'), still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (fresh && from && orb && !still) {
+    const o = orb.getBoundingClientRect(), b = box.getBoundingClientRect(), k = from.width / (o.width || 64);
+    box.style.transition = 'none'; box.style.left = (from.left + from.width / 2 - (o.left - b.left) - o.width / 2) + 'px'; box.style.top = (from.top + from.height / 2 - (o.top - b.top) - o.height / 2) + 'px';
+    orb.style.transition = 'none'; orb.style.transform = `scale(${k})`;
+    void box.offsetWidth;
+    box.style.transition = ''; orb.style.transition = ''; orb.style.transform = '';
+  }
+  box.style.left = pos.x + 'px'; box.style.top = pos.y + 'px';
+  box.querySelector('[data-act=ng-next]')?.focus({ preventScroll: true });
 }
 async function guideStep(i) { ctx.ui.guide = { mode: 'tour', step: i }; const v = G.GUIDE_TOUR[i].view; if (v) await go(v); else render(); renderGuide(); }
 function guideClose(skip = false) { setOnb({ helloSeen: true }); ctx.ui.guide = null; renderGuide(); if (skip && !onbFlags().setupDone && ctx.state.agents.length === 0 && ctx.state.projects.length === 0) openSetup(); }
@@ -627,7 +669,8 @@ async function guideGo() {
   if (!(ctx.state?.connectors || []).some(c => c.available)) openSetup();   // sem nenhuma IA: primeiro conectar uma
 }
 addEventListener('resize', () => { if (ctx.ui?.guide?.mode === 'tour') renderGuide(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctx.ui?.guide) { e.preventDefault(); guideClose(true); } });
+// stopImmediatePropagation: sem isso, o mesmo Esc abria a configuração inicial e o tratador de Esc do onboarding a fechava na hora (e marcava como feita).
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctx.ui?.guide) { e.preventDefault(); e.stopImmediatePropagation(); guideClose(true); } });
 
 // ---------- Navegação ----------
 // Ctrl+K: paleta de comandos. Roda as mesmas ações dos botões.
@@ -644,10 +687,32 @@ function startPalette() {
         else if ('project' in r) { setProject(r.project); render(); }
         else if (r.term) await termDock?.openNew(r.term);
         else if (r.split) { if (!termDock?.isOpen()) termDock?.toggle(); await termDock?.split(); }
-        else if (r.act) await actions[r.act]?.();
+        else if (r.act) await actions[r.act]?.(r.id);
       } catch (e) { notify(e.message, true); }
     },
   });
+}
+// Workspace por projeto: Nico encaixado, divisórias, Modo Foco e presets (Vídeo, Código). Ver public/workspace.js.
+function startWorkspace() {
+  if (ws) return;
+  ws = createWorkspace({
+    getProject: () => ctx.project,
+    browser: async on => { if (!!browserMgr?.isOpen() !== on) browserMgr?.toggleDock(on); },
+    terminal: async on => { if (!!termDock?.isOpen() !== on) termDock?.toggle(); },
+    onChange: () => { ctx.ui.wsState = ws?.state; },
+    onFit: f => { if (ctx.ui.wsDocked !== f.dock) { ctx.ui.wsDocked = f.dock; ctx.ui._ch = null; renderAsst(); } },
+  });
+  document.addEventListener('ws:open-nico', () => { if (!ctx.ui.asstOpen) setChatOpen(true); });
+  window.crWorkspace = ws;   // usado pelos roteiros de interface
+  ctx.ui.wsState = ws.state; requestAnimationFrame(() => ws.apply());
+}
+// "Prepare meu espaço de vídeo" / "de código" / "salve este layout": o Nico aplica na hora, sem gastar a IA.
+function workspaceCommand(text) {
+  const s = String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const m = s.match(/(prepar|mont|abr|organiz|arrum)\w*\s+(o\s+|meu\s+|o meu\s+)?(espaco|workspace|layout)\s+(de\s+|para\s+)?(video|codigo|padrao)/);
+  if (m) { const id = { video: 'video', codigo: 'codigo', padrao: 'padrao' }[m[5]]; return { id, run: () => actions['ws-preset'](id) }; }
+  if (/(salv|guard)\w*\s+(este|esse|o)\s+(layout|espaco)/.test(s)) return { id: 'save', run: () => notify('Pronto: este layout fica salvo para este projeto (o Code Room guarda sozinho cada ajuste que você faz).') };
+  return null;
 }
 window.crGo = v => go(v);   // usado pelos roteiros de interface para ir direto a uma página
 async function go(view) {
@@ -674,6 +739,7 @@ function setProject(id, silent) {
   const target = ctx.ui.target || '';
   if (id && ((target.startsWith('a:') && !ctx.projectAgentIds().has(target.slice(2))) || (target.startsWith('t:') && !ctx.projectTeamIds().has(target.slice(2))) || (target === 's' && !ctx.supervisorAgent()))) ctx.ui.target = 'assistant';
   if (!silent) { ctx.detail = null; loadSkills(); }
+  ws?.projectChanged();
 }
 async function loadAgentLibrary() { try { ctx.agentLibrary = await api('agents/library'); render(); } catch {} }
 async function loadSkills(withAudit) {
@@ -758,6 +824,13 @@ const actions = {
   'first-access': () => { const v = $('access-key')?.value; ctx.ui.firstAccess = !ctx.ui.firstAccess; renderLogin(); if ($('access-key')) $('access-key').value = v || ''; },
   'toggle-list': () => { ctx.prefs.mode = ctx.viewMode() === 'canvas' ? 'scene' : 'canvas'; savePrefs(); render(); }, 'view-mode': id => { if (id === 'term') { ctx.prefs.mode = 'canvas'; ctx.prefs.cvTerm = true; } else ctx.prefs.mode = ['scene', 'canvas', 'browser'].includes(id) ? id : 'scene'; savePrefs(); if (id === 'browser') browserMgr?.refreshSources(true); render(); }, 'toggle-board': () => { ctx.prefs.board = ctx.prefs.board === false; savePrefs(); render(); },
   'browser-toggle': () => browserMgr?.toggleDock(),
+  'ws-menu': () => { ctx.ui.wsMenu = !ctx.ui.wsMenu; render(); },
+  'ws-preset': async id => { ctx.ui.wsMenu = false; await ws?.preset(id); render(); notify(`Espaço ${PRESETS[id]?.label || id} aplicado a este projeto.`); },
+  'ws-focus': () => { ctx.ui.wsMenu = false; ws?.toggleFocus(); render(); },
+  'ws-nico-dock': () => { ctx.ui.wsMenu = false; ws?.toggleNicoDock(); if (ws?.state.nico === 'dock' && !ctx.ui.asstOpen) setChatOpen(true); render(); renderAsst(); },
+  'ws-show-page': () => { ws?.showPage(); render(); },
+  'ws-center-browser': () => { ws?.centerBrowser(); render(); },
+  'ws-reset': () => { ctx.ui.wsMenu = false; ws?.reset(); render(); renderAsst(); notify('Layout deste projeto voltou ao padrão.'); },
   'term-menu': () => { termDock?.toggle(); },
   'task-term': async id => { try { await api('term', { resumeTask: id }); await termDock?.sync({ reveal: true }); notify('Conversa aberta no painel de terminais. Continue por lá.'); } catch (e) { notify(e.message, true); } },
   'term-open': async id => {
@@ -820,8 +893,11 @@ const actions = {
     await refresh(); await openTask(t.id);
   },
   'task-revert': async id => {
-    if (!confirm('Reverter no Git as alterações feitas por esta tarefa? Arquivos modificados voltam ao estado anterior e arquivos novos vão para .lixeira-coderoom.')) return;
-    const r = await api('tasks/' + id + '/revert', {});
+    // Prévia por arquivo: só volta o que continua exatamente como a tarefa deixou; o que você editou depois fica preservado.
+    const plan = await api('tasks/' + id + '/revert', { preview: true });
+    const paths = await revertPreviewDialog(plan);
+    if (!paths) return;
+    const r = await api('tasks/' + id + '/revert', { paths });
     if (ctx.detail?.id === id) ctx.detail = r.task;
     if (ctx.ui.delDetail?.id === id) ctx.ui.delDetail = r.task;
     await refresh(); notify(r.summary || 'Alterações revertidas.');
@@ -831,6 +907,11 @@ const actions = {
     ctx.net = await api('network/tailscale-https', { enable: id === 'on' });
     render();
     notify(ctx.net.https?.active ? `HTTPS ativo em ${ctx.net.https.httpsUrl}` : 'HTTPS do Tailscale desativado.');
+  },
+  'retry-isolated': async id => {
+    if (!confirm('Repetir esta tarefa numa worktree Git isolada? O agente trabalha numa cópia do repositório, numa branch própria; nada é mesclado sozinho e o que você está editando na pasta do projeto não é tocado.')) return;
+    const t = await api('tasks/' + id + '/retry-isolated', { confirm: true });
+    notify('Repetindo em worktree isolada.'); await refresh(); if (t?.id) await openTask(t.id);
   },
   'pause-toggle': async () => { await api('queue/pause', { paused: !ctx.state.runtime.paused }); await refresh(); },
   cancel: async id => { await api(`tasks/${id}/cancel`, {}); notify('Cancelamento solicitado. A árvore de processos desta tarefa será encerrada.'); await refresh(); },
@@ -914,6 +995,8 @@ const actions = {
     ctx.ui.folderAsk = null; renderAsst();
     if (await askAssistant(fa.text, { extraDir: path, image: fa.image, folderDecided: true, readOnly: id === 'read' })) { $('mission').value = ''; ctx.ui.asstImage = null; showChatImage(); ctx.ui.asstExtraDir = null; ctx.ui.folderGrant = { path, access: id, thread: ctx.asst?.thread }; renderAsst(); }
   },
+  'asst-out-retry': id => { const o = (ctx.ui.outbox || []).find(x => x.id === id); if (!o) return; if (ctx.asst?.pending) return notify('O Nico ainda está respondendo. Tente de novo quando ele terminar.'); o.t0 = performance.now(); return sendOut(o); },
+  'asst-out-edit': id => { const o = (ctx.ui.outbox || []).find(x => x.id === id); if (!o) return; ctx.ui.outbox = ctx.ui.outbox.filter(x => x !== o); renderAsst(); const m = $('mission'); if (m) { m.value = o.text + (m.value ? '\n' + m.value : ''); m.focus(); } },
   'asst-senderr-x': () => { ctx.ui.asstSendError = null; renderAsst(); },
   'folder-grant-x': () => { ctx.ui.folderGrant = null; renderAsst(); notify('Autorização da pasta retirada. Se precisar de novo, o Nico pergunta.'); },
   'asst-ai': () => { ctx.ui.aiOpen = !ctx.ui.aiOpen; ctx.ui.aiProv = ctx.asst?.provider; ctx.ui.cwMenu = false; renderAsst(); if (ctx.ui.aiOpen) loadAiModels(ctx.ui.aiProv); },
@@ -1370,7 +1453,7 @@ document.addEventListener('submit', async e => {
       // "@Agente" no começo escolhe quem executa; "/skill" em qualquer ponto anexa a skill (vale para qualquer agente)
       const mm = text.match(/^@([\w.:À-ÿ-]+)\s+/), mentioned = mm && ctx.state.agents.find(a => a.name.replace(/\s+/g, '_').toLowerCase() === mm[1].toLowerCase() && (!ctx.project || ctx.projectAgentIds().has(a.id)));
       if (mentioned) { target = 'a:' + mentioned.id; text = text.slice(mm[0].length).trim(); }
-      if (target === 'assistant') { if (await askAssistant(text || (ctx.ui.asstImage ? 'Analise este print e me ajude a resolver o problema.' : ''), { extraDir: ctx.ui.asstExtraDir })) { $('mission').value = ''; ctx.ui.asstImage = null; showChatImage(); ctx.ui.asstExtraDir = null; const btn = document.querySelector('[data-act="asst-extra-dir"]'); if (btn) { btn.title = 'Autorizar pasta extra nesta tarefa'; btn.setAttribute('aria-pressed', 'false'); } } return; }
+      if (target === 'assistant') { if (await askAssistant(text || (ctx.ui.asstImage ? 'Analise este print e me ajude a resolver o problema.' : ''), { extraDir: ctx.ui.asstExtraDir, onSending: () => { $('mission').value = ''; } })) { $('mission').value = ''; ctx.ui.asstImage = null; showChatImage(); ctx.ui.asstExtraDir = null; const btn = document.querySelector('[data-act="asst-extra-dir"]'); if (btn) { btn.title = 'Autorizar pasta extra nesta tarefa'; btn.setAttribute('aria-pressed', 'false'); } } return; }
       let projId = ctx.project; const px = extractProject(text, ctx.state.projects); if (px.project) { projId = px.project.id; text = px.text; } else if (px.ambiguous) throw new Error('Mais de um projeto combina com o # que você escreveu. Escreva o nome inteiro.');
       for (const m of text.matchAll(/(?:^|\s)\/([\w.:-]+)/g)) { const s = skillChoices(m[1], true)[0]; if (s && !skillIds.includes(s.id)) skillIds.push(s.id); }
       if (skillIds.length && !target.startsWith('a:')) notify('As skills com "/" valem para agente individual; neste modo elas foram ignoradas.', true);
@@ -1448,7 +1531,7 @@ document.addEventListener('submit', async e => {
     }
     else if (fid === 'routine-form') { await saveRoutine(); ctx.ui.panel = null; notify('Rotina salva.'); render(); }
   } catch (err) { notify(err.message, true); if (fid === 'login-form') { ctx.ui.loginError = err.message; renderLogin(); } }
-  finally { if ($('send')) $('send').disabled = !(V.targetOf(ctx) === 'assistant' || (ctx.project && ctx.state.agents.length)); }
+  finally { if ($('send')) $('send').disabled = V.targetOf(ctx) === 'assistant' ? !!ctx.asst?.pending : !(ctx.project && ctx.state.agents.length); }
 });
 
 // Modelos e níveis de esforço que a IA escolhida aceita (lista vem do servidor; a pessoa ainda pode digitar outro modelo).
@@ -1599,7 +1682,7 @@ async function start() {
     loadSkills(); loadChecks(); applyPrefs(); render(); loadAsst(); maybeStartOnboarding(); if (ctx.whoami !== 'device') loadUpdates();
     if (ctx.whoami !== 'device') api('orchestration/policy', { directExec: ctx.prefs.directExec !== false, autoFallback: ctx.prefs.autoFallback !== false }).catch(() => {});
     tabBus?.postMessage({ kind: 'ping', tabId });
-    if (!started) { started = true; termDock = createTermDock({ api, getKey: () => key, getCtx: () => ctx, notify }); void termDock.sync(); startPalette(); startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
+    if (!started) { started = true; termDock = createTermDock({ api, getKey: () => key, getCtx: () => ctx, notify }); void termDock.sync(); startWorkspace(); startPalette(); startRunApprovals({ api, enabled: () => ctx.authed && ctx.whoami !== 'device', onError: m => notify(m, true) }); setInterval(tickClocks, 1000); setInterval(() => { if (!document.hidden && ctx.view === 'room') render(); }, 60000); setInterval(() => loadChecks(true), 120000); setInterval(() => { if (!document.hidden || nicoFlow?.hasPip()) refresh(); }, 15000); setInterval(() => { if (ctx.authed && (!document.hidden || nicoFlow?.hasPip())) loadAsst(); }, 60000); setInterval(() => { if (ctx.authed && ctx.whoami !== 'device' && !document.hidden) loadUpdates(); }, 30 * 60000); stream(); }
   } catch (e) { console.error('Code Room: falha ao iniciar:', e); ctx.authed = false; $('login').hidden = false; $('shell').hidden = true; ctx.ui.loginError = e.message; nicoFlow?.render(true); browserMgr?.render(); renderLogin(); }
 }
 applyPrefs();
@@ -1608,3 +1691,26 @@ else if (key) start(); else { $('login').hidden = false; renderLogin(); }
 
 document.addEventListener('pointerdown', e => { const m = $('agent-menu'); if (m && !m.contains(e.target)) closeAgentMenu(); }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('agent-menu')) { const id = $('agent-menu').querySelector('[data-id]')?.dataset.id; closeAgentMenu(); document.querySelector(`[data-agent="${id}"]`)?.focus(); } });
+
+// Janela da prévia de "Reverter alterações". Devolve a lista de caminhos marcados ou null (cancelou).
+const REVERT_LABEL = { restore: 'Volta ao conteúdo anterior', trash: 'Vai para .lixeira-coderoom', recreate: 'Volta a existir', keep: 'Preservado', none: 'Nada a fazer' };
+function revertPreviewDialog(plan) {
+  return new Promise(done => {
+    const items = plan?.items || [], acts = items.filter(i => ['restore', 'trash', 'recreate'].includes(i.action));
+    const dlg = document.createElement('dialog'); dlg.className = 'revert-dlg'; dlg.setAttribute('aria-labelledby', 'revert-dlg-title');
+    const row = (i, n) => {
+      const on = ['restore', 'trash', 'recreate'].includes(i.action);
+      return `<li class="rv-${V.esc(i.action)}"><label>${on ? `<input type="checkbox" data-n="${n}" checked>` : '<span class="rv-dot" aria-hidden="true">•</span>'}<code>${V.esc(i.path)}</code><span class="rv-what">${V.esc(REVERT_LABEL[i.action] || i.action)}</span><small class="muted">${V.esc(i.reason || '')}</small></label></li>`;
+    };
+    dlg.innerHTML = `<form method="dialog"><h2 id="revert-dlg-title">Reverter alterações desta tarefa</h2>
+      <p class="small muted">${acts.length ? `${acts.length} arquivo(s) continuam como a tarefa deixou e podem voltar. ` : 'Nenhum arquivo continua como a tarefa deixou. '}Arquivos editados depois ficam como estão. ${plan?.kind === 'git' ? 'O índice do Git (o que está preparado para commit) não é alterado.' : 'A restauração usa a cópia de segurança feita antes da tarefa.'}</p>
+      <ul class="rv-list">${items.map(row).join('')}</ul>
+      <div class="btn-row"><button class="btn" value="ok" ${acts.length ? '' : 'disabled'}>Reverter os marcados</button><button class="btn ghost" value="cancel">Cancelar</button></div></form>`;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('close', () => {
+      const ok = dlg.returnValue === 'ok', marked = [...dlg.querySelectorAll('input[data-n]:checked')].map(c => items[Number(c.dataset.n)].path);
+      dlg.remove(); done(ok && marked.length ? marked : null);
+    });
+    dlg.showModal();
+  });
+}

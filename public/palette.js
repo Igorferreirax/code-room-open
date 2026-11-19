@@ -13,6 +13,12 @@ export function paletteItems({ projects = [], current = '', pages = [], terminal
     { id: 'act:browser', group: 'Ações', label: 'Navegador interno', hint: 'abrir ou fechar', run: { act: 'browser-toggle' } },
     { id: 'act:nico', group: 'Ações', label: 'Conversar com o Nico', run: { act: 'asst-toggle' } },
     { id: 'act:agent', group: 'Ações', label: 'Criar agente', run: { go: 'agents', then: 'new-agent' } },
+    { id: 'ws:video', group: 'Espaço', label: 'Espaço Vídeo', hint: 'prévia no centro, Nico ao lado', run: { act: 'ws-preset', id: 'video' } },
+    { id: 'ws:codigo', group: 'Espaço', label: 'Espaço Código', hint: 'terminal aberto, Nico ao lado', run: { act: 'ws-preset', id: 'codigo' } },
+    { id: 'ws:padrao', group: 'Espaço', label: 'Espaço Padrão', run: { act: 'ws-preset', id: 'padrao' } },
+    { id: 'ws:foco', group: 'Espaço', label: 'Modo Foco', hint: 'liga ou desliga', run: { act: 'ws-focus' } },
+    { id: 'ws:dock', group: 'Espaço', label: 'Encaixar ou soltar o Nico', run: { act: 'ws-nico-dock' } },
+    { id: 'ws:reset', group: 'Espaço', label: 'Restaurar o layout padrão deste projeto', run: { act: 'ws-reset' } },
   ];
 }
 export function filterItems(items, q) {

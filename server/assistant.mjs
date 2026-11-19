@@ -564,8 +564,8 @@ export function canAutoApplyInPilot(a) {
 }
 
 export class Assistant {
-  constructor({ store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine, retryTask = null, cancelTask = null, hireLibrary = null, manageRoutine = null, saveContext = null, saveOrchPolicy = null, compareAgents = null, thumbsFor = null, saveMemory = null, mcpFn = () => userMcpServers() }) {
-    Object.assign(this, { retryTask, cancelTask, hireLibrary, manageRoutine, saveContext, saveOrchPolicy, compareAgents, thumbsFor, saveMemory, mcpFn, store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine });
+  constructor({ waitReason = null, approvalPending = null, store, root, dataDir, world, pump = () => {}, now = () => Date.now(), createTaskFn = createTask, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine, retryTask = null, cancelTask = null, hireLibrary = null, manageRoutine = null, saveContext = null, saveOrchPolicy = null, compareAgents = null, thumbsFor = null, saveMemory = null, mcpFn = () => userMcpServers() }) {
+    Object.assign(this, { waitReason, approvalPending, retryTask, cancelTask, hireLibrary, manageRoutine, saveContext, saveOrchPolicy, compareAgents, thumbsFor, saveMemory, mcpFn, store, root, dataDir, worldFn: world, pump, now, createTaskFn, saveAgent, saveTeam, saveProject, startTask, saveLink, saveSkill, saveFolderJob, importProject, phoneHelp, saveChannel, saveRoutine });
     this.dir = join(dataDir, 'assistente');
   }
   get s() { return this.store.get('settings', 'assistant') || { id: 'assistant', provider: null, briefedAt: null, manualHash: null, knowledge: '', messages: [], thread: { id: 't1', title: 'Conversa 1' }, others: [], order: ['t1'], pending: null, briefing: null, error: null }; }
@@ -637,7 +637,7 @@ export class Assistant {
         return { ...m, actions: (m.actions || []).map(({ raw, ...a }) => a), ...(thumbs.length ? { thumbs } : {}), ...(canUndo ? { canUndoFolder: true } : {}), ...(undone ? { folderUndone: undone } : {}) };
       }),
       error: s.error || null, alerts: proactiveAlerts(w).filter(a => !(s.dismissedAlerts || []).includes(a.id)), threads: this.#threadList(s), thread: s.thread?.id || 't1',
-      pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at, activity: this.#activity(pt) } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
+      pending: s.pending ? { kind: s.pending.kind, status: pt?.status || 'queued', since: s.pending.at, activity: this.#activity(pt), ...this.#progress(s.pending, pt), ...(s.pending.sidelined ? { sidelined: true } : {}) } : null, briefing: s.briefing ? { status: bt?.status || 'queued', since: s.briefing.at } : null,
     };
   }
   // Fecha as tarefas pendentes que já terminaram (sem depender de eventos): vira mensagem do assistente, erro ou conhecimento gravado.
@@ -675,7 +675,7 @@ export class Assistant {
             return { raw, n };
           }).filter(x => x.n).map((x, idx) => ({ idx, ...x.n, raw: x.raw, status: 'pending' }));
           const msgId = randomUUID(), cleanTxt = stripSelfIntro(text, this.s.name, p.question), baseText = cleanTxt || (acts.length ? 'Pronto.' : '(a IA não escreveu uma resposta)');
-          msgs.push({ id: msgId, role: 'assistant', text: baseText + (p.switched ? `\n\nRespondi com o ${p.switched === 'claude' ? 'Claude' : 'Codex'} desta vez: o Antigravity não consegue listar nem mover arquivos fora do projeto.` : '') + (fixes.length ? `\n\nAjustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at: new Date(this.now()).toISOString(), taskId: t.id, ...(p.pilot ? { pilot: true, fileCount: (t.result?.deliverables?.files?.length || 0) + (t.result?.externalDeliverables?.files?.length || 0), externalApproved: !!t.extraDir, externalTracked: t.result?.externalDeliverables?.available !== false, externalShallow: !!t.result?.externalDeliverables?.shallow } : {}), actions: acts });
+          msgs.push({ id: msgId, role: 'assistant', text: baseText + (p.switched ? `\n\nRespondi com o ${p.switched === 'claude' ? 'Claude' : 'Codex'} desta vez: o Antigravity não consegue listar nem mover arquivos fora do projeto.` : '') + (fixes.length ? `\n\nAjustei sozinho para não travar: ${[...new Set(fixes)].join('; ')}.` : ''), at: new Date(this.now()).toISOString(), taskId: t.id, timing: this.#timing(p, t), ...(p.sidelined ? { sidelined: true } : {}), ...(p.pilot ? { pilot: true, fileCount: (t.result?.deliverables?.files?.length || 0) + (t.result?.externalDeliverables?.files?.length || 0), externalApproved: !!t.extraDir, externalTracked: t.result?.externalDeliverables?.available !== false, externalShallow: !!t.result?.externalDeliverables?.shallow } : {}), actions: acts });
           putMsgs({ pending: null, error: null });
           if (p.pilot && acts.length) {
             for (const act of acts) {
@@ -686,12 +686,29 @@ export class Assistant {
           }
         } else if (t?.status === 'cancelled') {
           putMsgs({ pending: null, error: null });
-        } else { msgs.push({ id: randomUUID(), role: 'assistant', text: '', error: `Não foi possível responder: ${short(t?.reason || t?.status || 'tarefa não encontrada', 300)}`, failureKind: t?.failureKind || null, at: new Date(this.now()).toISOString(), taskId: p.taskId }); putMsgs({ pending: null }); }
+        } else { msgs.push({ id: randomUUID(), role: 'assistant', text: '', error: `Não foi possível responder: ${short(t?.reason || t?.status || 'tarefa não encontrada', 300)}`, failureKind: t?.failureKind || null, at: new Date(this.now()).toISOString(), taskId: p.taskId, timing: this.#timing(p, t) }); putMsgs({ pending: null }); }
       }
     }
   }
   // O que a IA está fazendo agora (última ferramenta ou etapa), para o chat mostrar progresso real em qualquer IA.
   #activity(t) { try { if (!t?.currentAttemptId) return ''; const ev = this.store.events(t.currentAttemptId); for (let i = ev.length - 1; i >= 0; i--) if (ev[i].type === 'activity' && /^(Ferramentas|Executando|Etapa):/.test(ev[i].text || '')) return short(ev[i].text, 90); } catch {} return ''; }
+  // Andamento real da resposta: fila (com o motivo), CLI iniciando, aguardando aprovação, respondendo (com o texto que já chegou).
+  #progress(p, t) {
+    const att = t?.currentAttemptId ? this.store.get('runs', t.currentAttemptId) : null;
+    let ev = []; try { ev = att ? this.store.events(att.id) : []; } catch {}
+    const answers = ev.filter(e => e.type === 'answer' && e.text), approval = !!(t && this.approvalPending?.(t.id));
+    const phase = !t || t.status === 'queued' ? 'queued' : approval ? 'approval' : !att?.spawnedAt ? 'starting' : answers.length ? 'responding' : 'thinking';
+    return { phase, waitReason: t?.status === 'queued' ? (this.waitReason?.(t) || '') : '', partial: answers.map(e => e.text).join('\n').slice(-6000), timing: this.#timing(p, t, att, answers[0]) };
+  }
+  // Tempos (ms desde o envio): até a CLI iniciar, até o primeiro trecho da resposta e até terminar.
+  #timing(p, t, att = null, first = undefined) {
+    try {
+      att ??= t?.currentAttemptId ? this.store.get('runs', t.currentAttemptId) : null;
+      if (first === undefined) { const ev = att ? this.store.events(att.id) : []; first = ev.find(e => e.type === 'answer' && e.text); }
+      const sent = Date.parse(p?.at || ''), d = x => { const v = typeof x === 'number' ? x : Date.parse(x || ''); return Number.isFinite(v) && Number.isFinite(sent) ? Math.max(0, v - sent) : null; };
+      return { cliStartMs: d(att?.spawnedAt), firstChunkMs: d(first?.at), doneMs: ['completed', 'failed', 'cancelled', 'blocked', 'interrupted', 'timeout'].includes(t?.status) ? d(att?.endedAt || t?.updatedAt) : null };
+    } catch { return {}; }
+  }
   #answer(task) { const att = task?.result?.attemptId ? this.store.get('runs', task.result.attemptId) : null; return att?.answer || task?.result?.summary || ''; }
   #maxBudget(p) { return p === 'agy' ? AGY_BUDGET : (isCustom(p) && getSpec(p)?.promptVia === 'arg') ? Math.min(AGY_BUDGET, MAX_ARG_PROMPT - 9000) : TASK_BUDGET; }   // IA que recebe o pedido por argumento (Kiro, Gemini CLI…): o executor ainda soma as regras da tarefa, então sobra margem
   #writeKnowledge(text, provider, hash) {
@@ -745,13 +762,16 @@ export class Assistant {
     const screenContext = screenLine(screen).trim(), context = { ...(scopeId ? { projectId: scopeId } : {}), project: focusProject?.name || '', screen: !!screenContext, obsidianNotes };
     const imagePath = image ? saveChatImage(this.dataDir, image) : null;
     const imageNote = imagePath ? `\nPRINT ANEXADO PELA PESSOA: ${imagePath}. Leia a imagem para responder; se a ferramenta de imagem falhar, diga isso claramente, sem inventar o conteúdo.` : '';
-    let task;
+    let task, sidelined = false;
     try {
       const prompt = buildPrompt({ name: s.name, pilot, extras: [folderText, screenContext, obsText.trim()].filter(Boolean).join('\n'), manual: manual.text, knowledge: [s.knowledge, memoText(s.memo)].filter(Boolean).join('\n\n'), summary: stateSummary(w, w.projects || [], q, (w.projects || []).find(pr => pr.id === projectId)?.name || '', projectId && w.focusInfo ? w.focusInfo(projectId) : ''), history: (s.messages || []).filter(m => m.text), memory: memoryOf(s.messages), question: q + imageNote, max: this.#maxBudget(p) });
-      task = this.#task(p, prompt, 'ask', { pilot, projectId, extraDir, imagePath });
+      // Um agente já está editando o projeto em foco: o Nico responde da pasta interna dele (não espera a tarefa
+      // terminar e não mexe nos mesmos arquivos). Ações do Code Room (iniciar tarefa, criar agente…) continuam valendo.
+      sidelined = !!(pilot && projectId && this.store.list('tasks').some(x => x.project?.id === projectId && x.agent?.mode === 'write' && !String(x.agent?.id || '').startsWith('assistant-') && !x.isolate && ['running', 'cancelling'].includes(x.status)));
+      task = this.#task(p, prompt, 'ask', { pilot, projectId: sidelined ? null : projectId, extraDir, imagePath });
     } catch (e) { removeChatImage(this.dataDir, imagePath); throw e; }
     const th = s.thread || { id: 't1', title: 'Conversa 1' }, title = /^Conversa \d+$/.test(th.title) && !(s.messages || []).some(m => m.role === 'user') ? short(q, 28) : th.title;
-    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, question: q, ...(switchedFrom ? { switched: p } : {}), projectId: scopeId, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir, extraAccess: pilot ? 'edit' : 'read' } : {}) } }], error: null });
+    this.#save({ pending: { kind: 'ask', taskId: task.id, threadId: th.id, pilot, question: q, ...(sidelined ? { sidelined: true } : {}), ...(switchedFrom ? { switched: p } : {}), projectId: scopeId, at: new Date(this.now()).toISOString() }, thread: { ...th, title }, messages: [...(s.messages || []), { id: randomUUID(), role: 'user', text: q, hasImage: !!imagePath, at: new Date(this.now()).toISOString(), context: { ...context, ...(extraDir ? { extraDir: task.extraDir, extraAccess: pilot ? 'edit' : 'read' } : {}) } }], error: null });
     return this.status();
   }
   async cancel() {

@@ -3,8 +3,8 @@
 Code Room: orquestrador local de agentes de IA para Windows. Node ESM **sem dependências**, `node:sqlite`, front em JavaScript puro, serviço em `127.0.0.1:4780`, acesso por `X-Code-Room-Key`. Responda e escreva textos de interface em **português do Brasil**.
 
 ## Comandos
-- Testes: `node --test test/*.test.mjs` (última suíte completa: 497). Auditoria de segurança: `node scripts/audit-security.mjs` (66). Sintaxe: `node scripts/check.mjs` (225).
-- Interface (Playwright do Python): `python scripts/ui_smoke.py` (156), `crawl_ui.py`, `ui_assistant.py`, `ui_onboarding.py`, `ui_mention.py`, `ui_providers.py`, `test_radio.py`, `ui_updates.py`, `ui_touch.py`, `ui_live.py`, `ui_canvas_live.py`. **Não edite arquivos enquanto eles rodam.**
+- Testes: `node --test test/*.test.mjs` (última suíte completa: 535). Auditoria de segurança: `node scripts/audit-security.mjs` (74). Sintaxe: `node scripts/check.mjs` (249).
+- Interface (Playwright do Python): `python scripts/ui_smoke.py` (154), `crawl_ui.py`, `ui_assistant.py`, `ui_onboarding.py`, `ui_mention.py`, `ui_providers.py`, `test_radio.py`, `ui_updates.py`, `ui_touch.py`, `ui_live.py`, `ui_canvas_live.py`, `ui_execucao.py`, `ui_nico_fluxo.py`, `ui_workspace.py` (todos sobem o serviço por `scripts/_servico.py`, com porta livre). **Não edite arquivos enquanto eles rodam.**
 - Pacote Windows: `powershell -File installer\build.ps1`, depois `scripts\smoke-package.ps1`.
 - Reiniciar o serviço: `scripts\stop.ps1 -Seguro` (recusa se há tarefa rodando) e `scripts\start.ps1 -Silencioso`. Nunca reinicie com o usuário no meio de uma aprovação.
 

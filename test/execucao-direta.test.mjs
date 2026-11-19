@@ -148,7 +148,7 @@ test('irrestrito sem Git: cópia de segurança antes e "Reverter alterações" d
   const cp = await captureFileBackup(proj, bk); assert.equal(cp.available, true); assert.equal(cp.files, 2, 'node_modules fica de fora');
   // a IA "irrestrita" muda um arquivo, apaga outro e cria um novo
   writeFileSync(join(proj, 'src', 'app.js'), 'estragado'); (await import('node:fs')).rmSync(join(proj, 'leia.txt')); writeFileSync(join(proj, 'novo.txt'), 'abc');
-  const r = await revertTaskChanges(proj, cp, { files: [{ path: 'src/app.js', change: 'modified' }, { path: 'leia.txt', change: 'deleted' }, { path: 'novo.txt', change: 'created', bytes: 3 }] });
+  const r = await revertTaskChanges(proj, cp, { files: [{ path: 'src/app.js', change: 'modified', sha256: (await import('node:crypto')).createHash('sha256').update('estragado').digest('hex') }, { path: 'leia.txt', change: 'deleted' }, { path: 'novo.txt', change: 'created', bytes: 3, sha256: (await import('node:crypto')).createHash('sha256').update('abc').digest('hex') }] });
   assert.equal(readFileSync(join(proj, 'src', 'app.js'), 'utf8'), 'original'); assert.equal(readFileSync(join(proj, 'leia.txt'), 'utf8'), 'oi'); assert.ok(!existsSync(join(proj, 'novo.txt')), 'arquivo novo vai para a lixeira do Code Room');
   assert.equal(r.restored, 2); assert.equal(r.trashed, 1);
   const big = await captureFileBackup(proj, join(bk, '..', 'T2'), { maxBytes: 3 }); assert.equal(big.available, false); assert.match(big.reason, /grande demais/);

@@ -52,9 +52,16 @@ export function createTermDock({ api, getKey, getCtx, notify = () => {} }) {
     const fit = new window.FitAddon.FitAddon(); term.loadAddon(fit); term.open(el);
     const t = { id: v.id, title: v.title, term, fit, el, alive: v.alive !== false };
     tabs.set(v.id, t);
-    // Teclas: junta o que foi digitado em lotes curtos (cada POST leva vários caracteres).
-    let pending = '', timer = 0;
-    term.onData(d => { pending += d; clearTimeout(timer); timer = setTimeout(() => { const data = pending; pending = ''; api(`term/${v.id}/input`, { data }).catch(e => notify(e.message, true)); }, 8); });
+    // Teclas: junta o que foi digitado em lotes curtos e manda UM lote por vez, em ordem. Antes, vários POSTs ficavam no
+    // ar juntos e, com digitação rápida ou texto colado, podiam chegar fora de ordem (o Enter antes do resto do comando).
+    let pending = '', timer = 0, sending = false;
+    const flush = async () => {
+      if (sending || !pending) return;
+      sending = true; const data = pending; pending = '';
+      try { await api(`term/${v.id}/input`, { data }); } catch (e) { notify(e.message, true); }
+      finally { sending = false; if (pending) flush(); }
+    };
+    term.onData(d => { pending += d; clearTimeout(timer); timer = setTimeout(flush, 8); });
     let lastSize = '';
     term.onResize(({ cols, rows }) => { const k = `${cols}x${rows}`; if (k !== lastSize) { lastSize = k; api(`term/${v.id}/resize`, { cols, rows }).catch(() => {}); } });
     t.ro = new ResizeObserver(() => { if (t.id === active) fitActive(); }); t.ro.observe(el);

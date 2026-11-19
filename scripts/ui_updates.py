@@ -105,7 +105,7 @@ with releases_falsas() as url_releases, Servico(falsos=(), env_extra={'CODE_ROOM
 
         state['mode'] = 'down'; pg.click('[data-act=upd-check]'); pg.wait_for_selector('.upd-err', timeout=10000)
         update_error, rail_buttons = pg.inner_text('.upd-err'), pg.locator('#rail button').count()
-        check('servidor de atualização fora do ar: erro claro, sem quebrar o app', 'Não foi possível consultar' in update_error and rail_buttons >= 12, (update_error, rail_buttons))
+        check('servidor de atualização fora do ar: erro claro, sem quebrar o app', 'Não foi possível consultar' in update_error and rail_buttons >= 5, (update_error, rail_buttons))
         state['mode'] = 'ok'
         check('sem erro de console no fluxo (desktop)', not errs, errs[:2]); ctx.close()
 

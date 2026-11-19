@@ -163,7 +163,7 @@ with Servico(falsos=(), env_extra=preparar_mention) as servico:
         check('navegador: sem suporte (Gemini/Antigravity) o campo fica bloqueado', page.eval_on_selector('#agent-form [name=browser]', 'o => o.disabled') is True)
         page.select_option('#agent-form [name=provider]', 'claude'); page.wait_for_timeout(200)
         page.fill('#agent-form [name=name]', 'Agente com Navegador'); page.fill('#agent-form [name=role]', 'pesquisa na web'); page.select_option('#agent-form [name=browser]', 'isolado')
-        page.locator('#agent-form [name=cap]').first.check(); page.click('#agent-form >> text=Salvar agente'); page.wait_for_timeout(1200)
+        page.click('#agent-form >> text=Salvar agente'); page.wait_for_timeout(1200)
         ag = [x for x in api('state')['agents'] if x['name'] == 'Agente com Navegador']
         check('navegador: o agente é salvo com o navegador separado', len(ag) == 1 and ag[0].get('browser') == 'isolado', ag)
         try: api('agents', {**ag[0], 'browser': 'chrome', 'provider': 'codex'}); check('navegador: servidor recusa "meu Chrome" com Codex', False)

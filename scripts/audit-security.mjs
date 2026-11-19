@@ -16,7 +16,9 @@ const probe = http.createServer();
 await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve); });
 const port = probe.address().port;
 await new Promise((resolve, reject) => probe.close(e => e ? reject(e) : resolve()));
-const child = spawn(process.execPath, ['server/main.mjs'], { cwd: root, env: { ...process.env, CODE_ROOM_DATA: dir, CODE_ROOM_PORT: String(port) }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+const probe2 = http.createServer(); await new Promise((resolve, reject) => { probe2.once('error', reject); probe2.listen(0, '127.0.0.1', resolve); });
+const previewPort = probe2.address().port; await new Promise(r => probe2.close(r));
+const child = spawn(process.execPath, ['server/main.mjs'], { cwd: root, env: { ...process.env, CODE_ROOM_DATA: dir, CODE_ROOM_PORT: String(port), CODE_ROOM_PREVIEW_PORT: String(previewPort) }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
 let fails = 0, total = 0, skipped = 0, bootError = '';
 child.stderr.on('data', chunk => { bootError = (bootError + chunk).slice(-1000); });
 const check = (name, ok, extra = '') => { total++; if (!ok) fails++; console.log(`${ok ? 'OK   ' : 'FALHA'} ${name}${ok ? '' : ' ' + extra}`); };
@@ -86,6 +88,29 @@ try {
   const prov = b => req('POST', '/api/providers', { headers: J, body: JSON.stringify(b) });
   for (const exe of ['node; calc', 'node && calc', 'a|b', '$(calc)', '`calc`', 'node calc']) check(`IA própria recusa o programa "${exe}"`, (await prov({ name: 'Teste', exe, promptVia: 'arg', args: ['{prompt}'] })).status === 400);
   check('IA própria recusa {prompt} ausente ou repetido', (await prov({ name: 'T1', exe: 'node', promptVia: 'arg', args: ['-p'] })).status === 400 && (await prov({ name: 'T2', exe: 'node', promptVia: 'arg', args: ['{prompt}', '{prompt}'] })).status === 400);
+
+  // Prévia isolada: o HTML/JS do projeto nunca roda com a origem do painel (sessão e API ficam fora do alcance).
+  {
+    const { mkdtemp: mk } = await import('node:fs/promises'), { writeFileSync } = await import('node:fs');
+    const pdir = await mk(join(tmpdir(), 'code-room-audit-prev-')); writeFileSync(join(pdir, 'index.html'), '<script>fetch("/api/state")</script>oi');
+    const pj = JSON.parse((await req('POST', '/api/projects', { headers: J, body: JSON.stringify({ name: 'prev-audit', path: pdir, area: 'Programação' }) })).body || '{}');
+    const info = JSON.parse((await req('GET', `/api/projects/${pj.id}/preview-info`, { headers: K })).body || '{}');
+    const base = info.baseUrl || '';
+    const onPanel = await req('GET', base + '/index.html');
+    check('prévia pela origem do painel sai em sandbox (origem opaca, sem sessão nem API)', onPanel.status === 200 && /(^|;)\s*sandbox\b/.test(onPanel.headers['content-security-policy'] || '') && !/allow-same-origin/.test(onPanel.headers['content-security-policy'] || ''), `${onPanel.status} ${onPanel.headers['content-security-policy']}`);
+    const st = JSON.parse((await req('GET', '/api/state', { headers: K })).body || '{}');
+    check('a tela recebe a origem dedicada da prévia (outra porta)', st.previewOrigin === `http://127.0.0.1:${previewPort}`, String(st.previewOrigin));
+    const pq = (path, headers = {}) => new Promise(res => { const r = http.request({ host: '127.0.0.1', port: previewPort, path, headers: { Host: `127.0.0.1:${previewPort}`, ...headers }, agent: false }, x => { let b = ''; x.on('data', c => b += c); x.on('end', () => res({ status: x.statusCode, headers: x.headers, body: b })); }); r.on('error', e => res({ status: 0, error: e.code })); r.end(); });
+    const onPrev = await pq(base + '/index.html');
+    check('origem da prévia serve o projeto e só aceita ser embutida pelo painel', onPrev.status === 200 && (onPrev.headers['content-security-policy'] || '').includes(`frame-ancestors http://127.0.0.1:${port}`), `${onPrev.status} ${onPrev.headers['content-security-policy']}`);
+    check('origem da prévia não serve a API nem o painel', (await pq('/api/state', K)).status === 404 && (await pq('/')).status === 404);
+    check('origem da prévia recusa outro Host (DNS rebinding)', (await pq(base + '/index.html', { Host: `evil.example.com:${previewPort}` })).status === 403);
+    const fromPrev = await req('GET', '/api/state', { headers: { ...K, Origin: `http://127.0.0.1:${previewPort}` } });
+    check('a API recusa pedidos vindos da origem da prévia', fromPrev.status === 403, `status ${fromPrev.status}`);
+    check('prévia sem token válido é recusada nas duas origens', (await req('GET', `/live/${pj.id}/xx/index.html`)).status === 403 && (await pq(`/live/${pj.id}/xx/index.html`)).status === 403);
+    check('o proxy local não alcança a própria porta da prévia', (await req('GET', `/lp/${previewPort}/x/`)).status === 403);
+    await rm(pdir, { recursive: true, force: true });
+  }
 
   // Só escuta em 127.0.0.1 por padrão
   const { networkInterfaces } = await import('node:os');

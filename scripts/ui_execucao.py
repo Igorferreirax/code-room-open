@@ -32,7 +32,7 @@ with Servico(falsos=()) as servico:
     P = api('projects', {'path': proj, 'name': 'Projeto Exec', 'area': 'Geral'})
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='chrome', headless=True, args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'])
-        ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script(FAKE_SR)
+        ctx = browser.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_init_script(FAKE_SR); ctx.add_init_script("try { localStorage.setItem('cr.onb', JSON.stringify({setupDone:true,tourDone:true,helloSeen:true})); } catch (e) {}")   # 0.4.0: sem isso o bem-vindo do Nico cobre os botões
         pg = ctx.new_page(); errs = []; pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None); pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.goto(f'{servico.base}/#{key}'); pg.wait_for_selector('.top-right', timeout=15000); pg.wait_for_timeout(3500)   # espera o canal de eventos da tela conectar
 
@@ -57,7 +57,10 @@ with Servico(falsos=()) as servico:
 
         # --- terminal DENTRO do Code Room (pseudo-console de verdade + xterm.js) ---
         pg.click('[data-act=term-menu]')
-        ok = pg.wait_for_selector('#term-dock:not([hidden]) .xterm', timeout=30000) is not None
+        try: ok = pg.wait_for_selector('#term-dock:not([hidden]) .xterm', timeout=30000) is not None
+        except Exception:
+            print('[diag] painel do terminal:', pg.evaluate("(() => { const d = document.querySelector('#term-dock'); return d ? { hidden: d.hidden, abas: d.querySelectorAll('.td-tab').length, texto: d.innerText.slice(0, 300) } : 'sem #term-dock' })()"), '| aviso:', pg.evaluate("document.querySelector('#notice')?.textContent || ''"), '| erros:', errs[:4], '| sobreposto:', pg.evaluate("(() => { const b = document.querySelector('[data-act=term-menu]'); const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e ? (e.id || e.className || e.tagName) : null })()"))
+            raise
         check('Terminal: o botão abre o painel dentro do Code Room com um PowerShell', ok and 'PowerShell' in pg.inner_text('.td-tabs'))
         pg.wait_for_timeout(2500); pg.click('#term-dock .td-term:not([hidden]) .xterm'); pg.keyboard.type('Write-Output "cr-$((40+2))-ação"'); pg.keyboard.press('Enter')
         ok = False

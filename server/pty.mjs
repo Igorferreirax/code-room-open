@@ -43,7 +43,13 @@ export class Terminals {
     for (const [id, t] of this.items) if (t.exited) this.items.delete(id);   // os já encerrados saem da lista
     const exe = this.helper || await ensureHelper(this.binDir);
     const id = randomUUID(), cmd = commandLine(plan);
-    const child = this.launch(exe, [String(cols | 0), String(rows | 0), plan.cwd, cmd], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    // Logo depois de compilar, o Windows (antivírus examinando o .exe novo) às vezes recusa executar: "spawn UNKNOWN"/EBUSY/EPERM.
+    // Tenta de novo por até ~9 s (com a máquina ocupada, o exame do antivírus demora mais) antes de desistir.
+    let child;
+    for (let i = 0; ; i++) {
+      try { child = this.launch(exe, [String(cols | 0), String(rows | 0), plan.cwd, cmd], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); break; }
+      catch (e) { if (i >= 16 || !/UNKNOWN|EBUSY|EPERM|EACCES/.test(`${e.code} ${e.message}`)) throw e; await new Promise(r => setTimeout(r, 250 + i * 40)); }
+    }
     const t = { id, child, cwd: plan.cwd, cli: plan.cli, unrestricted: !!plan.unrestricted, project, title: `${plan.label}${plan.unrestricted ? ' (irrestrito)' : ''}`, chunks: [], size: 0, subs: new Set(), exited: false, exitCode: null, createdAt: new Date().toISOString() };
     const push = buf => {
       t.chunks.push(buf); t.size += buf.length;

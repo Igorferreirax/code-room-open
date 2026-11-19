@@ -83,7 +83,8 @@ import { setCustom, customSpecs, validateSpec, testSpec, catalogView, getSpec, M
 import { GOALS, PLAYBOOKS, getPolicy, savePolicy, quotaHeadroom, policyPromptLine, aletheCommandReport, startComparison, polishDictationWithAi } from './alethe-playbook.mjs';
 import { acquireInstanceLock } from './single-instance.mjs';
 import { scanLocalPorts, scanProjectPages, liveContentType, proxyLocalPort } from './live-preview.mjs';
-import { revertTaskChanges } from './task-checkpoint.mjs';
+import { revertTaskChanges, planRevert } from './task-checkpoint.mjs';
+import { localOnlyReason, mobileActionAllowed, deviceState } from './access-policy.mjs';
 import { validateTaskArtifacts } from './quality-gates.mjs';
 import { buildZip } from './zip-writer.mjs';
 
@@ -246,6 +247,8 @@ function taskThumbs(t) {
   return out;
 }
 const assistant = new Assistant({
+  waitReason: t => runner.whyWaiting(t),
+  approvalPending: id => approvals.pending().some(x => x.taskId === String(id)),
   retryTask: async id => retryNow(id),
   cancelTask: id => runner.cancel(id),
   thumbsFor: taskThumbs,
@@ -415,7 +418,7 @@ function liveSteps(t) {
   for (let i = ev.length - 1; i >= 0 && (steps.length < 6 || ctx == null); i--) { const e = ev[i]; if (e.type !== 'activity') continue; if (ctx == null && e.ctx) ctx = e.ctx; if (steps.length < 6 && /^(Ferramentas|Executando|Etapa):/.test(e.text || '')) steps.push({ at: e.at, text: String(e.text).split('\n')[0].replace(/^(Ferramentas|Executando|Etapa):\s*/, '').slice(0, 90), kind: /^Executando/.test(e.text) ? 'cmd' : /^Etapa: editando/.test(e.text) || /^Ferramentas: (Edit|Write|MultiEdit)/.test(e.text) ? 'edit' : 'tool' }); }
   return { steps: steps.reverse(), ctx };
 }
-const brief = t => ({ live: liveSteps(t), hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
+const brief = t => ({ ...(t.status === 'queued' ? { waitReason: runner.whyWaiting(t) } : {}), live: liveSteps(t), hops: t.hops || 0, linkFrom: t.linkFrom || null, id: t.id, kind: t.kind, status: t.status, project: { id: t.project.id, name: t.project.name, area: t.project.area }, agent: { id: t.agent.id, name: t.agent.name, room: t.agent.room, role: t.agent.role, provider: t.agent.provider, model: t.agent.model, mode: t.agent.mode },
   environment: t.environment, prompt: objectivePreview(t.objective), usage: t.usage ?? null, actualModel: t.modelReported ?? null, fallbackFrom: t.fallbackFrom || null, qaScore: t.result?.qaGate?.score ?? null, qaStatus: t.result?.qaGate?.status ?? null, canRevert: !!(t.result?.checkpoint?.available && !t.result?.checkpoint?.revertedAt), revertedSummary: t.result?.checkpoint?.summary || null, reason: t.reason ?? null, failureKind: t.failureKind ?? null, attemptCount: t.attemptCount, review: t.review ?? null, deliverables: (t.result?.deliverables?.files || []).filter(f => f.change !== 'deleted').slice(0, 20).map(f => ({ path: f.path, change: f.change, bytes: f.bytes })), externalCount: t.result?.externalDeliverables?.files?.length || 0, flowId: t.flowId, step: t.step, dependsOn: t.dependsOn, parentTaskId: t.parentTaskId, createdAt: t.createdAt, updatedAt: t.updatedAt });
 function detail(t) {
   const attempts = t.attempts.map(id => store.get('runs', id)).filter(Boolean);
@@ -443,16 +446,20 @@ async function serveRange(req, res, file, type) {
   res.writeHead(206, { ...head, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
   createReadStream(file, { start, end }).pipe(res);
 }
-const handle = async (req, res) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'self' http: https: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-  if (!hostAllowed(req.headers.host, port, bound)) return send(res, 403, { error: 'Host não permitido' });
-  if (req.headers.origin && !originAllowed(req.headers.origin, port, bound)) return send(res, 403, { error: 'Origem não permitida' });
-  const ip = req.socket.remoteAddress;
-  const url = new URL(req.url, origins[0]);
-  try {
+// ---------- Prévia isolada ----------
+// O conteúdo ativo dos projetos (HTML/JS de /live e o proxy /lp de servidores dev) roda numa ORIGEM DEDICADA (porta
+// própria, só no computador), separada da API e da sessão do painel: a página da prévia não lê a chave guardada pela
+// tela nem fala com a API (a API recusa outras origens). Pela origem do painel (ex.: celular), a prévia sai com sandbox.
+// Porta fixa (4781) só com o painel na porta padrão; senão, ou se estiver ocupada, uma porta livre escolhida pelo sistema
+// (porta + 1 colidia com outro serviço na porta seguinte).
+let previewPort = Number(process.env.CODE_ROOM_PREVIEW_PORT) || (port === 4780 ? 4781 : 0);
+let previewOn = false;
+const PANEL_ANCESTORS = `frame-ancestors http://127.0.0.1:${port} http://localhost:${port}`;
+const SANDBOX_PREVIEW_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox; frame-ancestors 'self'";
+async function servePreview(req, res, url, csp) { return (await servePreviewRoute(req, res, url, csp)) !== false; }
+async function servePreviewRoute(req, res, url, csp) {
     // Pré-visualização interativa de projeto (Navegador Interno: HyperFrames, sites, landing pages). Nunca para Financeiro.
-    const lv = url.pathname.match(/^\/live\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)(?:\/(.*))?$/);
+  const lv = url.pathname.match(/^\/live\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)(?:\/(.*))?$/);
     if (lv && req.method === 'GET') {
       const pr = store.get('projects', lv[1]);
       if (!pr || isInternal(pr) || pr.area === 'Financeiro' || !checkToken(key, `live:${lv[1]}`, lv[2])) return send(res, 403, { error: 'Link de pré-visualização inválido ou expirado.' });
@@ -462,14 +469,14 @@ const handle = async (req, res) => {
       const ct = liveContentType(file);
       if (/^(video|audio)\//.test(ct)) {
         const size = (await stat(file)).size, range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
-        const head = { 'Content-Type': ct, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'self'" };
+        const head = { 'Content-Type': ct, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'Content-Security-Policy': csp };
         if (!range) { res.writeHead(200, { ...head, 'Content-Length': size }); return createReadStream(file).pipe(res); }
         const start = range[1] === '' ? Math.max(0, size - Number(range[2])) : Number(range[1]), end = range[1] === '' || range[2] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
         if (!(start <= end) || start >= size) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
         res.writeHead(206, { ...head, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 });
         return createReadStream(file, { start, end }).pipe(res);
       }
-      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'self'" });
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'no-store', 'Content-Security-Policy': csp });
       return res.end(await readFile(file));
     }
     // Proxy local reverso (/lp/:porta/:token/...) para servidores dev locais no Navegador Interno (evita X-Frame-Options: deny e funciona pelo celular).
@@ -477,8 +484,38 @@ const handle = async (req, res) => {
     if (lpm && ['GET', 'HEAD'].includes(req.method)) {
       const targetPort = Number(lpm[1]);
       if (!checkToken(key, `lp:${targetPort}`, lpm[2])) return send(res, 403, { error: 'Link de pré-visualização local expirado.' });
-      return proxyLocalPort(req, res, { port: targetPort, subPath: '/' + (lpm[3] || ''), search: url.search, proxyPrefix: `/lp/${targetPort}/${lpm[2]}`, excludePort: port });
+      if (targetPort === previewPort) return send(res, 403, { error: 'Essa porta é a da própria prévia do Code Room.' });
+      return proxyLocalPort(req, res, { port: targetPort, subPath: '/' + (lpm[3] || ''), search: url.search, proxyPrefix: `/lp/${targetPort}/${lpm[2]}`, excludePort: port, csp });
     }
+  return false;
+}
+const previewHandle = async (req, res) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
+  const h = String(req.headers.host || '').toLowerCase();
+  if (h !== `127.0.0.1:${previewPort}` && h !== `localhost:${previewPort}`) return send(res, 403, { error: 'Host não permitido' });
+  try {
+    const url = new URL(req.url, `http://127.0.0.1:${previewPort}`);
+    if (await servePreview(req, res, url, PANEL_ANCESTORS)) return;
+    send(res, 404, { error: 'A origem da prévia só serve /live e /lp.' });
+  } catch (e) { send(res, e.status === 403 ? 403 : 400, { error: e.code === 'ENOENT' ? 'Pasta ou arquivo não encontrado.' : e.message }); }
+};
+const previewServer = http.createServer(previewHandle);
+previewServer.on('error', e => {
+  if (e.code === 'EADDRINUSE' && previewPort !== 0 && !process.env.CODE_ROOM_PREVIEW_PORT) { previewPort = 0; previewServer.listen(0, '127.0.0.1', previewListening); return; }
+  previewOn = false; console.error(`Prévia isolada indisponível: ${e.message}. As prévias abrem em sandbox pela origem do painel.`);
+});
+function previewListening() { previewPort = previewServer.address().port; previewOn = true; }
+const handle = async (req, res) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-src 'self' http: https: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  if (!hostAllowed(req.headers.host, port, bound)) return send(res, 403, { error: 'Host não permitido' });
+  if (req.headers.origin && !originAllowed(req.headers.origin, port, bound)) return send(res, 403, { error: 'Origem não permitida' });
+  const ip = req.socket.remoteAddress;
+  const url = new URL(req.url, origins[0]);
+  try {
+    // Prévias (/live e /lp) NUNCA rodam como o painel: aqui, na origem do painel, saem com sandbox (origem opaca, sem
+    // acesso à sessão nem à API). No computador, a tela as abre pela origem dedicada da prévia (outra porta).
+    if (await servePreview(req, res, url, SANDBOX_PREVIEW_CSP)) return;
     // Pré-visualização de entregas: token curto por tarefa, só arquivos registrados, sem scripts (sandbox).
     const d = url.pathname.match(/^\/d\/([a-zA-Z0-9-]+)\/([a-z0-9.]+)\/(.+)$/);
     if (d && req.method === 'GET') {
@@ -566,6 +603,8 @@ const handle = async (req, res) => {
       const auth = authLevel(req);
       if (!auth) { tFail(ip); return send(res, 401, { error: 'Abra o Code Room pelo iniciador ou informe a chave local.' }); }
       tOk(ip);
+      // Operações que executam coisas no computador: só com a chave principal e pedindo do próprio computador.
+      { const why = localOnlyReason(req.method, p); if (why && !(auth === 'master' && isLocal(ip))) return send(res, 403, { error: `Só no próprio computador (${why}).` }); }
       if (get && p === '/api/updates') return send(res, 200, updates.status());
       if (get && p === '/api/retention') { masterOnly(auth); return send(res, 200, await retentionScan({ store, dataDir: data, appDir: root, days: Number(new URL(req.url, 'http://x').searchParams.get('days')) || 7 })); }
       if (get && p === '/api/startup') { masterOnly(auth); return send(res, 200, startupState()); }
@@ -602,7 +641,8 @@ const handle = async (req, res) => {
       }
       if (get && p === '/api/state') {
         const tasks = store.list('tasks').filter(t => t.project?.id !== ASSISTANT_PROJECT).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200).map(brief);
-        return send(res, 200, { folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)).map(x => ({ ...x, teamIds: projectTeamIds(x) })), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, socialProposals: store.list('socialPosts').filter(x => x.status === 'proposta').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), subtasks: store.list('subtasks').filter(x => x.status === 'proposed').sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20), plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId, teamId: f.teamId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } });
+        const out = { previewOrigin: previewOn && auth === 'master' && isLocal(ip) ? `http://127.0.0.1:${previewPort}` : null, folderJobs: store.list('folderjobs').map(j => folderJobs.view(j)), notices: store.list('notices').filter(n => !n.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), projects: store.list('projects').filter(x => !isInternal(x)).map(x => ({ ...x, teamIds: projectTeamIds(x) })), agents: store.list('agents').filter(x => !isInternal(x)), teams: store.list('teams'), links: store.list('links'), channels: store.list('channels'), recipes: store.list('recipes').sort((x, y) => x.name.localeCompare(y.name)), recipeRuns: store.list('recipeRuns').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 30), batches: store.list('batches').sort((x, y) => y.createdAt.localeCompare(x.createdAt)), posts: store.list('posts').sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 100), batchCosts: orchestrator.batches.costs(), runs: tasks, socialProposals: store.list('socialPosts').filter(x => x.status === 'proposta').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20), subtasks: store.list('subtasks').filter(x => x.status === 'proposed').sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20), plans: store.list('plans').sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20).map(p => ({ id: p.id, status: p.status, errors: p.errors, request: p.request.slice(0, 200), projectId: p.projectId, flowId: p.flowId, plan: p.plan, createdAt: p.createdAt })), flows: store.list('flows').map(f => ({ id: f.id, kind: f.kind, status: f.status, verdict: f.verdict, objective: f.objective.slice(0, 200), projectId: f.projectId, teamId: f.teamId })), routines: store.list('routines').map(r => ({ ...r, running: routines.isRunning(r) })), limits: store.get('settings', 'limits') || {}, prices: store.get('settings', 'prices') || {}, connectors: connectors().map(({ path, ...c }) => ({ ...c, available: !!path })), runtime: { memoryMB: Math.round(process.memoryUsage().rss / 1048576), version: VERSION, ...runner.status(), lastSeq: store.lastSeq() } };
+        return send(res, 200, auth === 'device' ? deviceState(out) : out);   // celular: só os campos que a tela dele usa
       }
       if (get && p === '/api/models') { masterOnly(auth); return send(res, 200, await modelSuggestions(url.searchParams.get('provider') || '')); }
       if (get && p === '/api/providers') { masterOnly(auth); return send(res, 200, providersView()); }
@@ -679,7 +719,7 @@ const handle = async (req, res) => {
       }
       if (get && p === '/api/browser/ports') {
         const ports = await scanLocalPorts({ excludePort: port });
-        return send(res, 200, { ports: ports.map(x => ({ ...x, proxyUrl: `/lp/${x.port}/${mintToken(key, `lp:${x.port}`)}/` })) });
+        return send(res, 200, { ports: ports.filter(x => x.port !== previewPort).map(x => ({ ...x, proxyUrl: `/lp/${x.port}/${mintToken(key, `lp:${x.port}`)}/` })) });
       }
       if (get && p === '/api/browser/proxy-token') {
         const tp = Number(url.searchParams.get('port'));
@@ -909,7 +949,8 @@ const handle = async (req, res) => {
           if (a === 'thread/new') return send(res, 200, cleanMob(await assistant.newThread({ projectId: typeof b.projectId === 'string' ? b.projectId : null })));
           if (a === 'apply') {
             const st0 = await assistant.status(), msg = (st0.messages || []).find(x => x.id === b.messageId), act = msg?.actions?.find(x => x.idx === Number(b.index));
-            if (act && ['importar_projeto', 'criar_pasta_entrada'].includes(act.type)) throw new Error('Esta ação abre pastas locais e só pode ser aprovada no computador.');
+            if (!act) throw new Error('Ação não encontrada.');
+            if (!mobileActionAllowed(act)) throw new Error('Esta ação mexe no computador ou em permissões e só pode ser aprovada no próprio computador.');
             const r = await assistant.apply(text(b.messageId, 80), Number(b.index));
             return send(res, 200, { ...r, status: cleanMob(r.status) });
           }
@@ -971,13 +1012,25 @@ const handle = async (req, res) => {
           if (b.confirm !== true) throw new Error('Repetir pode duplicar efeitos já produzidos. Confirme com { "confirm": true } depois de conferir os arquivos.');
           return send(res, 200, brief(retryNow(m[1])));
         }
+        if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/retry-isolated$/))) {
+          // Repete a tarefa numa worktree Git isolada (o agente trabalha numa cópia; nada é mesclado sozinho). Útil quando você
+          // e outra IA editam o mesmo repositório, ou quando o modo irrestrito ficou sem ponto de restauração.
+          masterOnly(auth);
+          const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
+          if (b.confirm !== true) throw new Error('Confirme com { "confirm": true }.');
+          if (t.extraDir) throw new Error('Esta tarefa usa uma pasta extra, que não funciona em worktree. Envie de novo sem a pasta extra.');
+          const pr = store.get('projects', t.project?.id); if (!pr?.path || !existsSync(join(pr.path, '.git'))) throw new Error('Worktree isolada exige que a pasta do projeto seja um repositório Git.');
+          store.put('tasks', { ...t, isolate: true });
+          return send(res, 200, brief(retryNow(m[1])));
+        }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/fix-model$/))) { const r = await fixModel(m[1], b.model ? String(b.model).slice(0, 80) : ''); return send(res, 200, { task: brief(r.task), model: r.model, label: r.label }); }
         if ((m = p.match(/^\/api\/tasks\/([a-zA-Z0-9-]+)\/revert$/))) {
           masterOnly(auth);
           const t = store.get('tasks', m[1]); if (!t) throw new Error('Tarefa não encontrada.');
           if (['running', 'cancelling', 'queued'].includes(t.status)) throw new Error('Aguarde a tarefa terminar antes de reverter.');
           const pr = store.get('projects', t.project?.id); if (!pr) throw new Error('O projeto desta tarefa não existe mais.');
-          const r = await revertTaskChanges(pr.path, t.result?.checkpoint, t.result?.deliverables);
+          if (b.preview === true) return send(res, 200, await planRevert(pr.path, t.result?.checkpoint, t.result?.deliverables));
+          const r = await revertTaskChanges(pr.path, t.result?.checkpoint, t.result?.deliverables, { paths: Array.isArray(b.paths) ? b.paths.slice(0, 5000).map(String) : null });
           const updated = store.put('tasks', { ...t, result: { ...(t.result || {}), checkpoint: { ...t.result.checkpoint, revertedAt: new Date().toISOString(), summary: r.summary } } });
           return send(res, 200, { ...r, task: detail(updated) });
         }
@@ -1171,6 +1224,7 @@ assistant.terminalFn = async pl => { const v = await terminals.open(pl, { projec
 const voiceGlobal = { id: null, at: 0, results: new Map(), native: '', nativeAt: 0 };
 approvals.taskInfo = id => { const t = store.get('tasks', id); return t ? { unrestricted: !!t.agent?.unrestricted && t.agent?.mode === 'write' && t.project?.area !== 'Financeiro', agent: t.agent?.name || '', project: t.project?.id === ASSISTANT_PROJECT ? '' : t.project?.name || '', assistant: t.project?.id === ASSISTANT_PROJECT } : null; };
 server.listen(port, '127.0.0.1', async () => {
+  previewServer.listen(previewPort, '127.0.0.1', previewListening);   // origem dedicada da prévia (só no computador)
   updates.start();
   // Primeira abertura de uma versão nova: pede ao Windows para renovar o cache de ícones (o atalho mostra a logo nova sem reiniciar o PC).
   try { const lv = store.get('settings', 'lastVersion')?.v; if (lv !== VERSION) { store.put('settings', { id: 'lastVersion', v: VERSION }); if (process.platform === 'win32') execFile('ie4uinit.exe', ['-show'], { windowsHide: true, timeout: 15000 }, () => {}); } } catch {}

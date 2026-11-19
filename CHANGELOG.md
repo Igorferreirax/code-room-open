@@ -9,6 +9,27 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+## [0.4.0] - 2026-11-19
+
+### Adicionado
+- **Workspace por projeto** (`public/workspace.js`): uma camada só distribui a largura entre página, Navegador e Nico; Nico encaixado à direita (automático quando o Navegador abre), divisórias arrastáveis e por teclado, Modo Foco, Espaços **Vídeo** (prévia no centro, abas Página|Prévia) e **Código** (terminal aberto); layout salvo por projeto; menu Espaço, Ctrl+K e “prepare meu espaço de vídeo” no Nico.
+- **Reverter com prévia por arquivo**: só desfaz o que continua com o conteúdo que a tarefa deixou (sha256); edições posteriores e o índice do Git ficam intactos.
+- **Nico com andamento real**: mensagem na hora do Enter, rascunho enquanto ele responde, “Cancelar resposta”, fases (fila com motivo, iniciando a IA, aprovação, respondendo com texto parcial) e tempos.
+- **Motivo de espera** em toda tarefa na fila (limite, mesma pasta, pausa, orçamento).
+- Voz segurando o **Ctrl direito** (Groq ou ditado do navegador), **Nico de mesa** no Windows, **Ctrl+K**, terminais lado a lado, barra com 5 seções, apresentação do Nico, **Configurações › Contribuir**, execução direta (revisor só quando pedido).
+- Chat do Nico: seletor compacto de modo, “Mais ferramentas”, decisões pendentes acima da resposta longa e detalhes técnicos recolhíveis.
+
+### Segurança
+- **Prévia isolada**: `/live` e `/lp` rodam numa origem própria (porta 4781 ou livre, só 127.0.0.1); pela origem do painel saem em sandbox; iframe com sandbox.
+- **Regras de acesso** (`server/access-policy.mjs`): terminais, abrir programas, voz global, rede, atualização e pareamento só no próprio computador; celular recebe só os campos que usa e aprova só ações de uma lista fechada.
+- Modo irrestrito não começa sem ponto de restauração.
+
+### Corrigido
+- O Nico ficava em “pensando…” atrás de qualquer tarefa de agente (limite de 1 tarefa por vez); agora tem fila própria.
+- A conversa do Nico era recriada a cada 1,5 s enquanto ele respondia (ids novos no mascote).
+- Esc na apresentação do Nico fechava a configuração inicial e a marcava como feita.
+- O terminal perdia ou embaralhava teclas digitadas rápido; o primeiro terminal numa instalação nova podia falhar logo após ser preparado.
+
 ## [0.3.10] - 2026-11-18
 
 ### Adicionado
